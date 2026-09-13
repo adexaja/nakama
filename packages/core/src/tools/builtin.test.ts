@@ -475,6 +475,43 @@ describe("file builtin tools", () => {
     ).rejects.toThrow("oldText not found");
   });
 
+  test.each([
+    ["image/png", "89504e470d0a1a0a0000000d49484452"],
+    ["image/jpeg", "ffd8ffe000104a4649460001"],
+    ["image/gif", "47494638396101000100"],
+    ["image/webp", "52494646100000005745425056503820"],
+  ])(
+    "read_file detects %s from bytes, independent of filename",
+    async (mediaType, hex) => {
+      tempDir = await mkdtemp(path.join(os.tmpdir(), "nakama-read-image-"));
+      const bytes = Buffer.from(hex, "hex");
+      await writeFile(path.join(tempDir, "image.bin"), bytes);
+      const result = await runReadFile(
+        { limit: 1, offset: 100, path: "image.bin" },
+        PROFILE_CONTEXT,
+        { workspaceRoot: tempDir }
+      );
+      expect(result.images).toEqual([
+        { data: bytes.toString("base64"), mediaType },
+      ]);
+      expect(result.bytesRead).toBe(bytes.length);
+      expect(result.content).not.toContain(bytes.toString("base64"));
+      expect(result.totalLines).toBe(0);
+    }
+  );
+
+  test("read_file rejects images above the attachment size limit", async () => {
+    tempDir = await mkdtemp(path.join(os.tmpdir(), "nakama-read-image-"));
+    const bytes = Buffer.alloc(5 * 1024 * 1024 + 1);
+    Buffer.from("89504e470d0a1a0a", "hex").copy(bytes);
+    await writeFile(path.join(tempDir, "large.png"), bytes);
+    await expect(
+      runReadFile({ path: "large.png" }, PROFILE_CONTEXT, {
+        workspaceRoot: tempDir,
+      })
+    ).rejects.toThrow();
+  });
+
   test("read_file reads an existing file", async () => {
     tempDir = await mkdtemp(path.join(os.tmpdir(), "nakama-read-"));
     const targetPath = path.join(tempDir, "sample.txt");

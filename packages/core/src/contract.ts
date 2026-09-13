@@ -2388,6 +2388,8 @@ export type ChatMessage =
       toolCallId: string;
       name: string;
       content: string;
+      /** Visual tool output, kept separate from the JSON/text result. */
+      attachments?: MessageContentPart[];
       toolStartedAt?: number;
       toolCompletedAt?: number;
     };

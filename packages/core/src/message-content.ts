@@ -309,6 +309,9 @@ export function stripImagesForCompaction(
   messages: readonly ChatMessage[]
 ): ChatMessage[] {
   return messages.map((message) => {
+    if (message.role === "tool" && message.attachments?.length) {
+      return { ...message, attachments: undefined };
+    }
     if (message.role !== "user" || typeof message.content === "string") {
       return message;
     }

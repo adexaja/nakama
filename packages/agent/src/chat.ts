@@ -8,6 +8,7 @@ import type {
   MessageContentPart,
   ProviderChatOptions,
   ProviderClient,
+  ReadFileOutput,
   SendMessageInput,
   ToolCall,
   ToolContext,
@@ -536,7 +537,8 @@ async function sendMessage(
       effectiveToolContext,
       options.rehydrateMessagesForProvider,
       options.onContextUsage,
-      options.signal
+      options.signal,
+      options.preprocessUserContent
     );
 
     return reply;
@@ -585,7 +587,8 @@ async function runConversation(
     usedTokens: number,
     source: ChatContextUsage["source"]
   ) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  preprocessUserContent?: AgentChatSessionOptions["preprocessUserContent"]
 ): Promise<string> {
   let producedTokens = 0;
   let stoppedReply = "";
@@ -687,7 +690,8 @@ async function runConversation(
       result.toolCalls,
       history,
       handlers,
-      toolContext
+      toolContext,
+      preprocessUserContent
     );
     // Check between batches: one batch can overshoot, but no next request runs.
     producedTokens += estimateHistoryTokens(
@@ -721,7 +725,8 @@ async function executeToolCalls(
   toolCalls: ToolCall[],
   history: ChatMessage[],
   handlers?: StreamHandlers,
-  toolContext: ToolContext = {}
+  toolContext: ToolContext = {},
+  preprocessUserContent?: AgentChatSessionOptions["preprocessUserContent"]
 ): Promise<void> {
   const contextForCall = (call: ToolCall): ToolContext => {
     if (!handlers?.onSubAgentActivity || call.name !== "sub_agent") {
@@ -748,7 +753,11 @@ async function executeToolCalls(
           toolCallId: call.id,
         });
 
-        const result = await executeToolCall(tools, call, contextForCall(call));
+        const { result, attachments } = await prepareReadFileResult(
+          call,
+          await executeToolCall(tools, call, contextForCall(call)),
+          preprocessUserContent
+        );
         const toolCompletedAt = Date.now();
 
         handlers?.onToolEnd?.({
@@ -757,7 +766,7 @@ async function executeToolCalls(
           toolCallId: call.id,
         });
 
-        return { call, result, toolCompletedAt, toolStartedAt };
+        return { attachments, call, result, toolCompletedAt, toolStartedAt };
       })
     );
 
@@ -769,6 +778,7 @@ async function executeToolCalls(
       const entry = resultsByCallId.get(call.id)!;
       history.push({
         content: JSON.stringify(entry.result),
+        ...(entry.attachments ? { attachments: entry.attachments } : {}),
         name: call.name,
         role: "tool",
         toolCallId: call.id,
@@ -788,7 +798,11 @@ async function executeToolCalls(
       toolCallId: call.id,
     });
 
-    const result = await executeToolCall(tools, call, contextForCall(call));
+    const { result, attachments } = await prepareReadFileResult(
+      call,
+      await executeToolCall(tools, call, contextForCall(call)),
+      preprocessUserContent
+    );
     const toolCompletedAt = Date.now();
 
     handlers?.onToolEnd?.({
@@ -799,12 +813,42 @@ async function executeToolCalls(
 
     history.push({
       content: JSON.stringify(result),
+      ...(attachments ? { attachments } : {}),
       name: call.name,
       role: "tool",
       toolCallId: call.id,
       toolCompletedAt,
       toolStartedAt,
     });
+  }
+}
+
+async function prepareReadFileResult(
+  call: ToolCall,
+  result: unknown,
+  preprocess?: AgentChatSessionOptions["preprocessUserContent"]
+): Promise<{ result: unknown; attachments?: MessageContentPart[] }> {
+  if (call.name !== "read_file" || !result || typeof result !== "object") {
+    return { result };
+  }
+  const { images, ...metadata } = result as ReadFileOutput;
+  if (!images?.length) {
+    return { result };
+  }
+  try {
+    const content = normalizeUserContent("", images);
+    const prepared = preprocess ? await preprocess(content) : content;
+    return {
+      attachments:
+        typeof prepared === "string"
+          ? [{ text: prepared, type: "text" }]
+          : prepared,
+      result: metadata,
+    };
+  } catch (error) {
+    return {
+      result: { error: error instanceof Error ? error.message : String(error) },
+    };
   }
 }
 
@@ -831,13 +875,38 @@ async function generateReply(
   signal?: AbortSignal
 ) {
   const dateLine = `Today is ${formatCurrentDate()}.`;
+  // All tool replies must precede the visual content, including parallel calls.
+  // Expand only for the provider so these don't become fabricated user turns.
+  const expanded: ChatMessage[] = [];
+  let attachments: MessageContentPart[] = [];
+  for (const [index, message] of history.entries()) {
+    if (message.role === "tool" && message.attachments?.length) {
+      const { attachments: parts, ...toolMessage } = message;
+      expanded.push(toolMessage);
+      attachments.push(
+        {
+          text: `Image output from ${message.name} (${message.toolCallId}): ${message.content}`,
+          type: "text",
+        },
+        ...parts
+      );
+    } else {
+      expanded.push(message);
+    }
+    if (attachments.length && history[index + 1]?.role !== "tool") {
+      expanded.push({ content: attachments, role: "user" });
+      attachments = [];
+    }
+  }
   const messages =
     rehydrateMessagesForProvider === undefined
-      ? history
-      : await rehydrateMessagesForProvider(history);
+      ? expanded
+      : await rehydrateMessagesForProvider(expanded);
   const input = {
     messages,
-    providerOptions,
+    providerOptions: messagesIncludeUserImages(messages)
+      ? undefined
+      : providerOptions,
     signal,
     system: `${systemPrompt}\n\n${dateLine}`,
     tools,
