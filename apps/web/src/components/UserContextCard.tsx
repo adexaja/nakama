@@ -105,9 +105,9 @@ function UserContextDialogSession({
 
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
-      <DialogContent className="flex max-h-[min(90dvh,44rem)] w-[calc(100%-1.5rem)] flex-col sm:max-w-2xl">
+      <DialogContent className="flex max-h-[min(90dvh,44rem)] w-[calc(100%-1.5rem)] flex-col sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Personalisation (USER.md)</DialogTitle>
+          <DialogTitle>About you</DialogTitle>
         </DialogHeader>
 
         {isLoading ? (
@@ -115,7 +115,7 @@ function UserContextDialogSession({
             <Spinner />
           </div>
         ) : (
-          <div className="no-scrollbar -mx-1 flex-1 overflow-y-auto px-1">
+          <div className="no-scrollbar -mx-1 min-h-0 flex-1 overflow-y-auto px-1">
             <UserContextForm
               disabled={busy}
               idPrefix="user-context-dialog"

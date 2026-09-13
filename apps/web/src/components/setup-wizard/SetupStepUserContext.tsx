@@ -1,10 +1,8 @@
 import { Button } from "@nakama/ui/button";
 import { Spinner } from "@nakama/ui/spinner";
-import { cn } from "@nakama/ui/utils";
 import { useEffect, useState } from "react";
 import { TimezoneSelect } from "@/components/TimezoneSelect";
-import { UserContextSection } from "@/components/UserContextForm";
-import { USER_CONTEXT_SECTIONS } from "@/components/user-context-presets";
+import { UserContextForm } from "@/components/UserContextForm";
 import { useAuth } from "@/context/use-auth";
 import {
   useUserContextQuery,
@@ -41,7 +39,11 @@ function SetupUserContextSession({
   const { data: savedTimezone } = useUserTimezone();
   const saveTimezoneMutation = useSaveUserTimezone();
 
-  const { data: status, isLoading } = useUserContextQuery({
+  const {
+    data: status,
+    isLoading,
+    error: loadError,
+  } = useUserContextQuery({
     includeContent: true,
     orgId,
   });
@@ -54,10 +56,6 @@ function SetupUserContextSession({
     });
 
   const [formError, setFormError] = useState<string | null>(null);
-  const [sectionIndex, setSectionIndex] = useState(0);
-
-  const section = USER_CONTEXT_SECTIONS[sectionIndex];
-  const isLast = sectionIndex === USER_CONTEXT_SECTIONS.length - 1;
   const busy = writeMutation.isPending;
 
   useEffect(() => {
@@ -65,15 +63,6 @@ function SetupUserContextSession({
       setTimezone(savedTimezone);
     }
   }, [savedTimezone]);
-
-  function handleBack() {
-    setFormError(null);
-    if (sectionIndex === 0) {
-      onBack();
-      return;
-    }
-    setSectionIndex((index) => index - 1);
-  }
 
   function handleSkip() {
     if (content !== savedContent) {
@@ -83,12 +72,10 @@ function SetupUserContextSession({
   }
 
   async function handleNext() {
-    setFormError(null);
-
-    if (!isLast) {
-      setSectionIndex((index) => index + 1);
+    if (busy || isLoading || loadError) {
       return;
     }
+    setFormError(null);
 
     if (content === savedContent) {
       clearUserContextDraft(orgId);
@@ -115,39 +102,16 @@ function SetupUserContextSession({
       }}
     >
       <div className="rounded-md border border-border bg-card px-4 py-4">
-        <div className="mb-4 space-y-2">
-          <ol
-            aria-label="Personalisation progress"
-            className="flex items-center gap-1.5"
-          >
-            {USER_CONTEXT_SECTIONS.map((candidate, index) => (
-              <li
-                aria-current={index === sectionIndex ? "step" : undefined}
-                className={cn(
-                  "h-1.5 rounded-full transition-all",
-                  index === sectionIndex
-                    ? "w-6 bg-primary"
-                    : index < sectionIndex
-                      ? "w-1.5 bg-primary/60"
-                      : "w-1.5 bg-border"
-                )}
-                key={candidate.id}
-              >
-                <span className="sr-only">{candidate.title}</span>
-              </li>
-            ))}
-          </ol>
-          <h2 className="font-semibold text-base text-foreground">
-            {section.title}
-          </h2>
-        </div>
+        <h2 className="mb-4 font-semibold text-base text-foreground">
+          About you
+        </h2>
 
         {isLoading ? (
           <div className="flex min-h-32 items-center justify-center">
             <Spinner />
           </div>
         ) : (
-          <UserContextSection
+          <UserContextForm
             disabled={busy}
             idPrefix="setup-user-context"
             onChange={(next) => {
@@ -156,48 +120,44 @@ function SetupUserContextSession({
                 setFormError(null);
               }
             }}
-            sectionId={section.id}
             value={content}
           />
         )}
       </div>
 
-      {isLast ? (
-        <div className="rounded-md border border-border bg-card px-4 py-3">
-          <div className="space-y-2">
-            <div className="space-y-0.5">
-              <p className="font-medium text-foreground text-sm">Timezone</p>
-              <p className="text-muted-foreground text-xs">
-                Saved on its own, not part of USER.md. Used for scheduled
-                automations and local time awareness.
-              </p>
-            </div>
-            <TimezoneSelect
-              disabled={saveTimezoneMutation.isPending}
-              emptyLabel="Select timezone"
-              id="setup-timezone"
-              onValueChange={(nextTimezone) => {
-                if (nextTimezone) {
-                  setTimezone(nextTimezone);
-                  saveTimezoneMutation.mutate(nextTimezone);
-                }
-              }}
-              value={timezone}
-            />
-          </div>
+      <div className="rounded-md border border-border bg-card px-4 py-3">
+        <div className="space-y-2">
+          <label
+            className="font-medium text-foreground text-sm"
+            htmlFor="setup-timezone"
+          >
+            Timezone
+          </label>
+          <TimezoneSelect
+            disabled={saveTimezoneMutation.isPending}
+            emptyLabel="Select timezone"
+            id="setup-timezone"
+            onValueChange={(nextTimezone) => {
+              if (nextTimezone) {
+                setTimezone(nextTimezone);
+                saveTimezoneMutation.mutate(nextTimezone);
+              }
+            }}
+            value={timezone}
+          />
         </div>
-      ) : null}
+      </div>
 
-      {formError ? (
+      {formError || loadError ? (
         <p className="text-destructive text-sm" role="alert">
-          {formError}
+          {formError ?? formatError(loadError)}
         </p>
       ) : null}
 
       <div className="flex items-center justify-between">
         <Button
           disabled={busy}
-          onClick={handleBack}
+          onClick={onBack}
           size="sm"
           type="button"
           variant="ghost"
@@ -208,22 +168,25 @@ function SetupUserContextSession({
         <div className="flex items-center gap-3">
           <button
             className="text-muted-foreground text-sm underline underline-offset-4 transition-colors hover:text-foreground"
+            disabled={busy}
             onClick={handleSkip}
             type="button"
           >
             Set up later
           </button>
 
-          <Button disabled={busy || isLoading} size="sm" type="submit">
+          <Button
+            disabled={busy || isLoading || !!loadError}
+            size="sm"
+            type="submit"
+          >
             {busy ? (
               <>
                 <Spinner className="mr-2" />
                 Saving…
               </>
-            ) : isLast ? (
-              "Finish"
             ) : (
-              "Next"
+              "Finish"
             )}
           </Button>
         </div>
