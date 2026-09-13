@@ -6,11 +6,13 @@ import {
   readFile,
   realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { convertDocxToMarkdown } from "../docx-text";
+import { getGlobalSkillsDir } from "../skills/paths";
 import {
   PathGuardError,
   runDeleteFile,
@@ -747,6 +749,49 @@ describe("file builtin tools", () => {
 
     expect(result.path).toBe(await realpath(targetPath));
     expect(result.content).toContain("export async function run");
+  });
+
+  test("system skills and references are readable but remain protected", async () => {
+    tempDir = await mkdtemp(path.join(os.tmpdir(), "nakama-read-"));
+    configDir = await mkdtemp(path.join(os.tmpdir(), "nakama-config-"));
+    process.env.NAKAMA_CONFIG_DIR = configDir;
+    const skillDir = path.join(getGlobalSkillsDir(), "installer");
+    await mkdir(path.join(skillDir, "references"), { recursive: true });
+    const skillPath = path.join(skillDir, "SKILL.md");
+    await writeFile(skillPath, "instructions");
+    await writeFile(path.join(skillDir, "references/guide.md"), "instructions");
+    const options = { workspaceRoot: tempDir };
+    const cwd = await realpath(skillDir);
+
+    for (const input of [
+      { path: skillPath },
+      { cwd, path: "SKILL.md" },
+      { cwd, path: "references/guide.md" },
+    ]) {
+      const result = await runReadFile(input, PROFILE_CONTEXT, options);
+      expect(result.content).toBe("instructions");
+    }
+
+    await expect(
+      runWriteFile(
+        { content: "changed", path: skillPath },
+        PROFILE_CONTEXT,
+        options
+      )
+    ).rejects.toBeInstanceOf(PathGuardError);
+
+    const outsidePath = path.join(configDir, "private.txt");
+    await writeFile(outsidePath, "private");
+    await symlink(outsidePath, path.join(skillDir, "escape.md"));
+    for (const target of [
+      outsidePath,
+      path.join(skillDir, "escape.md"),
+      path.join(skillDir, "../../../private.txt"),
+    ]) {
+      await expect(
+        runReadFile({ path: target }, PROFILE_CONTEXT, options)
+      ).rejects.toBeInstanceOf(PathGuardError);
+    }
   });
 
   test("read_file supports offset and limit", async () => {
