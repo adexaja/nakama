@@ -375,6 +375,7 @@ export interface ChatListItem {
   /** Live status from a running sub-agent child loop (e.g. "Reading SOUL.md"). */
   subAgentActivity?: string;
   thinking?: string;
+  thinkingDurationMs?: number;
   thinkingStreaming?: boolean;
   tool?: string;
   toolCallId?: string;
@@ -661,7 +662,9 @@ export function chatMessagesToListItems(
         historyIndex: index,
         id: `history-${index}`,
         role: "assistant",
-        ...(thinking ? { thinking } : {}),
+        ...(thinking
+          ? { thinking, thinkingDurationMs: message.thinkingDurationMs }
+          : {}),
         ...(usage ? { usage } : {}),
       });
       continue;

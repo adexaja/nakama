@@ -432,6 +432,7 @@ function ThinkingBlock({ message }: { message: ChatListItem }) {
       isWorkActive={isWorkActive}
       startedAt={message.createdAt}
       text={message.thinking ?? ""}
+      thinkingDurationMs={message.thinkingDurationMs}
     />
   );
 }
