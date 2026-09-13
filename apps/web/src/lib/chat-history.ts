@@ -379,9 +379,11 @@ export interface ChatListItem {
   thinkingStreaming?: boolean;
   tool?: string;
   toolCallId?: string;
+  toolCompletedAt?: number;
   toolInput?: Record<string, unknown>;
   toolInputAccumulatedJson?: string;
   toolResult?: unknown;
+  toolStartedAt?: number;
   toolStatus?: "running" | "done";
   /** Tokens and cost of the LLM call(s) behind this reply; tool-call-only messages fold into the next visible one. */
   usage?: ChatUsage;
@@ -680,8 +682,10 @@ export function chatMessagesToListItems(
         role: "tool",
         tool: message.name,
         toolCallId: message.toolCallId,
+        toolCompletedAt: message.toolCompletedAt,
         toolInput: toolInputs.get(message.toolCallId),
         toolResult: parseToolResult(message.content),
+        toolStartedAt: message.toolStartedAt,
         toolStatus: "done",
       });
     }

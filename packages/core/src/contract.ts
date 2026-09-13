@@ -2383,7 +2383,14 @@ export type ChatMessage =
       /** Tokens and estimated cost of the LLM call that produced this message. */
       usage?: ChatUsage;
     }
-  | { role: "tool"; toolCallId: string; name: string; content: string };
+  | {
+      role: "tool";
+      toolCallId: string;
+      name: string;
+      content: string;
+      toolStartedAt?: number;
+      toolCompletedAt?: number;
+    };
 
 export interface ChatUsage {
   /** Absent when the model has no known pricing. */

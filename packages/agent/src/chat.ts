@@ -741,6 +741,7 @@ async function executeToolCalls(
   if (canRunToolCallsInParallel(tools, toolCalls)) {
     const results = await Promise.all(
       toolCalls.map(async (call) => {
+        const toolStartedAt = Date.now();
         handlers?.onToolStart?.({
           input: call.arguments,
           tool: call.name,
@@ -748,6 +749,7 @@ async function executeToolCalls(
         });
 
         const result = await executeToolCall(tools, call, contextForCall(call));
+        const toolCompletedAt = Date.now();
 
         handlers?.onToolEnd?.({
           result,
@@ -755,20 +757,23 @@ async function executeToolCalls(
           toolCallId: call.id,
         });
 
-        return { call, result };
+        return { call, result, toolCompletedAt, toolStartedAt };
       })
     );
 
     const resultsByCallId = new Map(
-      results.map((entry) => [entry.call.id, entry.result])
+      results.map((entry) => [entry.call.id, entry])
     );
 
     for (const call of toolCalls) {
+      const entry = resultsByCallId.get(call.id)!;
       history.push({
-        content: JSON.stringify(resultsByCallId.get(call.id)),
+        content: JSON.stringify(entry.result),
         name: call.name,
         role: "tool",
         toolCallId: call.id,
+        toolCompletedAt: entry.toolCompletedAt,
+        toolStartedAt: entry.toolStartedAt,
       });
     }
 
@@ -776,6 +781,7 @@ async function executeToolCalls(
   }
 
   for (const call of toolCalls) {
+    const toolStartedAt = Date.now();
     handlers?.onToolStart?.({
       input: call.arguments,
       tool: call.name,
@@ -783,6 +789,7 @@ async function executeToolCalls(
     });
 
     const result = await executeToolCall(tools, call, contextForCall(call));
+    const toolCompletedAt = Date.now();
 
     handlers?.onToolEnd?.({
       result,
@@ -795,6 +802,8 @@ async function executeToolCalls(
       name: call.name,
       role: "tool",
       toolCallId: call.id,
+      toolCompletedAt,
+      toolStartedAt,
     });
   }
 }

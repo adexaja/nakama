@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import type {
   ChatCompletionResult,
   ChatMessage,
@@ -113,6 +113,61 @@ function delayedTool(
 }
 
 describe("agent chat tool loop", () => {
+  test.each([false, true])(
+    "persists tool execution times (parallel: %s)",
+    async (parallelSafe) => {
+      let now = 1000;
+      const clock = spyOn(Date, "now").mockImplementation(() => now);
+      try {
+        const calls = ["t1", "t2"].map((id) => ({
+          arguments: {},
+          id,
+          name: "sample",
+        }));
+        const provider = createMockProvider([
+          {
+            assistantMessage: {
+              content: "",
+              role: "assistant",
+              toolCalls: calls,
+            },
+            content: "",
+            toolCalls: calls,
+          },
+          {
+            assistantMessage: { content: "Done", role: "assistant" },
+            content: "Done",
+            toolCalls: [],
+          },
+        ]);
+        const session = createAgentChatSession({
+          provider,
+          tools: [
+            {
+              ...sampleTool,
+              parallelSafe,
+              run() {
+                now += 4000;
+                return Promise.resolve({ ok: true });
+              },
+            },
+          ],
+        });
+        await session.sendStream("hello", { onChunk() {} });
+        const tools = session
+          .getHistory()
+          .filter((message) => message.role === "tool");
+        expect(tools).toHaveLength(2);
+        expect(tools[0]?.toolStartedAt).toBe(1000);
+        expect(tools[1]?.toolCompletedAt).toBe(9000);
+        expect(
+          tools.every((tool) => tool.toolCompletedAt! > tool.toolStartedAt!)
+        ).toBe(true);
+      } finally {
+        clock.mockRestore();
+      }
+    }
+  );
   test("stream stops accumulating large tool results before another provider call and resets the budget next turn", async () => {
     let providerCalls = 0;
     let toolRuns = 0;
