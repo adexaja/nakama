@@ -8,6 +8,7 @@ import {
   createInMemoryDatabaseAdapter,
   seedOrgDefaultProfile,
 } from "@nakama/db";
+import { zipSync } from "fflate";
 import { SkillProposalService } from "../services/skill-proposal-service";
 import { SkillsService } from "../services/skills-service";
 import { createSkillManageTools } from "./skill-manage-tool";
@@ -106,30 +107,16 @@ describe("skill_manage tool", () => {
       );
       const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(
         Object.assign(
-          async (input: RequestInfo | URL) => {
-            if (String(input).includes("api.github.com")) {
-              return Response.json({
-                sha: "a".repeat(40),
-                tree: [
-                  {
-                    mode: "100644",
-                    path: "research-paper/SKILL.md",
-                    type: "blob",
-                  },
-                  {
-                    mode: "100644",
-                    path: "research-paper/references/explainer.md",
-                    type: "blob",
-                  },
-                ],
-              });
-            }
-            return new Response(
-              String(input).endsWith("explainer.md")
-                ? "Supporting instructions"
-                : researchSkillMarkdown
-            );
-          },
+          async () =>
+            new Response(
+              zipSync({
+                "skills-main/research-paper/references/explainer.md":
+                  new TextEncoder().encode("Supporting instructions"),
+                "skills-main/research-paper/SKILL.md": new TextEncoder().encode(
+                  researchSkillMarkdown
+                ),
+              })
+            ),
           { preconnect: globalThis.fetch.preconnect }
         )
       );
@@ -217,7 +204,7 @@ describe("skill_manage tool", () => {
   test("failed downloads do not install a skill", async () => {
     const { db, tool } = await setup();
     const fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(null, { status: 404 })
+      new Response(null, { status: 500 })
     );
     try {
       await expect(

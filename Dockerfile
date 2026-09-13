@@ -18,6 +18,9 @@ RUN bun install --frozen-lockfile --ignore-scripts \
 FROM oven/bun:1.3-slim AS runtime
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 # Tool-output optimiser, on by default so the dashboard toggle works on a fresh
 # image without a rebuild. Just under 10 MB unpacked. Build with
 # --build-arg OMNI_VERSION= to leave it out; the server then fetches it on demand

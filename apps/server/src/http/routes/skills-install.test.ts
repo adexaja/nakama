@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInMemoryDatabaseAdapter } from "@nakama/db";
+import { zipSync } from "fflate";
 import { SkillsService } from "../../services/skills-service";
 import { setupTestConfigDir } from "../../test-config-dir";
 import { createMinimalHonoApp } from "../test-app-helpers";
@@ -58,26 +59,18 @@ describe("POST /v1/skills/install", () => {
   });
 
   test("platform admin installs a valid public SKILL.md and assigns it", async () => {
-    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("api.github.com")) {
-        return Response.json({
-          sha: "a".repeat(40),
-          tree: [
-            { path: "weather/SKILL.md", type: "blob", mode: "100644" },
-            {
-              path: "weather/references/explainer.md",
-              type: "blob",
-              mode: "100644",
-            },
-          ],
-        });
-      }
-      if (url.endsWith("references/explainer.md")) {
-        return new Response("Explainer instructions");
-      }
-      return new Response(VALID_SKILL, { status: 200 });
-    }) as unknown as typeof fetch;
+    globalThis.fetch = mock(
+      async () =>
+        new Response(
+          zipSync({
+            "skills-main/weather/SKILL.md": new TextEncoder().encode(
+              VALID_SKILL
+            ),
+            "skills-main/weather/references/explainer.md":
+              new TextEncoder().encode("Explainer instructions"),
+          })
+        )
+    ) as unknown as typeof fetch;
 
     const { app, databaseAdapter, skillsService } = createApp();
     const adminSession = await setupFreshInstallSession(
@@ -144,13 +137,15 @@ describe("POST /v1/skills/install", () => {
   });
 
   test("invalid frontmatter returns 400 and writes no skill", async () => {
-    globalThis.fetch = mock(async (input: RequestInfo | URL) =>
-      String(input).includes("api.github.com")
-        ? Response.json({
-            sha: "a".repeat(40),
-            tree: [{ path: "broken/SKILL.md", type: "blob", mode: "100644" }],
+    globalThis.fetch = mock(
+      async () =>
+        new Response(
+          zipSync({
+            "skills-main/broken/SKILL.md": new TextEncoder().encode(
+              INVALID_SKILL
+            ),
           })
-        : new Response(INVALID_SKILL, { status: 200 })
+        )
     ) as unknown as typeof fetch;
 
     const { app, databaseAdapter } = createApp();
@@ -306,13 +301,15 @@ describe("POST /v1/skills/install", () => {
   });
 
   test("installing the same skill onto a second profile returns 409", async () => {
-    globalThis.fetch = mock(async (input: RequestInfo | URL) =>
-      String(input).includes("api.github.com")
-        ? Response.json({
-            sha: "a".repeat(40),
-            tree: [{ path: "weather/SKILL.md", type: "blob", mode: "100644" }],
+    globalThis.fetch = mock(
+      async () =>
+        new Response(
+          zipSync({
+            "skills-main/weather/SKILL.md": new TextEncoder().encode(
+              VALID_SKILL
+            ),
           })
-        : new Response(VALID_SKILL, { status: 200 })
+        )
     ) as unknown as typeof fetch;
 
     const { app, databaseAdapter } = createApp();
