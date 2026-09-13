@@ -847,7 +847,14 @@ async function prepareReadFileResult(
     };
   } catch (error) {
     return {
-      result: { error: error instanceof Error ? error.message : String(error) },
+      result: {
+        ...metadata,
+        content:
+          "Image contents were not inspected. Only file metadata is available; do not infer what the image shows.",
+        inspected: false,
+        mediaType: images[0]?.mediaType,
+        reason: error instanceof Error ? error.message : String(error),
+      },
     };
   }
 }

@@ -55,8 +55,10 @@ describe("preprocessUserContent vision fallback", () => {
               name: "read_file",
               async run() {
                 return {
+                  bytesRead: 70,
                   content: "Read image",
                   images: [{ data: tinyPngBase64, mediaType: "image/png" }],
+                  path: "/workspace/shot.png",
                 };
               },
             },
@@ -87,7 +89,7 @@ describe("preprocessUserContent vision fallback", () => {
             })),
         }
       );
-      await session.send("Read it");
+      expect(await session.send("Read it")).toBe("done");
       const tool = session
         .getHistory()
         .find((message) => message.role === "tool");
@@ -96,7 +98,15 @@ describe("preprocessUserContent vision fallback", () => {
       }
       const sent = calls[1]!.messages;
       if (mode === "error") {
-        expect(JSON.parse(tool.content)).toHaveProperty("error");
+        expect(JSON.parse(tool.content)).toMatchObject({
+          bytesRead: 70,
+          inspected: false,
+          mediaType: "image/png",
+          path: "/workspace/shot.png",
+          reason: "Vision unavailable",
+        });
+        expect(JSON.parse(tool.content)).not.toHaveProperty("error");
+        expect(JSON.stringify(sent)).not.toContain(tinyPngBase64);
         expect(tool.attachments).toBeUndefined();
         expect(sent.at(-1)?.role).toBe("tool");
       } else if (mode === "description") {
