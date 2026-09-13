@@ -910,6 +910,7 @@ export function useChatPage() {
             activeSessionIdRef.current = nextSession.id;
             setSessionChannel("web");
             setSession(nextSession);
+            activeSession = nextSession;
             setError(
               "Chat session expired. Started a new session — please send again."
             );
@@ -945,7 +946,16 @@ export function useChatPage() {
           setQueuedMessages((current) =>
             current.filter((item) => item.id !== next.id)
           );
-          void executeSend(next.text, next.files, next.options, next);
+          // This callback can predate session creation or branching.
+          void executeSend(
+            next.text,
+            next.files,
+            {
+              ...next.options,
+              sessionOverride: next.options.sessionOverride ?? activeSession,
+            },
+            next
+          );
         } else {
           isSendingRef.current = false;
         }
