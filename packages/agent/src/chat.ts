@@ -835,13 +835,46 @@ async function generateReply(
   };
 
   if (mode === "stream" && handlers) {
-    return provider.streamChat(input, {
-      onChunk: handlers.onChunk,
-      onThinking: handlers.onThinking,
+    let thinkingStartedAt: number | undefined;
+    let thinkingDurationMs: number | undefined;
+    const finishThinking = () => {
+      if (thinkingStartedAt !== undefined) {
+        thinkingDurationMs =
+          (thinkingDurationMs ?? 0) +
+          Math.max(0, Date.now() - thinkingStartedAt);
+        thinkingStartedAt = undefined;
+      }
+    };
+    const result = await provider.streamChat(input, {
+      onChunk: (delta) => {
+        if (delta) {
+          finishThinking();
+        }
+        handlers.onChunk(delta);
+      },
+      onThinking: (delta) => {
+        if (delta) {
+          thinkingStartedAt ??= Date.now();
+        }
+        handlers.onThinking?.(delta);
+      },
       onToolEnd: handlers.onToolEnd,
-      onToolInputDelta: handlers.onToolInputDelta,
-      onToolStart: handlers.onToolStart,
+      onToolInputDelta: (event) => {
+        finishThinking();
+        handlers.onToolInputDelta?.(event);
+      },
+      onToolStart: (event) => {
+        finishThinking();
+        handlers.onToolStart?.(event);
+      },
     });
+    finishThinking();
+    return thinkingDurationMs === undefined
+      ? result
+      : {
+          ...result,
+          assistantMessage: { ...result.assistantMessage, thinkingDurationMs },
+        };
   }
 
   return provider.generateChat(input);

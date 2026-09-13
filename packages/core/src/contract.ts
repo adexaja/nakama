@@ -2374,6 +2374,8 @@ export type ChatMessage =
       content: string;
       /** Model reasoning trace for display; not sent as plain assistant text to providers. */
       thinking?: string;
+      /** Observed reasoning stream time, excluding answer generation. */
+      thinkingDurationMs?: number;
       summary?: boolean;
       toolCalls?: ToolCall[];
       /** Provider-specific assistant payload for multi-turn replay (Anthropic blocks, OpenAI response items). */
