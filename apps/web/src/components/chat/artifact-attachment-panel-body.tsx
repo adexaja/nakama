@@ -24,6 +24,10 @@ type ArtifactPanelSharedProps = {
 
 export type ArtifactAttachmentPanelBodyProps =
   | (ArtifactPanelSharedProps & {
+      kind: "pdf";
+      pdfPreviewUrl: string | null;
+    })
+  | (ArtifactPanelSharedProps & {
       kind: "image";
       imagePreviewUrl?: string | null;
     })
@@ -432,6 +436,25 @@ export function ArtifactAttachmentPanelBody(
   props: ArtifactAttachmentPanelBodyProps
 ) {
   switch (props.kind) {
+    case "pdf":
+      return (
+        <div className="flex min-h-0 flex-1 flex-col">
+          {props.loading ? <LoadingState /> : null}
+          {props.error ? <ArtifactBodyError error={props.error} /> : null}
+          {!(props.loading || props.error) && props.pdfPreviewUrl ? (
+            <object
+              aria-label={props.artifact.filename}
+              className="min-h-0 w-full flex-1 border-0"
+              data={props.pdfPreviewUrl}
+              type="application/pdf"
+            >
+              <a download={props.artifact.filename} href={props.pdfPreviewUrl}>
+                Download PDF
+              </a>
+            </object>
+          ) : null}
+        </div>
+      );
     case "image":
       return <ArtifactAttachmentImageBody {...props} />;
     case "video":
