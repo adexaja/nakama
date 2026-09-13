@@ -192,6 +192,7 @@ export function useArtifactAttachmentPreviewPanel({
   const isHtml = isHtmlArtifactMimeType(mimeType);
   const isImage = isImageArtifactMimeType(mimeType);
   const isVideo = isVideoArtifactMimeType(mimeType);
+  const isPdf = mimeType === "application/pdf";
   const isWordDocument =
     isDocxFile(artifact.filename, mimeType) ||
     isLegacyDocFile(artifact.filename, mimeType);
@@ -213,6 +214,7 @@ export function useArtifactAttachmentPreviewPanel({
     isHtml ||
     isImage ||
     isVideo ||
+    isPdf ||
     isWordDocument ||
     isTextArtifactMimeType(mimeType) ||
     isUnknownArtifactMimeType(mimeType);
@@ -226,12 +228,14 @@ export function useArtifactAttachmentPreviewPanel({
     content,
     imagePreviewUrl,
     videoPreviewUrl,
+    pdfPreviewUrl,
     setContent,
   } = useArtifactPreviewContent({
     artifact,
     canPreview,
     isHtml,
     isImage,
+    isPdf,
     isVideo,
     isWordDocument,
     open,
@@ -304,6 +308,19 @@ export function useArtifactAttachmentPreviewPanel({
     }
 
     const loadingState = loadingOverride ?? loading;
+
+    if (isPdf) {
+      return (
+        <ArtifactAttachmentPanelBody
+          artifact={artifact}
+          canPreview={canPreview}
+          error={error}
+          kind="pdf"
+          loading={loadingState}
+          pdfPreviewUrl={pdfPreviewUrl}
+        />
+      );
+    }
 
     if (isImage) {
       return (
@@ -395,7 +412,7 @@ export function useArtifactAttachmentPreviewPanel({
           canEdit={canEdit}
           content={content}
           copied={copied}
-          copyDisabled={isImage || isVideo}
+          copyDisabled={isImage || isVideo || isPdf}
           downloadLabel={downloadLabel}
           downloadUrl={downloadUrl}
           filename={artifact.filename}
@@ -451,6 +468,7 @@ export function useArtifactAttachmentPreviewPanel({
     artifact,
     fullscreen,
     isHtml,
+    isPdf,
     isImage,
     isVideo,
     isMarkdown,
@@ -462,6 +480,7 @@ export function useArtifactAttachmentPreviewPanel({
     content,
     imagePreviewUrl,
     videoPreviewUrl,
+    pdfPreviewUrl,
     canPreview,
     copied,
     downloadLabel,
@@ -490,8 +509,8 @@ export function useArtifactAttachmentPreviewPanel({
       ...buildPanelConfig("preview"),
       content: buildPanelBody(
         canPreview &&
-          (isImage || isVideo
-            ? (isImage ? imagePreviewUrl : videoPreviewUrl) === null
+          (isImage || isVideo || isPdf
+            ? (imagePreviewUrl ?? videoPreviewUrl ?? pdfPreviewUrl) === null
             : content === null) &&
           error === null,
         "preview"
