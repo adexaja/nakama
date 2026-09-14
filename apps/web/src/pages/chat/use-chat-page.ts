@@ -88,7 +88,6 @@ import {
   resolveModelThinkingSupport,
   resolveModelVisionSupport,
 } from "@/lib/models";
-import { SETUP_PATH } from "@/lib/navigation";
 import {
   buildAutoEnableThinkingPayload,
   DEFAULT_THINKING_EFFORT,
@@ -1212,7 +1211,6 @@ export function useChatPage() {
     isEmptyState,
     lastSuccessfulTurnAt,
     messages,
-    navigateSetup: () => navigate(SETUP_PATH),
     profileId,
     profiles,
     providerModelGroups,
