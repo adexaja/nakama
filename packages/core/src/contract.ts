@@ -51,6 +51,7 @@ export interface StoredAutomation extends AutomationDefinition {
   createdAt: string;
   enabled: boolean;
   lastRunAt?: string | null;
+  lastRunStatus?: AutomationRunStatus | null;
   nextRunAt?: string | null;
   orgId?: string | null;
   profileId: string;
@@ -2158,6 +2159,7 @@ export interface ArtifactFile {
 }
 
 export interface ListArtifactsOptions {
+  folder?: string;
   limit?: number;
   offset?: number;
 }

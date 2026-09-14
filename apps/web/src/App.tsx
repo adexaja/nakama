@@ -22,11 +22,11 @@ const AutomationsPage = lazyPage(
   "AutomationsPage"
 );
 const ChatPage = lazyPage(() => import("@/pages/ChatPage"), "ChatPage");
-const FilesPage = lazyPage(() => import("@/pages/FilesPage"), "FilesPage");
-const HistoryPage = lazyPage(
-  () => import("@/pages/HistoryPage"),
-  "HistoryPage"
+const CustomizePage = lazyPage(
+  () => import("@/pages/CustomizePage"),
+  "CustomizePage"
 );
+const FilesPage = lazyPage(() => import("@/pages/FilesPage"), "FilesPage");
 const IntegrationsPage = lazyPage(
   () => import("@/pages/IntegrationsPage"),
   "IntegrationsPage"
@@ -56,6 +56,10 @@ const PublicArtifactSharePage = lazyPage(
   () => import("@/pages/PublicArtifactSharePage"),
   "PublicArtifactSharePage"
 );
+const LlmProvidersPage = lazyPage(
+  () => import("@/pages/SettingsPage"),
+  "LlmProvidersPage"
+);
 const SettingsPage = lazyPage(
   () => import("@/pages/SettingsPage"),
   "SettingsPage"
@@ -69,10 +73,19 @@ const SkillDetailPage = lazyPage(
   "SkillDetailPage"
 );
 const StatusPage = lazyPage(() => import("@/pages/StatusPage"), "StatusPage");
+const LlmUsageTab = lazyPage(() => import("@/pages/StatusPage"), "LlmUsageTab");
 const PluginPage = lazyPage(() => import("@/pages/PluginPage"), "PluginPage");
 const PluginsPage = lazyPage(
   () => import("@/pages/PluginsPage"),
   "PluginsPage"
+);
+const ToolsPage = lazyPage(
+  () => import("@/components/soul-tools/ToolsTab"),
+  "ToolsTab"
+);
+const McpPage = lazyPage(
+  () => import("@/components/soul-tools/McpTab"),
+  "McpTab"
 );
 const SystemPage = lazyPage(() => import("@/pages/SystemPage"), "SystemPage");
 const ToolPlaygroundPage = lazyPage(
@@ -151,8 +164,11 @@ function AppShell() {
                     element={<ChatPage />}
                     path="/chat/:profileId/:sessionId"
                   />
-                  <Route element={<HistoryPage />} path="/history" />
-                  <Route element={<PlatformAdminGuard />}>
+                  <Route element={<CustomizePage />} path="/customize" />
+                  <Route element={<PlatformAdminGuard allowOrgAdmin />}>
+                    <Route element={<LlmUsageTab />} path={PAGE_PATHS.usage} />
+                  </Route>
+                  <Route element={<PlatformAdminGuard allowOrgAdmin />}>
                     <Route element={<FilesPage />} path="/files" />
                   </Route>
                   <Route
@@ -161,6 +177,22 @@ function AppShell() {
                   />
                   <Route element={<SystemPage />} path="/system" />
                   <Route element={<PlatformAdminGuard allowOrgAdmin />}>
+                    <Route element={<ToolsPage />} path={PAGE_PATHS.tools} />
+                  </Route>
+                  <Route element={<PlatformAdminGuard />}>
+                    <Route element={<McpPage />} path={PAGE_PATHS.mcp} />
+                  </Route>
+                  <Route element={<PlatformAdminGuard allowOrgAdmin />}>
+                    <Route
+                      element={<PluginsPage />}
+                      path="/customize/plugins/:pluginId"
+                    />
+                  </Route>
+                  <Route element={<PlatformAdminGuard allowOrgAdmin />}>
+                    <Route
+                      element={<PluginsPage />}
+                      path="/customize/plugins"
+                    />
                     <Route
                       element={<PluginsPage />}
                       path="/system/plugins/:pluginId"
@@ -192,6 +224,12 @@ function AppShell() {
                     element={<NotificationsPage />}
                     path="/notifications"
                   />
+                  <Route element={<PlatformAdminGuard />}>
+                    <Route
+                      element={<LlmProvidersPage />}
+                      path="/customize/providers"
+                    />
+                  </Route>
                   <Route element={<SettingsPage />} path="/settings" />
                   <Route element={<Navigate replace to="/chat" />} path="*" />
                 </Route>

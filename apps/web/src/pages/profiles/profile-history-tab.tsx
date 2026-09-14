@@ -61,6 +61,12 @@ function formatActorLabel(actorUserId: string): string {
   return actorUserId.length > 16 ? `${actorUserId.slice(0, 12)}…` : actorUserId;
 }
 
+function buildChangeRows(event: ProfileChangeEvent) {
+  return buildFileDiffRows(event.beforeValue, event.afterValue, {
+    formatJson: ["tools", "skills", "mcp", "pack_import"].includes(event.field),
+  });
+}
+
 function HistoryChangeDialog({
   event,
   onOpenChange,
@@ -76,14 +82,14 @@ function HistoryChangeDialog({
 
   const file = formatFieldLabel(event.field);
   const actor = event.actorUserId ? formatActorLabel(event.actorUserId) : null;
-  const rows = buildFileDiffRows(event.beforeValue, event.afterValue);
+  const rows = buildChangeRows(event);
   const added = rows.filter((row) => row.type === "add").length;
   const removed = rows.filter((row) => row.type === "del").length;
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="flex max-h-[min(90dvh,85vh)] w-[calc(100%-1.5rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
-        <DialogHeader className="gap-2 p-4 pr-12 sm:p-5 sm:pr-12">
+        <DialogHeader className="shrink-0 gap-2 p-4 pr-12 sm:p-5 sm:pr-12">
           <div className="flex items-baseline justify-between gap-3">
             <DialogTitle className="text-balance">{file}</DialogTitle>
             <p className="shrink-0 font-mono text-xs tabular-nums">
@@ -110,6 +116,7 @@ function HistoryChangeDialog({
         <FileDiff
           className="min-h-0 flex-1 border-border border-t"
           rows={rows}
+          wrap
         />
       </DialogContent>
     </Dialog>
@@ -161,13 +168,15 @@ export function ProfileHistoryTab({ profileId }: { profileId: string }) {
 
   return (
     <div className="space-y-3">
-      <h3 className="type-section-title text-balance">History</h3>
-      <ul className="divide-y divide-border overflow-hidden rounded-md border border-border">
+      <ul
+        aria-label="Profile change history"
+        className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card"
+      >
         {events.map((event) => {
           const actor = event.actorUserId
             ? formatActorLabel(event.actorUserId)
             : null;
-          const rows = buildFileDiffRows(event.beforeValue, event.afterValue);
+          const rows = buildChangeRows(event);
           const added = rows.filter((row) => row.type === "add").length;
           const removed = rows.filter((row) => row.type === "del").length;
 
