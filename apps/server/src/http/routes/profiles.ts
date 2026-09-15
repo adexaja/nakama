@@ -258,7 +258,24 @@ export function registerProfileRoutes(
               schema: z.object({
                 events: z.array(
                   z.object({
+                    actorName: z.string().nullable().optional(),
                     actorUserId: z.string().nullable(),
+                    assignmentChanges: z
+                      .object({
+                        added: z.array(
+                          z.object({
+                            id: z.string(),
+                            name: z.string().nullable(),
+                          })
+                        ),
+                        removed: z.array(
+                          z.object({
+                            id: z.string(),
+                            name: z.string().nullable(),
+                          })
+                        ),
+                      })
+                      .optional(),
                     afterValue: z.string().nullable(),
                     beforeValue: z.string().nullable(),
                     createdAt: z.string(),

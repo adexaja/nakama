@@ -2073,8 +2073,13 @@ export type ProfileChangeField =
   | "pack_import";
 
 export interface ProfileChangeEvent {
+  actorName?: string | null;
   actorUserId: string | null;
   afterValue: string | null;
+  assignmentChanges?: {
+    added: Array<{ id: string; name: string | null }>;
+    removed: Array<{ id: string; name: string | null }>;
+  };
   beforeValue: string | null;
   createdAt: string;
   field: ProfileChangeField;
