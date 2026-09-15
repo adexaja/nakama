@@ -152,6 +152,7 @@ function RecentChats() {
           <Button
             aria-label="New chat"
             className="text-muted-foreground/55"
+            nativeButton={false}
             render={<Link to={navHrefForPage("chat", profileId)} />}
             size="icon-sm"
             title="New chat"

@@ -150,6 +150,7 @@ function AppShellHeader({
         <Button
           aria-label={backLabel}
           className="shrink-0 text-muted-foreground hover:text-foreground"
+          nativeButton={false}
           render={<Link to={backPath} />}
           size="icon-sm"
           title={backLabel}
