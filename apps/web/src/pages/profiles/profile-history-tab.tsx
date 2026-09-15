@@ -85,14 +85,14 @@ function AssignmentChangeSummary({ event }: { event: ProfileChangeEvent }) {
     return null;
   }
   return (
-    <div className="space-y-5 p-4 sm:p-5">
+    <div className="space-y-3 px-4 py-2 sm:px-5">
       {(["added", "removed"] as const).map((kind) =>
         changes[kind].length ? (
-          <section className="space-y-2" key={kind}>
+          <section className="space-y-1" key={kind}>
             <h3 className="font-medium text-sm">
               {kind === "added" ? "Added" : "Removed"}
             </h3>
-            <ul className="space-y-2">
+            <ul className="space-y-1">
               {changes[kind].map((item) => (
                 <li className="flex items-start gap-2 text-sm" key={item.id}>
                   <span
