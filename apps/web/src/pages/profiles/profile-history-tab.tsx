@@ -146,7 +146,7 @@ function HistoryChangeDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="flex max-h-[min(90dvh,85vh)] w-[calc(100%-1.5rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
-        <DialogHeader className="shrink-0 gap-2 p-4 pr-12 sm:p-5 sm:pr-12">
+        <DialogHeader className="shrink-0 gap-2 pt-4 pr-12 pb-2 pl-4 sm:pt-5 sm:pl-5">
           <div className="flex items-baseline justify-between gap-3">
             <DialogTitle className="text-balance">
               {file}
