@@ -178,12 +178,7 @@ function HistoryChangeDialog({
         {event.assignmentChanges ? (
           <div className="min-h-0 overflow-y-auto border-border border-t">
             <AssignmentChangeSummary event={event} />
-            <details className="border-border border-t" key={event.id}>
-              <summary className="cursor-pointer px-4 py-3 text-muted-foreground text-sm sm:px-5">
-                View raw changes
-              </summary>
-              <FileDiff rows={rows} wrap />
-            </details>
+            <FileDiff className="border-border border-t" rows={rows} wrap />
           </div>
         ) : (
           <FileDiff
