@@ -39,6 +39,7 @@ function BooleanOverrideSwitch({
   disabled,
   id,
   label,
+  description,
   overridden,
   onCheckedChange,
   onReset,
@@ -50,6 +51,7 @@ function BooleanOverrideSwitch({
   disabled: boolean;
   id?: string;
   label: string;
+  description?: string;
   overridden: boolean;
   onCheckedChange: (checked: boolean) => void;
   onReset: () => void;
@@ -61,7 +63,17 @@ function BooleanOverrideSwitch({
         htmlFor={id}
       >
         {avatar}
-        <span>{label}</span>
+        <span className="min-w-0">
+          <span className="block">{label}</span>
+          {description ? (
+            <span
+              className="mt-1 block text-pretty font-normal text-muted-foreground text-xs"
+              id={`${id}-description`}
+            >
+              {description}
+            </span>
+          ) : null}
+        </span>
       </label>
       <div className="flex shrink-0 items-center gap-2">
         {overridden ? (
@@ -77,6 +89,7 @@ function BooleanOverrideSwitch({
         ) : null}
         {busy ? <Spinner /> : null}
         <Switch
+          aria-describedby={description ? `${id}-description` : undefined}
           aria-label={label}
           checked={checked}
           disabled={disabled || busy}
@@ -95,17 +108,20 @@ export function ProfileOrgBooleanOverrideField({
   field,
   id,
   label,
+  description,
   savedToast,
 }: {
   disabled?: boolean;
   field: OverrideField;
   id: string;
   label: string;
+  description?: string;
   profile: ProfileDetail;
   savedToast: string;
 }) {
   return (
     <ProfileOrgBooleanOverrideFieldBody
+      description={description}
       disabled={disabled}
       field={field}
       id={id}
@@ -229,12 +245,14 @@ function ProfileOrgBooleanOverrideFieldBody({
   field,
   id,
   label,
+  description,
   savedToast,
 }: {
   disabled?: boolean;
   field: OverrideField;
   id: string;
   label: string;
+  description?: string;
   profile: ProfileDetail;
   savedToast: string;
 }) {
@@ -248,6 +266,7 @@ function ProfileOrgBooleanOverrideFieldBody({
     <BooleanOverrideSwitch
       busy={state.busy}
       checked={state.checked}
+      description={description}
       disabled={disabled}
       id={id}
       label={label}
