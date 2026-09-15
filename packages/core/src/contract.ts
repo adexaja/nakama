@@ -2080,6 +2080,7 @@ export interface ProfileChangeEvent {
     added: Array<{ id: string; name: string | null }>;
     removed: Array<{ id: string; name: string | null }>;
   };
+  assignmentNames?: Record<string, string | null>;
   beforeValue: string | null;
   createdAt: string;
   field: ProfileChangeField;

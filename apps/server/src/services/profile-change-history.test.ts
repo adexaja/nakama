@@ -82,6 +82,11 @@ describe("profile change history", () => {
       removed: [{ id: "deleted_skill", name: null }],
     });
     expect(events[0]?.actorName).toBeNull();
+    expect(events[0]?.assignmentNames).toEqual({
+      deleted_skill: null,
+      skill_browser: "Browser automation",
+      skill_private: null,
+    });
     expect(events[0]?.beforeValue).toBe(event.beforeValue);
     expect(events[1]?.assignmentChanges).toEqual({
       added: [{ id: "skill_browser", name: "Browser automation" }],

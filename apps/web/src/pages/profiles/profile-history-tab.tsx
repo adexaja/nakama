@@ -62,9 +62,21 @@ function formatActorLabel(event: ProfileChangeEvent): string | null {
 }
 
 function buildChangeRows(event: ProfileChangeEvent) {
-  return buildFileDiffRows(event.beforeValue, event.afterValue, {
+  const rows = buildFileDiffRows(event.beforeValue, event.afterValue, {
     formatJson: ["tools", "skills", "mcp", "pack_import"].includes(event.field),
   });
+  if (!event.assignmentNames) {
+    return rows;
+  }
+  const names = new Map(Object.entries(event.assignmentNames));
+  const unavailable =
+    event.field === "skills" ? "Unavailable skill" : "Unavailable tool";
+  return rows.map((row) => ({
+    ...row,
+    text: row.text.replace(/"(?:[^"\\]|\\.)*"/g, (value) =>
+      JSON.stringify(names.get(JSON.parse(value)) || unavailable)
+    ),
+  }));
 }
 
 function AssignmentChangeSummary({ event }: { event: ProfileChangeEvent }) {
@@ -93,7 +105,7 @@ function AssignmentChangeSummary({ event }: { event: ProfileChangeEvent }) {
                   >
                     {kind === "added" ? "+" : "−"}
                   </span>
-                  <span className="min-w-0 break-words" title={item.id}>
+                  <span className="min-w-0 break-words">
                     {item.name ||
                       (event.field === "skills"
                         ? "Unavailable skill"
@@ -170,11 +182,6 @@ function HistoryChangeDialog({
               <summary className="cursor-pointer px-4 py-3 text-muted-foreground text-sm sm:px-5">
                 View raw changes
               </summary>
-              {event.actorUserId ? (
-                <p className="break-all px-4 pb-3 font-mono text-muted-foreground text-xs sm:px-5">
-                  Actor: {event.actorUserId}
-                </p>
-              ) : null}
               <FileDiff rows={rows} wrap />
             </details>
           </div>

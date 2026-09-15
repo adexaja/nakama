@@ -70,6 +70,14 @@ export async function describeProfileChangeEvents(
       }
       const beforeIds = new Set(before);
       const afterIds = new Set(after);
+      result.assignmentNames = Object.fromEntries(
+        await Promise.all(
+          [...new Set([...before, ...after])].map(async (id) => [
+            id,
+            await itemName(field, id),
+          ])
+        )
+      );
       const describe = async (id: string) => ({
         id,
         name: await itemName(field, id),

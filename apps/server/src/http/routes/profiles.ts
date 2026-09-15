@@ -259,6 +259,9 @@ export function registerProfileRoutes(
                 events: z.array(
                   z.object({
                     actorName: z.string().nullable().optional(),
+                    assignmentNames: z
+                      .record(z.string(), z.string().nullable())
+                      .optional(),
                     actorUserId: z.string().nullable(),
                     assignmentChanges: z
                       .object({
