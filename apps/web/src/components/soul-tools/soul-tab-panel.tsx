@@ -13,13 +13,7 @@ import {
 } from "@nakama/ui/select";
 import { Spinner } from "@nakama/ui/spinner";
 import { cn } from "@nakama/ui/utils";
-import {
-  ArrowRight01Icon,
-  CircleIcon,
-  File01Icon,
-  Folder01Icon,
-  RefreshIcon,
-} from "hugeicons-react";
+import { ArrowRight01Icon, CircleIcon, RefreshIcon } from "hugeicons-react";
 import type { ReactNode } from "react";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { SOUL_FILES } from "@/components/soul-tools/soul-files";
@@ -30,13 +24,11 @@ export function SoulTabPanel({
   embedded,
   selectedProfile,
   status,
-  presentCount,
   onOpenFile,
 }: {
   embedded: boolean;
   selectedProfile: ProfileSummary | null;
   status: { directory: string; files: SoulFileStatus } | null;
-  presentCount: number;
   onOpenFile: (fileKey: keyof SoulStackFiles) => void;
 }) {
   return (
@@ -53,7 +45,9 @@ export function SoulTabPanel({
               ) : null}
             </div>
           )}
-          <p className="font-normal text-muted-foreground/55 text-sm">Prompt</p>
+          <p className="font-normal text-muted-foreground/55 text-sm">
+            Agent prompt
+          </p>
           {status && !embedded ? (
             <p
               className="type-code mt-2 truncate text-muted-foreground"
@@ -65,16 +59,9 @@ export function SoulTabPanel({
         </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-muted-foreground text-xs tabular-nums">
-          {status
-            ? `${presentCount} of ${SOUL_FILES.length} files present`
-            : "Checking files…"}
-        </p>
-        <p className="text-muted-foreground text-xs lg:hidden">
-          Tap a file to view or edit
-        </p>
-      </div>
+      <p className="mb-4 text-muted-foreground text-xs lg:hidden">
+        Tap a file to view or edit
+      </p>
 
       <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
         {SOUL_FILES.map((file) => (
@@ -84,7 +71,6 @@ export function SoulTabPanel({
             label={file.label}
             onClick={() => onOpenFile(file.key)}
             present={status?.files[file.key] ?? false}
-            writable={file.writable}
           />
         ))}
       </ul>
@@ -248,13 +234,11 @@ function ScopeButton({
 function FileStatusListItem({
   label,
   description,
-  writable,
   present,
   onClick,
 }: {
   label: string;
   description: string;
-  writable: boolean;
   present: boolean;
   onClick: () => void;
 }) {
@@ -268,21 +252,6 @@ function FileStatusListItem({
         onClick={onClick}
         type="button"
       >
-        <span
-          className={cn(
-            "flex size-4 shrink-0 items-center justify-center",
-            present
-              ? "text-emerald-700 dark:text-emerald-300"
-              : "text-muted-foreground"
-          )}
-        >
-          {writable ? (
-            <File01Icon aria-hidden className="size-4" />
-          ) : (
-            <Folder01Icon aria-hidden className="size-4" />
-          )}
-        </span>
-
         <div className="min-w-0 flex-1">
           <p className="truncate font-mono text-foreground text-sm">{label}</p>
           <p className="mt-0.5 truncate text-muted-foreground text-xs">
