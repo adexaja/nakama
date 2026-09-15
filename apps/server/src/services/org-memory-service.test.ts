@@ -207,6 +207,7 @@ describe("OrgMemoryService", () => {
       reviewedAt: null,
       reviewerUserId: null,
       sessionId: null,
+      sourceDocumentIds: [],
       status: "pending",
     });
 
@@ -248,6 +249,42 @@ describe("OrgMemoryService", () => {
     expect(
       parsed.pinned.filter((bullet) => bullet === "always pin this")
     ).toEqual(["always pin this"]);
+  });
+
+  test("keeps source document ids through approval", async () => {
+    const service = await setup();
+    const proposed = await service.propose("org_a", {
+      bullet: "onboarding checklist lives in the handbook",
+      profileId: "profile_kb",
+      sourceDocumentIds: ["kb_handbook", "kb_handbook", "  ", "kb_faq"],
+    });
+    expect(proposed.outcome).toBe("created");
+    const pending = await service.getProposal("org_a", proposed.proposalId!);
+    expect(pending.sourceDocumentIds).toEqual(["kb_handbook", "kb_faq"]);
+
+    const approved = await service.approveProposal(
+      "org_a",
+      proposed.proposalId!,
+      "admin_user"
+    );
+    expect(approved.sourceDocumentIds).toEqual(["kb_handbook", "kb_faq"]);
+    expect(
+      (await service.getProposal("org_a", proposed.proposalId!))
+        .sourceDocumentIds
+    ).toEqual(["kb_handbook", "kb_faq"]);
+  });
+
+  test("caps source document ids at twenty unique values", async () => {
+    const service = await setup();
+    const many = Array.from({ length: 25 }, (_, index) => `kb_doc_${index}`);
+    const proposed = await service.propose("org_a", {
+      bullet: "sourced from a large handbook set",
+      sourceDocumentIds: many,
+    });
+    const proposal = await service.getProposal("org_a", proposed.proposalId!);
+    expect(proposal.sourceDocumentIds).toHaveLength(20);
+    expect(proposal.sourceDocumentIds[0]).toBe("kb_doc_0");
+    expect(proposal.sourceDocumentIds.at(-1)).toBe("kb_doc_19");
   });
 
   test("search tags pinned and recent-log tiers", async () => {

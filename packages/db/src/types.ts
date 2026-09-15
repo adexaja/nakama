@@ -547,6 +547,8 @@ export interface StoredOrgMemoryProposal {
   reviewedAt: string | null;
   reviewerUserId: string | null;
   sessionId: string | null;
+  /** Knowledge-base document ids the bullet was derived from (optional). */
+  sourceDocumentIds: string[];
   status: OrgMemoryProposalStatus;
 }
 
