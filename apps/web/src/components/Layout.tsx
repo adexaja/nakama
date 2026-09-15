@@ -3,7 +3,7 @@ import { TooltipProvider } from "@nakama/ui/tooltip";
 import { cn } from "@nakama/ui/utils";
 import { ArrowLeft02Icon } from "hugeicons-react";
 import { useMemo } from "react";
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation, useMatch } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { CommandPalette } from "@/components/CommandPalette";
 import { MobileNavDrawer } from "@/components/MobileNavDrawer";
@@ -11,6 +11,7 @@ import { ProfileRail } from "@/components/ProfileRail";
 import { RouteBoundary } from "@/components/RouteBoundary";
 import { useAppContext } from "@/context/use-app-context";
 import { useOrgPlugins } from "@/hooks/use-plugins";
+import { useHistorySessionsQuery } from "@/hooks/use-resource-mutations";
 import {
   enabledPluginNavEntries,
   findNavItem,
@@ -62,6 +63,13 @@ function useAppShell() {
   const location = useLocation();
   const page = pageIdFromPath(location.pathname) ?? "chat";
   const { error } = useAppContext();
+  const chatRoute = useMatch("/chat/:profileId/:sessionId");
+  const { data: sessions } = useHistorySessionsQuery(
+    chatRoute?.params.profileId ?? ""
+  );
+  const chatTitle = sessions
+    .find((session) => session.id === chatRoute?.params.sessionId)
+    ?.title?.trim();
 
   const { data: orgPlugins = [] } = useOrgPlugins();
   const pluginNav = useMemo(
@@ -76,10 +84,11 @@ function useAppShell() {
   return {
     error,
     headerLabel:
-      activePlugin?.label ??
-      findNavItem(page)?.label ??
-      activePluginId ??
-      undefined,
+      (page === "chat" ? chatTitle : undefined) ||
+      (activePlugin?.label ??
+        findNavItem(page)?.label ??
+        activePluginId ??
+        undefined),
     page,
     pathname: location.pathname,
   };
