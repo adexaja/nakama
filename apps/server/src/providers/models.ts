@@ -180,7 +180,6 @@ const BASE_MODELS: ProviderModelOption[] = withVisionDefaults([
     name: "Gemini 3.8 Flash",
     outputPerMillionUsd: 3.75,
     provider: "gemini",
-    supportsThinking: true,
   },
   {
     contextWindow: 1_000_000,
