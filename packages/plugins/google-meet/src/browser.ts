@@ -44,6 +44,9 @@ function browserOptions(directory: string): BetterWrightOptions {
       "--use-fake-device-for-media-stream",
       "--use-fake-ui-for-media-stream",
       "--disable-dev-shm-usage",
+      // The downloaded BetterChromium bundle has no setuid sandbox helper,
+      // and Docker disables unprivileged user namespaces for this user.
+      ...(process.platform === "linux" ? ["--no-sandbox"] : []),
     ],
     credentialCapture: false,
     downloadPolicy: "deny",
