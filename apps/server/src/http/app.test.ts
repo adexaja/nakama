@@ -162,9 +162,9 @@ describe("createHonoApp", () => {
     const database = await createSqliteDatabase(":memory:");
     const { app } = createMinimalHonoApp({
       databaseAdapter: database.adapter,
-      webDistDir: resolve(import.meta.dir, "../../../web"),
     });
     try {
+      expect((await app.request("/up")).status).toBe(200);
       expect((await app.request("/healthz")).status).toBe(200);
       expect((await app.request("/readyz")).status).toBe(200);
       await database.close();
