@@ -45,6 +45,7 @@ import {
   type WebSearchSettingsResponse,
   type WhatsAppSettingsResponse,
 } from "@nakama/core";
+import { createWhatsAppWorkerHeartbeat } from "@nakama/core/whatsapp-worker";
 import {
   completeChatgptOAuthDeviceSession,
   fetchChatgptCodexModels,
@@ -1878,16 +1879,18 @@ export function registerModelRoutes(
 
   app.get("/v1/settings/whatsapp", async (c) => {
     getRequestAuth(c);
-    return json<WhatsAppSettingsResponse>(await agent.getWhatsAppSettings());
+    return json<WhatsAppSettingsResponse>(
+      await agent.getWhatsAppSettings(requireActiveOrgIdFromContext(c))
+    );
   });
 
   app.put("/v1/settings/whatsapp", async (c) => {
-    requirePlatformAdminFromContext(c);
+    requireOrgAdminOrPlatformAdminFromContext(c);
     const body = await readJson<UpdateWhatsAppSettingsRequest>(c.req.raw);
 
     try {
       return json<WhatsAppSettingsResponse>(
-        await agent.setWhatsAppSettings(body)
+        await agent.setWhatsAppSettings(requireActiveOrgIdFromContext(c), body)
       );
     } catch (error) {
       if (error instanceof NakamaApiError) {
@@ -1900,10 +1903,12 @@ export function registerModelRoutes(
   });
 
   app.post("/v1/settings/whatsapp/pairing-code", async (c) => {
-    requirePlatformAdminFromContext(c);
+    requireOrgAdminOrPlatformAdminFromContext(c);
     try {
       return json<WhatsAppSettingsResponse>(
-        await agent.regenerateWhatsAppPairingCode()
+        await agent.regenerateWhatsAppPairingCode(
+          requireActiveOrgIdFromContext(c)
+        )
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1912,13 +1917,23 @@ export function registerModelRoutes(
   });
 
   app.post("/v1/settings/whatsapp/reconnect", async (c) => {
-    requirePlatformAdminFromContext(c);
+    requireOrgAdminOrPlatformAdminFromContext(c);
     try {
-      await workerManager.stopWorker("whatsapp").catch(() => {});
-      const settings = await resetWhatsAppSessionForReconnect();
+      const orgId = requireActiveOrgIdFromContext(c);
+      const status = await workerManager.getWorkerStatus("whatsapp", orgId);
+      if (status?.status === "online") {
+        await workerManager.stopWorker("whatsapp", orgId);
+      }
+      if (await createWhatsAppWorkerHeartbeat(orgId).isRunning()) {
+        return errorResponse(
+          "Stop the manually started WhatsApp bridge before reconnecting.",
+          409
+        );
+      }
+      const settings = await resetWhatsAppSessionForReconnect(orgId);
 
       try {
-        await workerManager.startWorker("whatsapp");
+        await workerManager.startWorker("whatsapp", orgId);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return errorResponse(

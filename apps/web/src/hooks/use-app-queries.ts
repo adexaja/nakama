@@ -166,27 +166,40 @@ export function useSendEmailTest() {
   });
 }
 
-const whatsappSettings = createSettingsHooks({
-  mutationFn: (request: UpdateWhatsAppSettingsRequest) =>
-    client.setWhatsAppSettings(request),
-  onSaveSuccess: async (queryClient, saved) => {
-    queryClient.setQueryData(queryKeys.whatsapp.settings, saved);
-    await queryClient.invalidateQueries({ queryKey: queryKeys.systemStatus });
-  },
-  queryFn: () => client.getWhatsAppSettings(),
-  queryKey: queryKeys.whatsapp.settings,
-});
-export const whatsappSettingsQueryOptions = whatsappSettings.queryOptions;
-export const useWhatsAppSettings = whatsappSettings.useSettings;
-export const useSaveWhatsAppSettings = whatsappSettings.useSave;
+function useWhatsAppSettingsHooks() {
+  const { activeOrg } = useAuth();
+  const orgId = activeOrg?.id ?? null;
+  const api = client.forOrg(orgId);
+  const queryKey = [...queryKeys.whatsapp.settings, orgId];
+  return createSettingsHooks({
+    mutationFn: (request: UpdateWhatsAppSettingsRequest) =>
+      api.setWhatsAppSettings(request),
+    onSaveSuccess: async (queryClient, saved) => {
+      queryClient.setQueryData(queryKey, saved);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.systemStatus });
+    },
+    queryFn: () => api.getWhatsAppSettings(),
+    queryKey,
+  });
+}
+export function useWhatsAppSettings() {
+  return useWhatsAppSettingsHooks().useSettings();
+}
+export function useSaveWhatsAppSettings() {
+  return useWhatsAppSettingsHooks().useSave();
+}
 export function useRegenerateWhatsAppPairingCode() {
-  return whatsappSettings.useSetQueryDataMutation(() =>
-    client.regenerateWhatsAppPairingCode()
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
+  return useWhatsAppSettingsHooks().useSetQueryDataMutation(() =>
+    api.regenerateWhatsAppPairingCode()
   );
 }
 export function useReconnectWhatsApp() {
-  return whatsappSettings.useSetQueryDataMutation(() =>
-    client.reconnectWhatsApp()
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
+  return useWhatsAppSettingsHooks().useSetQueryDataMutation(() =>
+    api.reconnectWhatsApp()
   );
 }
 
@@ -301,7 +314,6 @@ export function prefetchAppData(
   prefetchTimezoneData(queryClient);
   void queryClient.prefetchQuery(thinkingSettingsQueryOptions);
   void queryClient.prefetchQuery(telegramSettingsQueryOptions);
-  void queryClient.prefetchQuery(whatsappSettingsQueryOptions);
   void queryClient.prefetchQuery(healthQueryOptions);
   void queryClient.prefetchQuery(modelsQueryOptions);
   void queryClient.prefetchQuery(profilesQueryOptions);

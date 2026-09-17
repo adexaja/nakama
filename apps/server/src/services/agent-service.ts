@@ -1359,29 +1359,45 @@ export class AgentService {
     return getAgentBrowserStatus();
   }
 
-  async getWhatsAppSettings(): Promise<WhatsAppSettingsResponse> {
-    return loadWhatsAppSettingsPublic();
+  async getWhatsAppSettings(orgId: string): Promise<WhatsAppSettingsResponse> {
+    return loadWhatsAppSettingsPublic(orgId);
   }
 
   async setWhatsAppSettings(
+    orgId: string,
     input: UpdateWhatsAppSettingsRequest
   ): Promise<WhatsAppSettingsResponse> {
-    return saveWhatsAppConfig({
-      ...(input.allowedPhones === undefined
-        ? {}
-        : { allowedPhones: input.allowedPhones }),
-      ...(input.phoneNumber === undefined
-        ? {}
-        : { phoneNumber: input.phoneNumber.trim() }),
-      ...(input.profileId === undefined ? {} : { profileId: input.profileId }),
-      ...(input.requireGroupMention === undefined
-        ? {}
-        : { requireGroupMention: input.requireGroupMention }),
-    });
+    const profileId = input.profileId?.trim();
+    const resolvedProfileId =
+      profileId === "default"
+        ? await this.resolveSessionProfile(orgId)
+        : profileId;
+    if (resolvedProfileId) {
+      await this.requireProfile(orgId, resolvedProfileId);
+    }
+    return saveWhatsAppConfig(
+      {
+        ...(input.allowedPhones === undefined
+          ? {}
+          : { allowedPhones: input.allowedPhones }),
+        ...(input.phoneNumber === undefined
+          ? {}
+          : { phoneNumber: input.phoneNumber.trim() }),
+        ...(resolvedProfileId === undefined
+          ? {}
+          : { profileId: resolvedProfileId }),
+        ...(input.requireGroupMention === undefined
+          ? {}
+          : { requireGroupMention: input.requireGroupMention }),
+      },
+      orgId
+    );
   }
 
-  async regenerateWhatsAppPairingCode(): Promise<WhatsAppSettingsResponse> {
-    return regenerateWhatsAppPairingCode();
+  async regenerateWhatsAppPairingCode(
+    orgId: string
+  ): Promise<WhatsAppSettingsResponse> {
+    return regenerateWhatsAppPairingCode(orgId);
   }
 
   async runAutomationPrompt(

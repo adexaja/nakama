@@ -175,7 +175,7 @@ export async function validateAutomationDelivery(
   }
 
   if (delivery.channel === "whatsapp") {
-    const config = await loadWhatsAppConfigFile();
+    const config = await loadWhatsAppConfigFile(options.orgId);
 
     if (!config?.phoneNumber.trim()) {
       throw new Error(

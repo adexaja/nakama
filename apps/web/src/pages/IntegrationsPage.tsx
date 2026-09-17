@@ -145,14 +145,10 @@ function IntegrationsPageBody({
     if (item.id === "composio") {
       return true;
     }
-    if (
-      item.id === "discord" ||
-      item.id === "whatsapp" ||
-      item.id === "error-tracking"
-    ) {
+    if (item.id === "discord" || item.id === "error-tracking") {
       return isPlatformAdmin;
     }
-    return isOrgAdmin;
+    return isOrgAdmin || (item.id === "whatsapp" && isPlatformAdmin);
   });
   const section = visibleSections.some((item) => item.id === requestedSection)
     ? requestedSection

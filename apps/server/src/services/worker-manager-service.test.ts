@@ -3,6 +3,12 @@ import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readWorkerDesiredState, setWorkerDesiredRunning } from "@nakama/core";
+import {
+  getWhatsAppConfigDir,
+  loadWhatsAppConfigFile,
+  saveWhatsAppConfig,
+  syncWhatsAppOwnerPairing,
+} from "@nakama/core/whatsapp-config";
 import { WorkerManagerService } from "./worker-manager-service";
 
 function createMockPm2() {
@@ -44,6 +50,80 @@ afterEach(async () => {
 });
 
 describe("WorkerManagerService", () => {
+  test("migrates a stopped legacy account once with its auth and running preference", async () => {
+    await saveWhatsAppConfig({ profileId: "well-test" });
+    await syncWhatsAppOwnerPairing({ ownerJid: "628111111111@s.whatsapp.net" });
+    await mkdir(join(getWhatsAppConfigDir(), "auth"), { recursive: true });
+    await writeFile(join(getWhatsAppConfigDir(), "auth", "creds.json"), "{}");
+    await setWorkerDesiredRunning("whatsapp", true);
+    const pm2 = createMockPm2();
+    const service = new WorkerManagerService(projectRoot, pm2);
+    const organizations = [
+      { createdAt: "2026-02-01T00:00:00.000Z", id: "org_b" },
+      { createdAt: "2026-01-01T00:00:00.000Z", id: "org_a" },
+    ];
+    await service.migrateLegacyWhatsApp(organizations);
+    expect(await loadWhatsAppConfigFile("org_b")).toBeNull();
+    expect(await loadWhatsAppConfigFile()).toBeNull();
+    expect((await loadWhatsAppConfigFile("org_a"))?.pairedJid).toBe(
+      "628111111111@s.whatsapp.net"
+    );
+    expect(
+      await Bun.file(
+        join(getWhatsAppConfigDir("org_a"), "auth", "creds.json")
+      ).text()
+    ).toBe("{}");
+    expect((await readWorkerDesiredState()).whatsapp).toBe(false);
+    expect((await readWorkerDesiredState("org_a")).whatsapp).toBe(true);
+    await service.migrateLegacyWhatsApp(organizations);
+    expect((await loadWhatsAppConfigFile("org_a"))?.profileId).toBe(
+      "well-test"
+    );
+    await service.recoverDesiredWorkers();
+    const calls = (pm2.start as ReturnType<typeof mock>).mock.calls;
+    expect(
+      calls.some(([opts]) => opts.env.NAKAMA_WHATSAPP_ORG_ID === "org_a")
+    ).toBe(true);
+  });
+
+  test.each([
+    [{ createdAt: "2026-01-01T00:00:00.000Z", id: "org_z" }],
+    [
+      { createdAt: "2026-02-01T00:00:00.000Z", id: "org_a" },
+      { createdAt: "2026-01-01T00:00:00.000Z", id: "org_z" },
+    ],
+  ])(
+    "selects by creation time, including single-org installs: %j",
+    async (...organizations) => {
+      await saveWhatsAppConfig({ profileId: "legacy" });
+      const service = new WorkerManagerService(projectRoot, createMockPm2());
+      await service.migrateLegacyWhatsApp(organizations);
+      expect((await loadWhatsAppConfigFile("org_z"))?.profileId).toBe("legacy");
+      expect(await loadWhatsAppConfigFile("org_a")).toBeNull();
+      expect(await loadWhatsAppConfigFile()).toBeNull();
+    }
+  );
+
+  test("leaves the legacy account untouched without organizations", async () => {
+    await saveWhatsAppConfig({ profileId: "legacy" });
+    const service = new WorkerManagerService(projectRoot, createMockPm2());
+    await service.migrateLegacyWhatsApp([]);
+    expect((await loadWhatsAppConfigFile())?.profileId).toBe("legacy");
+  });
+
+  test("does not overwrite the oldest org or assign legacy to a newer org", async () => {
+    await saveWhatsAppConfig({ profileId: "legacy" });
+    await saveWhatsAppConfig({ profileId: "existing" }, "org_a");
+    const service = new WorkerManagerService(projectRoot, createMockPm2());
+    await service.migrateLegacyWhatsApp([
+      { createdAt: "2026-02-01T00:00:00.000Z", id: "org_b" },
+      { createdAt: "2026-01-01T00:00:00.000Z", id: "org_a" },
+    ]);
+    expect((await loadWhatsAppConfigFile())?.profileId).toBe("legacy");
+    expect((await loadWhatsAppConfigFile("org_a"))?.profileId).toBe("existing");
+    expect(await loadWhatsAppConfigFile("org_b")).toBeNull();
+  });
+
   describe("isValidWorker", () => {
     test("returns true for telegram", () => {
       const service = new WorkerManagerService(projectRoot, createMockPm2());
@@ -72,6 +152,45 @@ describe("WorkerManagerService", () => {
   });
 
   describe("startWorker", () => {
+    test("uses separate processes and desired state per WhatsApp organization", async () => {
+      const pm2 = createMockPm2();
+      const service = new WorkerManagerService(projectRoot, pm2);
+      await service.startWorker("whatsapp", "org_a");
+      await service.startWorker("whatsapp", "org_b");
+      const calls = (pm2.start as ReturnType<typeof mock>).mock.calls;
+      expect(calls[0][0].name).not.toBe(calls[1][0].name);
+      expect(calls[0][0].env.NAKAMA_WHATSAPP_ORG_ID).toBe("org_a");
+      expect(calls[1][0].env.NAKAMA_WHATSAPP_ORG_ID).toBe("org_b");
+      (pm2.list as ReturnType<typeof mock>).mockImplementation((cb) =>
+        cb(null, [
+          { name: calls[0][0].name, pid: 101, pm2_env: { status: "online" } },
+          { name: calls[1][0].name, pid: 202, pm2_env: { status: "stopped" } },
+        ])
+      );
+      expect(
+        (await service.getAllWorkerStatuses("org_a")).whatsapp.status
+      ).toBe("online");
+      expect(
+        (await service.getAllWorkerStatuses("org_b")).whatsapp.status
+      ).toBe("stopped");
+      expect((await service.getAllWorkerStatuses()).whatsapp.status).not.toBe(
+        "online"
+      );
+      await service.getWorkerLogs("whatsapp", 10, "org_b");
+      expect(pm2.describe).toHaveBeenLastCalledWith(
+        calls[1][0].name,
+        expect.any(Function)
+      );
+      await service.stopWorker("whatsapp", "org_a");
+      expect((await readWorkerDesiredState("org_a")).whatsapp).toBe(false);
+      expect((await readWorkerDesiredState("org_b")).whatsapp).toBe(true);
+      expect((await readWorkerDesiredState()).whatsapp).toBe(false);
+      expect(pm2.stop).toHaveBeenLastCalledWith(
+        calls[0][0].name,
+        expect.any(Function)
+      );
+    });
+
     test("starts telegram worker with correct script path", async () => {
       const mockPm2 = createMockPm2();
       const service = new WorkerManagerService(projectRoot, mockPm2);

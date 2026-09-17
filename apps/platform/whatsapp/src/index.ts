@@ -6,10 +6,7 @@ import {
   log,
 } from "@nakama/core";
 import { hasActiveStreams } from "@nakama/core/channel-active-stream";
-import {
-  ChannelOrgStore,
-  getChannelOrgSelectionPath,
-} from "@nakama/core/channel-org";
+import { ChannelOrgStore } from "@nakama/core/channel-org";
 import { ChannelSessionStore } from "@nakama/core/channel-session-store";
 import {
   ensureServerRunning,
@@ -23,7 +20,7 @@ import {
 } from "@nakama/core/whatsapp-config";
 import {
   clearWhatsAppQrCode,
-  clearWhatsAppWorkerHeartbeat,
+  createWhatsAppWorkerHeartbeat,
   writeWhatsAppQrCode,
   writeWhatsAppWorkerHeartbeat,
 } from "@nakama/core/whatsapp-worker";
@@ -48,12 +45,15 @@ let socketHandle: {
 let outboundServer: { port: number; stop: () => void } | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let bridgeConnected = false;
+const orgId = process.env.NAKAMA_WHATSAPP_ORG_ID?.trim() || null;
+const heartbeat = createWhatsAppWorkerHeartbeat(orgId);
 
 function persistWorkerHeartbeat(): void {
   void writeWhatsAppWorkerHeartbeat(
     process.pid,
     new Date().toISOString(),
-    bridgeConnected
+    bridgeConnected,
+    orgId
   );
 }
 
@@ -64,8 +64,8 @@ registerCleanupHandlers(async () => {
   if (heartbeatTimer) {
     clearInterval(heartbeatTimer);
   }
-  await clearWhatsAppWorkerHeartbeat();
-  await clearWhatsAppQrCode();
+  await heartbeat.clear();
+  await clearWhatsAppQrCode(orgId);
   restoreBaileysConsole();
   if (hasActiveStreams()) {
     console.warn(
@@ -78,6 +78,24 @@ registerCleanupHandlers(async () => {
 
 try {
   const config = await loadConfig();
+  const existingHeartbeat = await heartbeat.read();
+  if (
+    existingHeartbeat &&
+    existingHeartbeat.pid !== process.pid &&
+    heartbeat.isAlive(existingHeartbeat)
+  ) {
+    console.error(
+      "A WhatsApp bridge is already running for this organization."
+    );
+    process.exit(1);
+  }
+  // Publish ownership before server startup can migrate legacy credentials.
+  await writeWhatsAppWorkerHeartbeat(
+    process.pid,
+    new Date().toISOString(),
+    false,
+    orgId
+  );
   const { serverUrl, spawnedChild: child } = await ensureServerRunning();
   spawnedChild = child;
 
@@ -86,6 +104,7 @@ try {
       (await loadLocalAuthToken("whatsapp@nakama.internal")) ?? undefined,
     baseUrl: serverUrl,
     clientOrigin: resolveWebPublicUrl(),
+    orgId,
   });
   const health = await client.health();
 
@@ -96,14 +115,16 @@ try {
   }
 
   const sessionStore = new ChannelSessionStore(
-    join(getWhatsAppConfigDir(), "chat-sessions.json")
+    join(getWhatsAppConfigDir(orgId), "chat-sessions.json")
   );
   await sessionStore.load();
 
-  const orgStore = new ChannelOrgStore(getChannelOrgSelectionPath("whatsapp"));
+  const orgStore = new ChannelOrgStore(
+    join(getWhatsAppConfigDir(orgId), "org-selection.json")
+  );
   await orgStore.load();
 
-  const authStore = new WhatsAppAuthStore();
+  const authStore = new WhatsAppAuthStore(orgId);
   await authStore.reload();
 
   const handleMessage = createChatHandler({
@@ -121,11 +142,14 @@ try {
       bridgeConnected = true;
       persistWorkerHeartbeat();
       log("info", "worker.connected", { worker: "whatsapp" });
-      void clearWhatsAppQrCode();
-      void syncWhatsAppOwnerPairing({
-        ownerJid: me.id,
-        ownerLid: me.lid,
-      }).then(() => authStore.reload());
+      void clearWhatsAppQrCode(orgId);
+      void syncWhatsAppOwnerPairing(
+        {
+          ownerJid: me.id,
+          ownerLid: me.lid,
+        },
+        orgId
+      ).then(() => authStore.reload());
     },
     onDisconnected: () => {
       bridgeConnected = false;
@@ -133,8 +157,9 @@ try {
     },
     onMessage: handleMessage,
     onQr: (qr) => {
-      void writeWhatsAppQrCode(qr);
+      void writeWhatsAppQrCode(qr, orgId);
     },
+    orgId,
   });
 
   socketHandle = socket;
@@ -151,6 +176,7 @@ try {
         sendMessage: (jid, content) => activeSocket.sendMessage(jid, content),
       };
     },
+    orgId,
   });
 
   console.log(
@@ -169,7 +195,8 @@ try {
   await writeWhatsAppWorkerHeartbeat(
     process.pid,
     new Date().toISOString(),
-    bridgeConnected
+    bridgeConnected,
+    orgId
   );
   heartbeatTimer = setInterval(() => {
     persistWorkerHeartbeat();
@@ -188,8 +215,8 @@ try {
     // Socket stop best-effort on fatal path.
   }
   // Await before exit — void + process.exit can leave a stale heartbeat/QR file.
-  await clearWhatsAppWorkerHeartbeat();
-  await clearWhatsAppQrCode();
+  await heartbeat.clear();
+  await clearWhatsAppQrCode(orgId);
   stopSpawnedServer(spawnedChild);
   process.exit(1);
 }
