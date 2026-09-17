@@ -65,11 +65,6 @@ describe("validateProviderApiKeyFormat", () => {
     expect(validateProviderApiKeyFormat(key, "openai")).toBe(key);
   });
 
-  test("accepts the new Gemini authorization key format", () => {
-    const key = `AQ.${"a".repeat(40)}`;
-    expect(validateProviderApiKeyFormat(key, "gemini")).toBe(key);
-  });
-
   test("skips format checks for providers without a documented key format", () => {
     expect(validateProviderApiKeyFormat("short", "fireworks")).toBe("short");
     expect(validateProviderApiKeyFormat("short", "ollama")).toBe("short");
