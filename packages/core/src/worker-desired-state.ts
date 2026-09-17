@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { readTextOrNull, writeTextFile } from "./fs";
-import { getUserConfigDir } from "./user-config";
+import { getOrgConfigDir, getUserConfigDir } from "./user-config";
 
 export type PlatformWorkerName =
   | "telegram"
@@ -22,8 +22,12 @@ const DEFAULT_STATE: WorkerDesiredState = {
   whatsapp: false,
 };
 
-function getWorkerDesiredStatePath(): string {
-  return join(getUserConfigDir(), "runtime", "worker-desired-state.json");
+function getWorkerDesiredStatePath(orgId: string | null = null): string {
+  return join(
+    orgId ? getOrgConfigDir(orgId) : getUserConfigDir(),
+    "runtime",
+    "worker-desired-state.json"
+  );
 }
 
 export function parseWorkerDesiredState(raw: string): WorkerDesiredState {
@@ -48,8 +52,10 @@ export function parseWorkerDesiredState(raw: string): WorkerDesiredState {
   }
 }
 
-export async function readWorkerDesiredState(): Promise<WorkerDesiredState> {
-  const raw = await readTextOrNull(getWorkerDesiredStatePath());
+export async function readWorkerDesiredState(
+  orgId: string | null = null
+): Promise<WorkerDesiredState> {
+  const raw = await readTextOrNull(getWorkerDesiredStatePath(orgId));
 
   if (raw === null) {
     return { ...DEFAULT_STATE };
@@ -60,14 +66,20 @@ export async function readWorkerDesiredState(): Promise<WorkerDesiredState> {
 
 export async function setWorkerDesiredRunning(
   name: PlatformWorkerName,
-  running: boolean
+  running: boolean,
+  orgId: string | null = null
 ): Promise<void> {
-  const state = await readWorkerDesiredState();
+  const state = await readWorkerDesiredState(orgId);
   state[name] = running;
 
   await writeTextFile(
-    getWorkerDesiredStatePath(),
+    getWorkerDesiredStatePath(orgId),
     `${JSON.stringify(state)}\n`,
-    { ensureDir: join(getUserConfigDir(), "runtime") }
+    {
+      ensureDir: join(
+        orgId ? getOrgConfigDir(orgId) : getUserConfigDir(),
+        "runtime"
+      ),
+    }
   );
 }

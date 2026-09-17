@@ -5,6 +5,11 @@ import {
   resetActiveStreamsForTests,
 } from "@nakama/core/channel-active-stream";
 import { ChannelSessionStore as SessionStore } from "@nakama/core/channel-session-store";
+import {
+  getWhatsAppConfigDir,
+  saveWhatsAppConfig,
+  syncWhatsAppOwnerPairing,
+} from "@nakama/core/whatsapp-config";
 import { WhatsAppAuthStore } from "./auth-store";
 import {
   createChatHandler,
@@ -62,6 +67,37 @@ beforeEach(() => {
 });
 
 describe("createChatHandler", () => {
+  test("pins an organization's number even when a sender requests another org", async () => {
+    await withTempHome(async (homeDir) => {
+      await saveWhatsAppConfig({}, "org_a");
+      await syncWhatsAppOwnerPairing({ ownerJid: PAIRED_JID }, "org_a");
+      const authStore = new WhatsAppAuthStore("org_a");
+      await authStore.reload();
+      const { client, calls, orgIds } = createMockClient({
+        orgs: createMultiTestOrgs(),
+      });
+      const sessionStore = new SessionStore(
+        path.join(getWhatsAppConfigDir("org_a"), "chat-sessions.json")
+      );
+      const orgStore = createTestOrgStore(homeDir);
+      const { socket } = createMockSocket();
+      const handle = createChatHandler({
+        authStore,
+        client,
+        config: { orgId: "org_a", phoneNumber: "", profileId: "default" },
+        getSocket: () => socket as any,
+        orgStore,
+        sessionStore,
+      });
+      await handle({ jid: PAIRED_JID, text: "/org org_b" });
+      await handle({ jid: PAIRED_JID, text: "well test" });
+      expect(calls.listUserOrgs).toBe(0);
+      expect(calls.sendStream).toBe(1);
+      expect(orgIds.length).toBeGreaterThan(0);
+      expect(orgIds.every((id) => id === "org_a")).toBe(true);
+    });
+  });
+
   test("blocks unauthorized JID from chatting", async () => {
     await withTempHome(async (homeDir) => {
       await writeWhatsAppConfigIni(homeDir, {

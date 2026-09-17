@@ -8,6 +8,10 @@ import {
   validateAutomationDelivery,
 } from "./automation-delivery";
 import { getDiscordConfigDir, getDiscordConfigPath } from "./discord-config";
+import {
+  saveWhatsAppConfig,
+  syncWhatsAppOwnerPairing,
+} from "./whatsapp-config";
 
 describe("normalizeAutomationDelivery", () => {
   test("returns undefined for missing delivery", () => {
@@ -139,6 +143,26 @@ describe("shouldDeliverForRun", () => {
 
 describe("validateAutomationDelivery", () => {
   const previousConfigDir = process.env.NAKAMA_CONFIG_DIR;
+
+  test("validates only the owning organization's WhatsApp connection", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "nakama-wa-delivery-"));
+    process.env.NAKAMA_CONFIG_DIR = configDir;
+    try {
+      await saveWhatsAppConfig({ profileId: "default" }, "org_a");
+      await syncWhatsAppOwnerPairing(
+        { ownerJid: "628111111111@s.whatsapp.net" },
+        "org_a"
+      );
+      await expect(
+        validateAutomationDelivery({ channel: "whatsapp" }, { orgId: "org_a" })
+      ).resolves.toBeUndefined();
+      await expect(
+        validateAutomationDelivery({ channel: "whatsapp" }, { orgId: "org_b" })
+      ).rejects.toThrow();
+    } finally {
+      await rm(configDir, { force: true, recursive: true });
+    }
+  });
 
   afterEach(async () => {
     if (previousConfigDir === undefined) {

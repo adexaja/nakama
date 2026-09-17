@@ -1,6 +1,7 @@
 import { SETTINGS_CARD_LOADING_SKELETON } from "@/components/integration-settings.shared";
 import { WhatsAppAllowedPhonesDialog } from "@/components/WhatsAppAllowedPhonesDialog";
 import { WhatsAppSettingsCardContent } from "@/components/whatsapp-settings-card-content";
+import { useAuth } from "@/context/use-auth";
 import { useWhatsAppSettingsCard } from "@/hooks/use-whatsapp-settings-card";
 
 interface WhatsAppSettingsCardProps {
@@ -9,7 +10,12 @@ interface WhatsAppSettingsCardProps {
   submitLabel?: string;
 }
 
-export function WhatsAppSettingsCard({
+export function WhatsAppSettingsCard(props: WhatsAppSettingsCardProps) {
+  const { activeOrg } = useAuth();
+  return <WhatsAppSettingsCardForOrg key={activeOrg?.id} {...props} />;
+}
+
+function WhatsAppSettingsCardForOrg({
   embedded = false,
   submitLabel,
   onSaveSuccess,

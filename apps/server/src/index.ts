@@ -244,6 +244,10 @@ const workerManager = new WorkerManagerService(
   }
 );
 
+if (soleOrganization && otherOrganizations.length === 0) {
+  await workerManager.migrateLegacyWhatsApp(soleOrganization.id);
+}
+
 const orgService = new OrgService(database.adapter, authService);
 const pluginService = new PluginService(database.adapter, getUserConfigDir(), {
   officialPackagesDir: join(projectRoot, "packages/plugins"),

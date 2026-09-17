@@ -18,15 +18,21 @@ function useWorkerMutation(mutationFn: (name: string) => Promise<unknown>) {
 }
 
 export function useStartWorker() {
-  return useWorkerMutation((name) => client.startWorker(name));
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
+  return useWorkerMutation((name) => api.startWorker(name));
 }
 
 export function useStopWorker() {
-  return useWorkerMutation((name) => client.stopWorker(name));
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
+  return useWorkerMutation((name) => api.stopWorker(name));
 }
 
 export function useRestartWorker() {
-  return useWorkerMutation((name) => client.restartWorker(name));
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
+  return useWorkerMutation((name) => api.restartWorker(name));
 }
 
 export function usePluginWorkers() {

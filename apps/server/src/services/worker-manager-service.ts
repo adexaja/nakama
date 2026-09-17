@@ -12,6 +12,13 @@ import {
   setWorkerDesiredRunning,
 } from "@nakama/core";
 
+import {
+  claimLegacyWhatsAppConfig,
+  listWhatsAppConfigOrgIds,
+  loadWhatsAppConfigFile,
+} from "@nakama/core/whatsapp-config";
+import { createWhatsAppWorkerHeartbeat } from "@nakama/core/whatsapp-worker";
+
 const WORKER_SCRIPTS: Record<string, string> = {
   automation: "apps/platform/automation/src/index.ts",
   discord: "apps/platform/discord/src/index.ts",
@@ -404,7 +411,7 @@ export class WorkerManagerService {
     ).catch(() => {});
   }
 
-  async startWorker(name: string): Promise<void> {
+  async startWorker(name: string, orgId: string | null = null): Promise<void> {
     const pluginWorker = this.pluginWorkers.get(name);
     if (pluginWorker) {
       return this.startPluginWorker(name, pluginWorker);
@@ -413,18 +420,25 @@ export class WorkerManagerService {
       throw new Error(`Unknown worker: ${name}`);
     }
 
-    await setWorkerDesiredRunning(name as PlatformWorkerName, true);
+    const scope = name === "whatsapp" ? orgId : null;
+    const processName = this.processName(name, scope);
+    await setWorkerDesiredRunning(name as PlatformWorkerName, true, scope);
 
     await this.withPm2(async (pm2) => {
       const script = this.resolveWorkerScript(name);
-      await this.removeWorkerFromPm2(pm2, name);
+      await this.removeWorkerFromPm2(pm2, processName);
       await promisifyPm2<void>((cb) =>
         pm2.start(
           {
             args: ["run", script],
             cwd: this.projectRoot,
-            env: this.workerProcessEnv(),
-            name,
+            env: {
+              ...this.workerProcessEnv(),
+              ...(name === "whatsapp"
+                ? { NAKAMA_WHATSAPP_ORG_ID: scope ?? "" }
+                : {}),
+            },
+            name: processName,
             script: "bun",
           },
           (error) => cb(error)
@@ -433,7 +447,7 @@ export class WorkerManagerService {
     });
   }
 
-  async stopWorker(name: string): Promise<void> {
+  async stopWorker(name: string, orgId: string | null = null): Promise<void> {
     if (!this.isValidWorker(name)) {
       throw new Error(`Unknown worker: ${name}`);
     }
@@ -446,17 +460,38 @@ export class WorkerManagerService {
       ) {
         throw new Error("Plugin worker is disabled");
       }
-      await promisifyPm2<void>((cb) => pm2.stop(name, (error) => cb(error)));
+      await promisifyPm2<void>((cb) =>
+        pm2.stop(this.processName(name, orgId), (error) => cb(error))
+      );
       if (pluginWorker) {
         await this.writePluginWorkerDesired(pluginWorker, false);
       }
     });
     if (!pluginWorker) {
-      await setWorkerDesiredRunning(name as PlatformWorkerName, false);
+      await setWorkerDesiredRunning(
+        name as PlatformWorkerName,
+        false,
+        name === "whatsapp" ? orgId : null
+      );
     }
   }
 
   async recoverDesiredWorkers(): Promise<void> {
+    for (const orgId of await listWhatsAppConfigOrgIds()) {
+      const desired = await readWorkerDesiredState(orgId);
+      if (!desired.whatsapp) {
+        continue;
+      }
+      const status = await this.getWorkerStatus("whatsapp", orgId);
+      if (status?.status === "online") {
+        continue;
+      }
+      try {
+        await this.startWorker("whatsapp", orgId);
+      } catch (error) {
+        console.warn(`Could not recover WhatsApp worker for ${orgId}:`, error);
+      }
+    }
     const desired = await readWorkerDesiredState();
     const statuses = await this.getAllWorkerStatuses();
 
@@ -479,12 +514,47 @@ export class WorkerManagerService {
     }
   }
 
-  async restartWorker(name: string): Promise<void> {
+  async migrateLegacyWhatsApp(orgId: string): Promise<void> {
+    if (
+      !(await loadWhatsAppConfigFile()) ||
+      (await loadWhatsAppConfigFile(orgId))
+    ) {
+      return;
+    }
+    const desired = (await readWorkerDesiredState()).whatsapp;
+    const status = await this.getWorkerStatus("whatsapp");
+    const wasRunning = status?.status === "online";
+    if (wasRunning) {
+      await this.stopWorker("whatsapp");
+    }
+    if (await createWhatsAppWorkerHeartbeat().isRunning()) {
+      console.warn(
+        "Stop the manually started WhatsApp bridge, then restart Nakama to migrate its account."
+      );
+      return;
+    }
+    if (await claimLegacyWhatsAppConfig(orgId)) {
+      await setWorkerDesiredRunning("whatsapp", false);
+      await setWorkerDesiredRunning("whatsapp", desired || wasRunning, orgId);
+    }
+  }
+
+  async restartWorker(
+    name: string,
+    orgId: string | null = null
+  ): Promise<void> {
     if (!this.isValidWorker(name)) {
       throw new Error(`Unknown worker: ${name}`);
     }
 
-    await this.startWorker(name);
+    await this.startWorker(name, orgId);
+  }
+
+  private processName(name: string, orgId: string | null): string {
+    return name === "whatsapp" && orgId
+      ? "whatsapp-" +
+          createHash("sha256").update(orgId).digest("hex").slice(0, 24)
+      : name;
   }
 
   private pm2ProcessToInfo(
@@ -530,27 +600,34 @@ export class WorkerManagerService {
     };
   }
 
-  async getWorkerStatus(name: string): Promise<WorkerProcessInfo | null> {
+  async getWorkerStatus(
+    name: string,
+    orgId: string | null = null
+  ): Promise<WorkerProcessInfo | null> {
     if (!this.isValidWorker(name)) {
       return null;
     }
 
     try {
       const list = await this.listAllPm2Processes();
-      const match = list.find((p) => p.name === name);
+      const match = list.find((p) => p.name === this.processName(name, orgId));
       return this.pm2ProcessToInfo(match);
     } catch {
       return this.pm2UnavailableInfo();
     }
   }
 
-  async getAllWorkerStatuses(): Promise<Record<string, WorkerProcessInfo>> {
+  async getAllWorkerStatuses(
+    orgId: string | null = null
+  ): Promise<Record<string, WorkerProcessInfo>> {
     try {
       const list = await this.listAllPm2Processes();
 
       return Object.fromEntries(
         [...VALID_WORKERS, ...this.pluginWorkers.keys()].map((name) => {
-          const match = list.find((p) => p.name === name);
+          const match = list.find(
+            (p) => p.name === this.processName(name, orgId)
+          );
           return [name, this.pm2ProcessToInfo(match)];
         })
       );
@@ -566,7 +643,8 @@ export class WorkerManagerService {
 
   async getWorkerLogs(
     name: string,
-    lines: number
+    lines: number,
+    orgId: string | null = null
   ): Promise<WorkerLogsResponse> {
     if (!this.isValidWorker(name)) {
       throw new Error(`Unknown worker: ${name}`);
@@ -574,7 +652,7 @@ export class WorkerManagerService {
 
     return this.withPm2(async (pm2) => {
       const descriptions = await promisifyPm2<Pm2ProcessDescription[]>((cb) =>
-        pm2.describe(name, cb)
+        pm2.describe(this.processName(name, orgId), cb)
       );
       const desc = descriptions[0];
       const outPath = desc?.pm2_env?.pm_out_log_path as string | undefined;
@@ -589,13 +667,18 @@ export class WorkerManagerService {
     });
   }
 
-  async clearWorkerLogs(name: string): Promise<void> {
+  async clearWorkerLogs(
+    name: string,
+    orgId: string | null = null
+  ): Promise<void> {
     if (!this.isValidWorker(name)) {
       throw new Error(`Unknown worker: ${name}`);
     }
 
     await this.withPm2(async (pm2) => {
-      await promisifyPm2<void>((cb) => pm2.flush(name, (error) => cb(error)));
+      await promisifyPm2<void>((cb) =>
+        pm2.flush(this.processName(name, orgId), (error) => cb(error))
+      );
     });
   }
 
