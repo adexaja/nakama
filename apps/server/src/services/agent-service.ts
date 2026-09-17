@@ -2588,6 +2588,17 @@ export class AgentService {
     const existing = this.userConfig?.providers ?? [];
     const instance = buildProviderInstanceFromCreateRequest(request, existing);
     const model = resolveInitialModel(instance, request.model);
+    if (instance.type === "gemini") {
+      const provider = createProviderForInstance(instance, model);
+      if (!provider) {
+        throw new Error("Gemini provider could not be initialized.");
+      }
+      await provider.generateText({
+        format: "text",
+        prompt: "Reply with OK.",
+        system: "Reply with OK.",
+      });
+    }
     const providers = [...existing, instance];
     const isFirst = providers.length === 1;
     const thinking = await this.resolveThinkingSettings();

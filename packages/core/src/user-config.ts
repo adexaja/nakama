@@ -872,6 +872,7 @@ export function validateProviderInstanceLabel(
 interface ApiKeyFormatRule {
   minLength: number;
   prefix?: string;
+  prefixes?: string[];
 }
 
 // Self-hosted/opaque-format providers (ollama, openai_compatible, cloudflare,
@@ -884,7 +885,7 @@ const API_KEY_FORMAT_RULES: Partial<
   anthropic: { minLength: 30, prefix: "sk-ant-" },
   cerebras: { minLength: 20, prefix: "csk-" },
   deepseek: { minLength: 30, prefix: "sk-" },
-  gemini: { minLength: 30, prefix: "AIza" },
+  gemini: { minLength: 30, prefixes: ["AIza", "AQ."] },
   openai: { minLength: 40, prefix: "sk-" },
   openrouter: { minLength: 20, prefix: "sk-or-" },
 };
@@ -900,14 +901,16 @@ export function validateProviderApiKeyFormat(
     return trimmed;
   }
 
+  const prefixes = rule.prefixes ?? (rule.prefix ? [rule.prefix] : undefined);
   const hasWrongPrefix =
-    rule.prefix !== undefined && !trimmed.startsWith(rule.prefix);
+    prefixes !== undefined &&
+    !prefixes.some((prefix) => trimmed.startsWith(prefix));
   const tooShort = trimmed.length < rule.minLength;
 
   if (hasWrongPrefix || tooShort) {
     const label = PROVIDER_TYPE_LABELS[type] ?? type;
     const reason = hasWrongPrefix
-      ? ` (expected it to start with "${rule.prefix}")`
+      ? ` (expected it to start with "${prefixes?.join('" or "')}")`
       : ` (expected at least ${rule.minLength} characters)`;
     throw new NakamaApiError(
       `That doesn't look like a valid ${label} API key${reason}.`,
