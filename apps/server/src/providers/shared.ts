@@ -93,6 +93,7 @@ export function notifyToolInputDelta(
 
 export function buildChatCompletionResult(options: {
   content: string | null | undefined;
+  providerContent?: unknown[];
   toolCalls: ToolCall[];
   thinking?: string | null | undefined;
   usage?: ChatCompletionResult["usage"];
@@ -102,6 +103,9 @@ export function buildChatCompletionResult(options: {
   const assistantMessage: Extract<ChatMessage, { role: "assistant" }> = {
     content,
     role: "assistant",
+    ...(options.providerContent?.length
+      ? { providerContent: options.providerContent }
+      : {}),
     ...(thinking ? { thinking } : {}),
     ...(options.toolCalls.length > 0 ? { toolCalls: options.toolCalls } : {}),
   };
