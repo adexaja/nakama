@@ -58,7 +58,12 @@ describe("WorkerManagerService", () => {
     await setWorkerDesiredRunning("whatsapp", true);
     const pm2 = createMockPm2();
     const service = new WorkerManagerService(projectRoot, pm2);
-    await service.migrateLegacyWhatsApp("org_a");
+    const organizations = [
+      { createdAt: "2026-02-01T00:00:00.000Z", id: "org_b" },
+      { createdAt: "2026-01-01T00:00:00.000Z", id: "org_a" },
+    ];
+    await service.migrateLegacyWhatsApp(organizations);
+    expect(await loadWhatsAppConfigFile("org_b")).toBeNull();
     expect(await loadWhatsAppConfigFile()).toBeNull();
     expect((await loadWhatsAppConfigFile("org_a"))?.pairedJid).toBe(
       "628111111111@s.whatsapp.net"
@@ -70,7 +75,7 @@ describe("WorkerManagerService", () => {
     ).toBe("{}");
     expect((await readWorkerDesiredState()).whatsapp).toBe(false);
     expect((await readWorkerDesiredState("org_a")).whatsapp).toBe(true);
-    await service.migrateLegacyWhatsApp("org_a");
+    await service.migrateLegacyWhatsApp(organizations);
     expect((await loadWhatsAppConfigFile("org_a"))?.profileId).toBe(
       "well-test"
     );
@@ -79,6 +84,44 @@ describe("WorkerManagerService", () => {
     expect(
       calls.some(([opts]) => opts.env.NAKAMA_WHATSAPP_ORG_ID === "org_a")
     ).toBe(true);
+  });
+
+  test.each([
+    [{ createdAt: "2026-01-01T00:00:00.000Z", id: "org_z" }],
+    [
+      { createdAt: "2026-02-01T00:00:00.000Z", id: "org_a" },
+      { createdAt: "2026-01-01T00:00:00.000Z", id: "org_z" },
+    ],
+  ])(
+    "selects by creation time, including single-org installs: %j",
+    async (...organizations) => {
+      await saveWhatsAppConfig({ profileId: "legacy" });
+      const service = new WorkerManagerService(projectRoot, createMockPm2());
+      await service.migrateLegacyWhatsApp(organizations);
+      expect((await loadWhatsAppConfigFile("org_z"))?.profileId).toBe("legacy");
+      expect(await loadWhatsAppConfigFile("org_a")).toBeNull();
+      expect(await loadWhatsAppConfigFile()).toBeNull();
+    }
+  );
+
+  test("leaves the legacy account untouched without organizations", async () => {
+    await saveWhatsAppConfig({ profileId: "legacy" });
+    const service = new WorkerManagerService(projectRoot, createMockPm2());
+    await service.migrateLegacyWhatsApp([]);
+    expect((await loadWhatsAppConfigFile())?.profileId).toBe("legacy");
+  });
+
+  test("does not overwrite the oldest org or assign legacy to a newer org", async () => {
+    await saveWhatsAppConfig({ profileId: "legacy" });
+    await saveWhatsAppConfig({ profileId: "existing" }, "org_a");
+    const service = new WorkerManagerService(projectRoot, createMockPm2());
+    await service.migrateLegacyWhatsApp([
+      { createdAt: "2026-02-01T00:00:00.000Z", id: "org_b" },
+      { createdAt: "2026-01-01T00:00:00.000Z", id: "org_a" },
+    ]);
+    expect((await loadWhatsAppConfigFile())?.profileId).toBe("legacy");
+    expect((await loadWhatsAppConfigFile("org_a"))?.profileId).toBe("existing");
+    expect(await loadWhatsAppConfigFile("org_b")).toBeNull();
   });
 
   describe("isValidWorker", () => {

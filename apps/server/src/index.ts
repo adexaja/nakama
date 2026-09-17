@@ -136,8 +136,8 @@ if (interruptedRuns > 0) {
 // Channel credentials used to be install-wide. On a single-org install that
 // config can only belong to that org, so claim it once before any scope-exact
 // read reports the org as unconfigured.
-const [soleOrganization, ...otherOrganizations] =
-  await database.adapter.listOrganizations();
+const organizations = await database.adapter.listOrganizations();
+const [soleOrganization, ...otherOrganizations] = organizations;
 if (soleOrganization && otherOrganizations.length === 0) {
   const claimed = await claimLegacyTelegramConfig(soleOrganization.id);
 
@@ -244,9 +244,7 @@ const workerManager = new WorkerManagerService(
   }
 );
 
-if (soleOrganization && otherOrganizations.length === 0) {
-  await workerManager.migrateLegacyWhatsApp(soleOrganization.id);
-}
+await workerManager.migrateLegacyWhatsApp(organizations);
 
 const orgService = new OrgService(database.adapter, authService);
 const pluginService = new PluginService(database.adapter, getUserConfigDir(), {

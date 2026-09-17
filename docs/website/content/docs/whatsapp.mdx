@@ -166,9 +166,9 @@ Open **Integrations → WhatsApp** and check the **Reply as** profile. That is t
 
 ## Existing installations
 
-On an installation with one organization, Nakama moves the existing WhatsApp connection into that organization when the server restarts, preserving the linked device and settings. If you started the bridge manually, stop it before restarting the server.
+When the server restarts, Nakama moves the existing shared WhatsApp connection into the first-created organization, preserving the linked device and settings. This also applies when you have several organizations. If you started the bridge manually, stop it before restarting the server.
 
-On an installation with several organizations, the existing shared bridge stays available. Each organization can configure its own number separately; Nakama does not guess which organization owns the old connection.
+Other organizations must connect their own WhatsApp numbers. Nakama does not overwrite an existing WhatsApp connection in the first-created organization or move the shared connection to another organization instead.
 
 ## Next steps
 

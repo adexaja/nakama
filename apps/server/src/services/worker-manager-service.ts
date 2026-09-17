@@ -514,7 +514,19 @@ export class WorkerManagerService {
     }
   }
 
-  async migrateLegacyWhatsApp(orgId: string): Promise<void> {
+  async migrateLegacyWhatsApp(
+    organizations: readonly { id: string; createdAt: string }[]
+  ): Promise<void> {
+    // Organization listings are alphabetical, not creation-ordered.
+    const oldest = [...organizations].sort(
+      (a, b) =>
+        Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
+        a.id.localeCompare(b.id)
+    )[0];
+    if (!oldest) {
+      return;
+    }
+    const orgId = oldest.id;
     if (
       !(await loadWhatsAppConfigFile()) ||
       (await loadWhatsAppConfigFile(orgId))

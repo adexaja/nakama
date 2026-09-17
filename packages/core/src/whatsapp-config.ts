@@ -648,7 +648,7 @@ export async function listWhatsAppConfigOrgIds(): Promise<string[]> {
   return configured;
 }
 
-/** Called only with the sole organization, after stopping the legacy worker. */
+/** Called with the oldest organization, after stopping the legacy worker. */
 export async function claimLegacyWhatsAppConfig(
   orgId: string
 ): Promise<boolean> {
