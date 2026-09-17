@@ -68,7 +68,12 @@ export async function toAnthropicMessages(
     }
 
     if (message.role === "assistant") {
-      if (message.providerContent?.length) {
+      if (
+        message.providerContent?.length &&
+        message.providerContent.every(
+          (part) => typeof readRecord(part).type === "string"
+        )
+      ) {
         result.push({
           content: message.providerContent as ContentBlockParam[],
           role: "assistant",
