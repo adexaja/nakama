@@ -209,6 +209,7 @@ export function createHonoApp(options: ServerOptions) {
   });
 
   // Probes must work before setup/login; they reveal no tenant or config data.
+  app.get("/up", (c) => c.json({ ok: true }));
   app.get("/healthz", (c) => c.json({ ok: true }));
   app.get("/readyz", async (c) => {
     c.header("Cache-Control", "no-store");
