@@ -55,6 +55,7 @@ import type {
   ListSessionsResponse,
   ListSkillsResponse,
   ListToolsResponse,
+  LoadedAttachmentBytes,
   ModelsResponse,
   MoveProfileRequest,
   PatchSkillRequest,
@@ -1765,6 +1766,25 @@ export class AgentService {
         access
       );
     }
+  }
+
+  async readChatImageAttachment(
+    orgId: string,
+    attachmentId: string,
+    access: ChatProfileAccess
+  ): Promise<LoadedAttachmentBytes | null> {
+    const record = await this.db.getAttachment(attachmentId);
+    if (!record || record.orgId !== orgId || record.kind !== "image") {
+      return null;
+    }
+    this.assertChatProfileAccess(
+      await this.requireProfile(orgId, record.profileId),
+      access
+    );
+    return createAttachmentLoader(this.db, {
+      orgId,
+      profileId: record.profileId,
+    })(attachmentId);
   }
 
   private assertChatProfileAccess(
