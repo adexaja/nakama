@@ -182,6 +182,16 @@ const BASE_MODELS: ProviderModelOption[] = withVisionDefaults([
     provider: "gemini",
   },
   {
+    contextWindow: 1_048_576,
+    id: "gemini-3.1-pro-preview",
+    // Base tier for prompts <= 200k tokens; longer prompts cost more.
+    inputPerMillionUsd: 2,
+    maxOutputTokens: 65_536,
+    name: "Gemini 3.1 Pro (Preview)",
+    outputPerMillionUsd: 12,
+    provider: "gemini",
+  },
+  {
     contextWindow: 1_000_000,
     default: true,
     id: "deepseek-v4-flash",
