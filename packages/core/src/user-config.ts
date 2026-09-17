@@ -884,7 +884,6 @@ const API_KEY_FORMAT_RULES: Partial<
   anthropic: { minLength: 30, prefix: "sk-ant-" },
   cerebras: { minLength: 20, prefix: "csk-" },
   deepseek: { minLength: 30, prefix: "sk-" },
-  gemini: { minLength: 30, prefix: "AIza" },
   openai: { minLength: 40, prefix: "sk-" },
   openrouter: { minLength: 20, prefix: "sk-or-" },
 };
