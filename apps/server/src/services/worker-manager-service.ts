@@ -419,6 +419,15 @@ export class WorkerManagerService {
     if (!this.isValidWorker(name)) {
       throw new Error(`Unknown worker: ${name}`);
     }
+    if (
+      name === "whatsapp" &&
+      orgId === null &&
+      (await listWhatsAppConfigOrgIds()).length > 0
+    ) {
+      throw new Error(
+        "WhatsApp workers must be started with an organization scope."
+      );
+    }
 
     const scope = name === "whatsapp" ? orgId : null;
     const processName = this.processName(name, scope);

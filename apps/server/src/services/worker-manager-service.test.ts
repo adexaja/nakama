@@ -233,6 +233,18 @@ describe("WorkerManagerService", () => {
       expect(opts.interpreter).toBeUndefined();
     });
 
+    test("rejects an unscoped whatsapp worker when org accounts exist", async () => {
+      await saveWhatsAppConfig({ profileId: "well-test" }, "org_a");
+      await saveWhatsAppConfig({ profileId: "finance" }, "org_b");
+      const mockPm2 = createMockPm2();
+      const service = new WorkerManagerService(projectRoot, mockPm2);
+
+      await expect(service.startWorker("whatsapp")).rejects.toThrow(
+        "organization scope"
+      );
+      expect(mockPm2.start).not.toHaveBeenCalled();
+    });
+
     test("starts automation worker", async () => {
       const mockPm2 = createMockPm2();
       const service = new WorkerManagerService(projectRoot, mockPm2);
