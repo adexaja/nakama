@@ -4,7 +4,7 @@
 ARG BUILDPLATFORM
 
 # --- Build web dashboard (devDependencies stay in this stage only) ---
-FROM --platform=${BUILDPLATFORM} oven/bun:1.3-slim AS web-builder
+FROM --platform=${BUILDPLATFORM} oven/bun:1.4-slim AS web-builder
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -16,11 +16,29 @@ RUN bun install --frozen-lockfile --ignore-scripts \
   && bun run --filter @nakama/web build
 
 # --- Production runtime (server + workspace packages + built static assets) ---
-FROM oven/bun:1.3-slim AS runtime
+FROM oven/bun:1.4-slim AS runtime
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates sudo \
   && rm -rf /var/lib/apt/lists/*
+
+COPY --chown=root:root scripts/install-meet-deps.sh /usr/local/sbin/nakama-install-meet-deps
+RUN chmod 0755 /usr/local/sbin/nakama-install-meet-deps \
+  && printf '%s\n' 'nakama ALL=(root) NOPASSWD: /usr/local/sbin/nakama-install-meet-deps ""' > /etc/sudoers.d/nakama-meet \
+  && chmod 0440 /etc/sudoers.d/nakama-meet \
+  && visudo -cf /etc/sudoers.d/nakama-meet
+
+# Optional Google Meet audio-capture runtime. Chromium remains sandboxed and
+# runs as the existing non-root Nakama user.
+ARG INSTALL_MEET_DEPS=false
+RUN if [ "$INSTALL_MEET_DEPS" = "true" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends \
+        chromium ffmpeg pulseaudio pulseaudio-utils fonts-liberation xvfb \
+      && rm -rf /var/lib/apt/lists/* \
+      && mkdir -p /opt/nakama-meet \
+      && cd /opt/nakama-meet \
+      && bun add --exact --production --ignore-scripts betterwright@2.8.1; \
+    fi
 
 # Tool-output optimiser, on by default so the dashboard toggle works on a fresh
 # image without a rebuild. Just under 10 MB unpacked. Build with

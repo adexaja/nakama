@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 import { getPluginReleaseDir, PLUGIN_MANIFEST_API_VERSION } from "@nakama/core";
 import { createInMemoryDatabaseAdapter } from "@nakama/db";
@@ -85,6 +85,67 @@ describe("PluginService", () => {
   afterEach(async () => {
     await rm(SIDE_EFFECT_MARKER, { force: true });
     await rm(configDir, { force: true, recursive: true });
+  });
+
+  test("installs the bundled Google Meet plugin and executes its isolated action", async () => {
+    const db = createInMemoryDatabaseAdapter();
+    const workers: string[] = [];
+    const service = new PluginService(db, configDir, {
+      officialPackagesDir: resolve(
+        import.meta.dir,
+        "../../../../packages/plugins"
+      ),
+      workerManager: {
+        async registerPluginWorkers(registration) {
+          workers.push(...registration.workers.map((worker) => worker.key));
+        },
+        async unregisterPluginWorkers() {},
+      },
+    });
+    const actor = { id: "admin", role: "admin" as const };
+    const dependencyStatus = spyOn(service, "getOfficialPluginDependencies");
+    dependencyStatus.mockResolvedValue({ state: "failed", steps: [] });
+    await expect(
+      service.installOfficialPlugin("org-meet", "google-meet", actor)
+    ).rejects.toMatchObject({ code: "invalid_state" });
+    expect(workers).toHaveLength(0);
+    expect(await db.getOrgPlugin("org-meet", "google-meet")).toBeNull();
+    dependencyStatus.mockResolvedValue({ state: "ready", steps: [] });
+    const installed = await service.installOfficialPlugin(
+      "org-meet",
+      "google-meet",
+      actor
+    );
+    expect(installed.lifecycleState).toBe("enabled");
+    expect(workers).toContain("meet");
+    dependencyStatus.mockRestore();
+    const result = await service.invokePluginAction({
+      access: "ui",
+      actionKey: "meetings",
+      actor,
+      input: {},
+      orgId: "org-meet",
+      pluginId: "google-meet",
+    });
+    expect(result.result).toMatchObject({
+      authenticated: false,
+      configured: false,
+      meetings: [],
+      worker: { state: "stopped" },
+    });
+    const release = getPluginReleaseDir("google-meet", "0.1.0", configDir);
+    // Import the bundled worker from the installed release, outside package dependencies.
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        "-e",
+        "await import(process.argv[1])",
+        join(release, "workers/meet.js"),
+      ],
+      { cwd: configDir, stderr: "pipe", stdout: "pipe" }
+    );
+    const errors = await new Response(child.stderr).text();
+    expect(await child.exited, errors).toBe(0);
   });
 
   test("previews and installs a npm package without running top-level side-effect code", async () => {
