@@ -4354,7 +4354,11 @@ export class AgentService {
       return;
     }
 
-    return resolveModelLimits(resolved.model, resolved.instance.customModels);
+    return resolveModelLimits(
+      resolved.instance.type,
+      resolved.model,
+      resolved.instance.customModels
+    );
   }
 
   private resolveWorkspaceThinkingDefaults(): ThinkingSettings {
