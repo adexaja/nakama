@@ -62,6 +62,7 @@ import type {
   ProviderChatOptions,
   ProviderClient,
   RunToolResponse,
+  SaveInlineAttachment,
   SendEmailTestResponse,
   SendErrorTrackingTestResponse,
   SkillResponse,
@@ -223,7 +224,10 @@ import {
   resolveXaiOAuthCredentials,
 } from "../providers/xai-oauth/oauth";
 import { createAskUserQuestionTools } from "../tools/ask-user-question-tool";
-import { createOrgMemoryTools } from "../tools/org-memory-tools";
+import {
+  createOrgMemoryTools,
+  PROPOSE_ORG_MEMORY_TOOL_NAME,
+} from "../tools/org-memory-tools";
 import { createSendDiscordArtifactTools } from "../tools/send-discord-artifact-tool";
 import {
   createSkillManageTools,
@@ -274,6 +278,10 @@ import {
   customToolTypesLabel,
   getCustomToolHandler,
 } from "./custom-tool-handlers";
+import {
+  type EphemeralSession,
+  EphemeralSessionStore,
+} from "./ephemeral-session-store";
 import {
   generateImageWithOpenAI,
   IMAGE_MODEL_REQUIRED_MESSAGE,
@@ -341,7 +349,13 @@ interface StoredSession {
 
 export type { SubAgentRunInput, SubAgentRunResult };
 
+interface CognitoSessionOptions {
+  /** Seeds a rebuild (model change) with the history held in memory. */
+  initialHistory?: ChatMessage[];
+}
+
 export interface CreateSessionOptions {
+  cognito?: boolean;
   excludeSuperBot?: boolean;
   isPlatformAdmin?: boolean;
   model?: string | null;
@@ -379,6 +393,9 @@ export class AgentService {
   private orgMemoryService: OrgMemoryService | null = null;
   private readonly memoryBackend: MemoryBackendService;
   private readonly sessions = new Map<string, StoredSession>();
+  private readonly ephemeralSessions = new EphemeralSessionStore((entry) =>
+    this.purgeEphemeralAttachments(entry)
+  );
   private readonly sessionTitleService: SessionTitleService;
   private readonly orgUsageQuotaService: OrgUsageQuotaService;
   private skillPostTurnReviewService: SkillPostTurnReviewService;
@@ -1666,8 +1683,8 @@ export class AgentService {
 
     const sessionId = nanoid();
     const modelOverride = this.normalizeSessionModelOverride(options?.model);
-
-    await this.db.upsertSession({
+    const cognito = options?.cognito;
+    const record: StoredSessionRecord = {
       agentQuestionnaire: null,
       agentTodos: [],
       channel,
@@ -1677,7 +1694,14 @@ export class AgentService {
       profileId: resolvedProfileId,
       title: null,
       userId: userId ?? null,
-    });
+    };
+
+    // A cognito session skips this row on purpose. Without it there is nothing
+    // for session_messages to hang off, so the conversation cannot be
+    // persisted even by a path that forgets to check.
+    if (!cognito) {
+      await this.db.upsertSession(record);
+    }
 
     const session = await this.buildChatSession(
       channel,
@@ -1687,8 +1711,20 @@ export class AgentService {
       modelOverride,
       userId ?? null,
       options?.orgRole,
-      options?.isPlatformAdmin
+      options?.isPlatformAdmin,
+      cognito ? {} : undefined
     );
+
+    if (cognito) {
+      await this.ephemeralSessions.set({
+        attachmentIds: new Set(),
+        lastActiveAt: Date.now(),
+        record,
+        session,
+      });
+
+      return sessionId;
+    }
 
     this.sessions.set(sessionId, {
       channel,
@@ -1728,6 +1764,91 @@ export class AgentService {
         403
       );
     }
+  }
+
+  /**
+   * Cognito attachments carry a null session_id, so the tracked ids are the
+   * only handle on them. Runs when the session is deleted and when an idle
+   * one is evicted.
+   */
+  private async purgeEphemeralAttachments(
+    entry: EphemeralSession
+  ): Promise<void> {
+    entry.session.clear();
+    this.superBotSessionState.clearSession(entry.record.id);
+    this.agentTodoState.clearSession(entry.record.id);
+    this.agentQuestionnaireState.clearSession(entry.record.id);
+
+    for (const attachmentId of entry.attachmentIds) {
+      const attachment = await this.db.getAttachment(attachmentId);
+
+      if (!attachment) {
+        continue;
+      }
+
+      await deleteAttachmentBytes(
+        attachment.orgId ?? "",
+        attachment.profileId,
+        attachment.id
+      );
+      await this.db.deleteAttachment(attachment.id);
+    }
+  }
+
+  /**
+   * A model change needs a new provider, which means a new session object. The
+   * conversation only exists in the old one, so it is carried across by hand.
+   */
+  private async rebuildEphemeralSession(
+    entry: EphemeralSession,
+    orgId: string,
+    model: string | null
+  ): Promise<boolean> {
+    const channel = parseAgentChannel(entry.record.channel);
+
+    if (!channel) {
+      return false;
+    }
+
+    const { isPlatformAdmin, orgRole } = await this.resolveSessionAccess(
+      orgId,
+      entry.record.userId
+    );
+    const session = await this.buildChatSession(
+      channel,
+      orgId,
+      entry.record.profileId,
+      entry.record.id,
+      model,
+      entry.record.userId ?? null,
+      orgRole,
+      isPlatformAdmin,
+      { initialHistory: [...entry.session.getHistory()] }
+    );
+
+    entry.record.model = model;
+    entry.session = session;
+    await this.ephemeralSessions.set(entry);
+    return true;
+  }
+
+  /**
+   * A hard restart drops the in-memory map before its entries can be evicted,
+   * which leaves attachment rows and files nothing will ever claim.
+   */
+  async sweepEphemeralAttachments(): Promise<number> {
+    const leftovers = await this.db.listEphemeralAttachments();
+
+    for (const attachment of leftovers) {
+      await deleteAttachmentBytes(
+        attachment.orgId ?? "",
+        attachment.profileId,
+        attachment.id
+      );
+      await this.db.deleteAttachment(attachment.id);
+    }
+
+    return leftovers.length;
   }
 
   async getSessionTodos(
@@ -1780,7 +1901,12 @@ export class AgentService {
       return null;
     }
 
-    if (!options?.persistedOnly && sessionTurnRegistry.isActive(sessionId)) {
+    // Live history is the only history a cognito session has, so it answers
+    // here whether or not a turn is in flight.
+    if (
+      this.ephemeralSessions.has(sessionId) ||
+      (!options?.persistedOnly && sessionTurnRegistry.isActive(sessionId))
+    ) {
       const liveSession = await this.resolveSession(sessionId, orgId);
 
       if (liveSession) {
@@ -1937,10 +2063,22 @@ export class AgentService {
   }
 
   scheduleSessionTitleGeneration(sessionId: string): void {
+    // A cognito session has no row to title, and generating one would spend a
+    // turn summarising a conversation that is meant to leave no trace.
+    if (this.ephemeralSessions.has(sessionId)) {
+      return;
+    }
+
     this.sessionTitleService.scheduleSessionTitleGeneration(sessionId);
   }
 
   schedulePostTurnSkillReview(sessionId: string): void {
+    // The review writes skill suggestions, which is exactly the write-back a
+    // cognito session promises not to do.
+    if (this.ephemeralSessions.has(sessionId)) {
+      return;
+    }
+
     this.skillPostTurnReviewService.schedulePostTurnSkillReview(sessionId);
   }
 
@@ -1953,6 +2091,10 @@ export class AgentService {
 
     if (!record) {
       return false;
+    }
+
+    if (await this.ephemeralSessions.delete(sessionId)) {
+      return true;
     }
 
     this.sessions.get(sessionId)?.session.clear();
@@ -1978,6 +2120,14 @@ export class AgentService {
 
     if (!record) {
       return null;
+    }
+
+    // Never rebuilt: the history only exists inside this object, so dropping
+    // it to pick up a config change would silently empty the conversation.
+    const ephemeral = this.ephemeralSessions.get(sessionId);
+
+    if (ephemeral) {
+      return ephemeral.session;
     }
 
     const stored = this.sessions.get(sessionId);
@@ -2049,6 +2199,16 @@ export class AgentService {
         return true;
       }
 
+      const ephemeral = this.ephemeralSessions.get(sessionId);
+
+      if (ephemeral) {
+        return await this.rebuildEphemeralSession(
+          ephemeral,
+          orgId,
+          normalizedModel
+        );
+      }
+
       const updated = await this.db.updateSessionModel(
         sessionId,
         normalizedModel
@@ -2087,6 +2247,13 @@ export class AgentService {
 
     if (!record) {
       return false;
+    }
+
+    // Clearing a cognito session is the same as ending it: there is no
+    // durable copy to keep the id pointing at.
+    if (await this.ephemeralSessions.delete(sessionId)) {
+      await this.agentQuestionnaireState.clear(sessionId);
+      return true;
     }
 
     const stored = this.sessions.get(sessionId);
@@ -3376,7 +3543,11 @@ export class AgentService {
     sessionId: string,
     orgId: string
   ): Promise<StoredSessionRecord | null> {
-    const record = await this.db.getSession(sessionId);
+    // Cognito sessions have no row, so the map answers first. Everything that
+    // reaches a session funnels through here, which is why the rest of the
+    // file needs no branch of its own.
+    const ephemeral = this.ephemeralSessions.get(sessionId);
+    const record = ephemeral?.record ?? (await this.db.getSession(sessionId));
 
     if (!record) {
       return null;
@@ -3447,6 +3618,8 @@ export class AgentService {
       includeQuestionTools?: boolean;
       includeSubAgentTool?: boolean;
       includeSkillManageTools?: boolean;
+      /** False in a cognito session: proposing org memory is a write-back. */
+      includeMemoryWriteTools?: boolean;
       userId?: string | null;
     } = {}
   ): Promise<ToolDefinition[]> {
@@ -3577,6 +3750,12 @@ export class AgentService {
       resolved = [...resolved, ...this.orgMemoryTools];
     }
 
+    if (options.includeMemoryWriteTools === false) {
+      resolved = resolved.filter(
+        (tool) => tool.name !== PROPOSE_ORG_MEMORY_TOOL_NAME
+      );
+    }
+
     if (!includeSubAgentTool) {
       resolved = resolved.filter((tool) => tool.name !== SUB_AGENT_TOOL_NAME);
     }
@@ -3592,11 +3771,16 @@ export class AgentService {
     modelOverride: string | null,
     userId?: string | null,
     orgRole?: OrgRole | null,
-    isPlatformAdmin?: boolean
+    isPlatformAdmin?: boolean,
+    cognito?: CognitoSessionOptions
   ): Promise<AgentChatSession> {
     await this.ensureVisionSettingsLoaded();
     const profile = await this.requireProfile(orgId, profileId);
-    const includeSkillManageTools = SKILL_MANAGE_CHANNELS[channel];
+    // skill_manage writes skills and expands /learn, both of which outlive the
+    // chat, so a cognito session never gets it whatever the channel allows.
+    const includeSkillManageTools = cognito
+      ? false
+      : SKILL_MANAGE_CHANNELS[channel];
     const pluginOrgRole =
       channel === "telegram" || channel === "whatsapp" || channel === "discord"
         ? "member"
@@ -3608,6 +3792,7 @@ export class AgentService {
         pluginOrgRole === "viewer"
           ? pluginOrgRole
           : undefined,
+      includeMemoryWriteTools: !cognito,
       includeSkillManageTools,
       userId,
     });
@@ -3625,7 +3810,8 @@ export class AgentService {
       profileId,
       profile.systemPrompt,
       orgRole,
-      skillUsageContext
+      skillUsageContext,
+      !cognito
     );
     // Per-org override for the tool-output optimiser. Undefined leaves the
     // decision to the server's env var, so an operator who never opened the UI
@@ -3635,7 +3821,12 @@ export class AgentService {
     const resolvedSystemPrompt = profile.isSuper
       ? `${systemPrompt.trim()}\n\n${SUPER_BOT_TOOL_AUTHORING_RULES}`
       : systemPrompt;
-    const initialHistory = await loadSessionHistory(this.db, sessionId);
+    // A cognito session has nothing stored to load. On a model change it is
+    // handed the live history instead, so the conversation survives the
+    // rebuild that a new provider needs.
+    const initialHistory = cognito
+      ? (cognito.initialHistory ?? [])
+      : await loadSessionHistory(this.db, sessionId);
     const userTimezone = await this.getUserTimezone();
     const userContext = await this.loadUserContextForUser(orgId, userId);
     const selectedModel = modelOverride
@@ -3649,12 +3840,26 @@ export class AgentService {
     if (tools.length > 0) {
       tools = [...tools, createReadSessionHistoryTool(orgId, sessionId)];
     }
-    const saveAttachment = createAttachmentSaver(this.db, {
+    const persistAttachment = createAttachmentSaver(this.db, {
       channel,
+      ephemeral: Boolean(cognito),
       orgId,
       profileId,
-      sessionId,
+      // No `sessions` row exists for a cognito session, and the column is a
+      // foreign key, so it has to be null rather than the session id.
+      sessionId: cognito ? null : sessionId,
     });
+    const trackEphemeralAttachment = cognito
+      ? (attachmentId: string) =>
+          this.ephemeralSessions.trackAttachment(sessionId, attachmentId)
+      : undefined;
+    const saveAttachment: SaveInlineAttachment = trackEphemeralAttachment
+      ? async (input) => {
+          const saved = await persistAttachment(input);
+          trackEphemeralAttachment(saved.attachmentId);
+          return saved;
+        }
+      : persistAttachment;
     const loadAttachment = createAttachmentLoader(this.db, {
       orgId,
       profileId,
@@ -3794,6 +3999,7 @@ export class AgentService {
 
                   return parts.filter(Boolean).join("\n\n");
                 },
+                recordUsage: !cognito,
                 usageContext: skillUsageContext,
               }
             );
@@ -3811,6 +4017,7 @@ export class AgentService {
         assertCanStartLlmTurn: this.llmTurnQuotaCheckerFor(orgId),
         channel,
         ...this.memoryBackend.toolContext(orgId, profileId),
+        forbidMemoryWrites: cognito ? true : undefined,
         forbidProfileSkillMarkdownWrites: hasSkillManage,
         isPlatformAdmin: isPlatformAdmin || undefined,
         loadAttachment,
@@ -3824,12 +4031,19 @@ export class AgentService {
         recordTurnUsage: this.turnUsageRecorderFor(orgId),
         sessionId,
         tokenOptimizerEnabled: tokenOptimizerEnabled ?? undefined,
+        trackEphemeralAttachment,
         userId: userId ?? undefined,
       }),
       tools,
       userContext,
       userTimezone,
     });
+
+    if (cognito) {
+      // Deliberately unwrapped: wrapPersistedSession is what writes every turn
+      // into session_messages.
+      return session;
+    }
 
     const persistedSession = wrapPersistedSession(sessionId, session, this.db, {
       onBeginTurn: (id) => {
@@ -3958,7 +4172,8 @@ export class AgentService {
     profileId: string,
     profilePrompt: string,
     orgRole?: OrgRole | null,
-    usageContext?: import("./skills-service").SkillUsageRecordingContext
+    usageContext?: import("./skills-service").SkillUsageRecordingContext,
+    recordSkillUsage = true
   ): Promise<{ systemPrompt: string; soulActive: boolean }> {
     const stack = await resolveSoulStackForProfile(
       orgId,
@@ -3974,7 +4189,8 @@ export class AgentService {
       const skillsCatalog = await this.skillsService.composeCatalogForProfile(
         orgId,
         profileId,
-        usageContext
+        usageContext,
+        recordSkillUsage
       );
 
       if (skillsCatalog.trim()) {

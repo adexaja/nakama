@@ -61,6 +61,7 @@ export function registerSessionRoutes(
   const createSessionRequestSchema = z
     .object({
       channel: agentChannelSchema,
+      cognito: z.boolean().optional(),
       model: z.string().trim().min(1).optional(),
       profileId: z.string().optional(),
     })
@@ -403,6 +404,7 @@ export function registerSessionRoutes(
       body.profileId,
       auth.user.id,
       {
+        cognito: body.cognito,
         excludeSuperBot: auth.mode === "local-token" && channel !== "cli",
         isPlatformAdmin: auth.isPlatformAdmin,
         model: body.model,
