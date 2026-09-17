@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { deleteAttachmentBytes } from "@nakama/core/attachments/store";
 import {
   createInMemoryDatabaseAdapter,
   seedOrgSuperBotProfile,
 } from "@nakama/db";
 import { AgentService } from "../../services/agent-service";
+import { createAttachmentSaver } from "../../services/attachment-service";
 import { setupTestConfigDir } from "../../test-config-dir";
 import { createMinimalHonoApp } from "../test-app-helpers";
 import { loginUserSession, seedOrgAdmin } from "../test-session-helpers";
@@ -102,6 +104,61 @@ const CROSS_ORG_ROUTES: Array<{
 ];
 
 describe("session routes are scoped to the caller's active org", () => {
+  test("image content uses browser auth, stays org-scoped, and handles missing bytes", async () => {
+    const { app, databaseAdapter, victimSessionId } = await createScenario();
+    const saved = await createAttachmentSaver(databaseAdapter, {
+      channel: "web",
+      orgId: VICTIM_ORG,
+      profileId: "profile_victim",
+      sessionId: victimSessionId,
+    })({
+      bytes: Buffer.from("private-image"),
+      kind: "image",
+      mediaType: "image/png",
+    });
+    await seedOrgAdmin(databaseAdapter, {
+      email: "viewer@example.com",
+      orgId: VICTIM_ORG,
+      password: PASSWORD,
+      role: "viewer",
+      userId: "user_viewer",
+    });
+    const viewer = await loginUserSession(
+      app,
+      "viewer@example.com",
+      PASSWORD,
+      VICTIM_ORG
+    );
+    const attacker = await loginUserSession(
+      app,
+      "attacker@example.com",
+      PASSWORD,
+      ATTACKER_ORG
+    );
+    const url = `http://localhost:4310/v1/attachments/${saved.attachmentId}/content`;
+    const response = await app.fetch(
+      new Request(url, { headers: { Cookie: viewer.cookieHeader } })
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/png");
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(await response.text()).toBe("private-image");
+    expect((await app.fetch(new Request(url))).status).toBe(401);
+    expect(
+      (await app.fetch(new Request(url, { headers: attacker.headers() })))
+        .status
+    ).toBe(404);
+    await deleteAttachmentBytes(
+      VICTIM_ORG,
+      "profile_victim",
+      saved.attachmentId
+    );
+    expect(
+      (await app.fetch(new Request(url, { headers: viewer.headers() }))).status
+    ).toBe(404);
+  });
+
   for (const route of CROSS_ORG_ROUTES) {
     test(`${route.method} ${route.path(":id")} -> 404 across orgs`, async () => {
       const { app, databaseAdapter, victimSessionId } = await createScenario();
@@ -273,6 +330,36 @@ describe("Super Bot sessions stay admin-only after they are created", () => {
       superSessionId,
     };
   }
+
+  test("Super Bot images use the same profile access guard as chat history", async () => {
+    const { app, databaseAdapter, member, superProfileId, superSessionId } =
+      await createSuperBotScenario();
+    const saved = await createAttachmentSaver(databaseAdapter, {
+      channel: "web",
+      orgId: VICTIM_ORG,
+      profileId: superProfileId,
+      sessionId: superSessionId,
+    })({
+      bytes: Buffer.from("admin-image"),
+      kind: "image",
+      mediaType: "image/png",
+    });
+    const url = `http://localhost:4310/v1/attachments/${saved.attachmentId}/content`;
+    expect(
+      (await app.fetch(new Request(url, { headers: member.headers() }))).status
+    ).toBe(403);
+    const admin = await loginUserSession(
+      app,
+      "victim@example.com",
+      PASSWORD,
+      VICTIM_ORG
+    );
+    const response = await app.fetch(
+      new Request(url, { headers: admin.headers() })
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("admin-image");
+  });
 
   for (const route of CROSS_ORG_ROUTES) {
     test(`${route.method} ${route.path(":id")} -> 403 for a member`, async () => {
