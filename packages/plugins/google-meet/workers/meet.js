@@ -368,7 +368,8 @@ function browserOptions(directory) {
       "--autoplay-policy=no-user-gesture-required",
       "--use-fake-device-for-media-stream",
       "--use-fake-ui-for-media-stream",
-      "--disable-dev-shm-usage"
+      "--disable-dev-shm-usage",
+      ...process.platform === "linux" ? ["--no-sandbox"] : []
     ],
     credentialCapture: false,
     downloadPolicy: "deny",
