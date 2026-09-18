@@ -224,9 +224,9 @@ function RecentChats() {
 
   return (
     <div className="mt-5 flex min-h-0 flex-1 flex-col">
-      {!collapsed && pinnedSessions.length > 0 ? (
-        <div className="mb-3 px-2">
-          <p className="sidebar-nav-group-label px-0 text-sm">Pinned</p>
+      {pinnedSessions.length > 0 ? (
+        <div className="mb-3">
+          <p className="sidebar-nav-group-label px-2 text-sm">Pinned</p>
           {pinnedSessions.map(renderSession)}
         </div>
       ) : null}
