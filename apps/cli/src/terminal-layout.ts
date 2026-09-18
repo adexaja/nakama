@@ -13,9 +13,12 @@ import {
   styledLineText,
 } from "./styled-text";
 import type { TerminalInput } from "./terminal-input";
-import { stripAnsi, wrapText } from "./text-measure";
+import { stripAnsi } from "./text-measure";
 import type { MessageKind } from "./virtual-message-list";
-import { VirtualMessageList } from "./virtual-message-list";
+import {
+  renderMarkdownLines,
+  VirtualMessageList,
+} from "./virtual-message-list";
 
 interface FrameModel {
   lines: StyledLine[];
@@ -51,36 +54,6 @@ export function getTerminalRows(): number {
 
 export function getTerminalColumns(): number {
   return process.stdout.columns ?? 80;
-}
-
-const TRANSCRIPT_HORIZONTAL_PADDING = 1;
-
-function wrapPlainTextToLines(text: string, width: number): string[] {
-  const normalized = text.replace(/\r\n?/g, "\n");
-  const logicalLines = normalized.split("\n");
-  const wrappedLines: string[] = [];
-
-  for (const logicalLine of logicalLines) {
-    if (logicalLine === "") {
-      wrappedLines.push("");
-      continue;
-    }
-
-    wrappedLines.push(...wrapText(logicalLine, Math.max(1, width)));
-  }
-
-  return wrappedLines.length > 0 ? wrappedLines : [""];
-}
-
-function padTranscriptLine(text: string): string {
-  return `${" ".repeat(TRANSCRIPT_HORIZONTAL_PADDING)}${text}${" ".repeat(TRANSCRIPT_HORIZONTAL_PADDING)}`;
-}
-
-function wrapPaddedTranscriptLines(text: string, width: number): string[] {
-  const contentWidth = Math.max(1, width - TRANSCRIPT_HORIZONTAL_PADDING * 2);
-  return wrapPlainTextToLines(text, contentWidth).map((line) =>
-    padTranscriptLine(line)
-  );
 }
 
 export class TerminalLayout {
@@ -343,10 +316,7 @@ export class TerminalLayout {
       return [];
     }
 
-    const lines = wrapPaddedTranscriptLines(
-      this.streamBuffer,
-      getTerminalColumns()
-    ).map((line) => plainLine(line));
+    const lines = renderMarkdownLines(this.streamBuffer, getTerminalColumns());
     return this.messages.messageCount > 0 ? [plainLine(""), ...lines] : lines;
   }
 
