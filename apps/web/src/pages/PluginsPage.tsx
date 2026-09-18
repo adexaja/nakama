@@ -490,7 +490,6 @@ function GoogleMeetInstallDialog({
     orgId,
     expectedRevision
   );
-  const status = dependencies.data;
   const error = install.error;
   const busy = install.isPending;
   return (
@@ -520,11 +519,7 @@ function GoogleMeetInstallDialog({
             {formatError(error)}
           </p>
         )}
-        <GoogleMeetInstallFooter
-          dependencies={dependencies}
-          install={install}
-          onClose={onClose}
-        />
+        <GoogleMeetInstallFooter install={install} onClose={onClose} />
       </DialogContent>
     </Dialog>
   );
@@ -572,16 +567,14 @@ function GoogleMeetInstallProgress({
 }
 
 function GoogleMeetInstallFooter({
-  dependencies,
   install,
   onClose,
-}: GoogleMeetInstallState & { onClose(): void }) {
-  const status = dependencies.data;
+}: Pick<GoogleMeetInstallState, "install"> & { onClose(): void }) {
   const busy = install.isPending;
   let label = "Install plugin";
   if (busy) {
     label = "Installing…";
-  } else if (status?.state === "failed" || install.isError) {
+  } else if (install.isError) {
     label = "Retry";
   }
   return (

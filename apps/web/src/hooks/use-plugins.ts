@@ -251,7 +251,17 @@ export function useInstallGoogleMeet(orgId: string, expectedRevision?: number) {
       });
     },
   });
-  const dependencies = {
+  const dependencies: {
+    data: {
+      state: "ready";
+      steps: Array<{
+        id: string;
+        label: string;
+        state: "failed" | "installing" | "pending" | "ready";
+      }>;
+    };
+    isLoading: boolean;
+  } = {
     data: { state: "ready" as const, steps: [] },
     isLoading: false,
   };

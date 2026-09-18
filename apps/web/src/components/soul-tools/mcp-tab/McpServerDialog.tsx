@@ -252,7 +252,6 @@ function McpServerDialogHeader({
   isEdit,
   mode,
   onAssign,
-  onTestConnection,
   onModeChange,
   transport,
 }: {
@@ -263,7 +262,6 @@ function McpServerDialogHeader({
   isEdit: boolean;
   mode: AddMcpMode;
   onAssign?: (serverId: string) => void;
-  onTestConnection?: (server: McpServerSummary) => void;
   onModeChange: (mode: AddMcpMode) => void;
   transport: string;
 }) {
