@@ -131,7 +131,6 @@ export interface StoredSessionSummaryRecord {
   createdAt: string;
   id: string;
   messageCount: number;
-  orgId?: string | null;
   pinned: boolean;
   preview: string | null;
   profileId: string;
