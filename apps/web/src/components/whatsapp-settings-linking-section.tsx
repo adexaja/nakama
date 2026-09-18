@@ -152,11 +152,18 @@ function WhatsAppLinkStatus({
             <QRCodeSVG size={180} value={qrCode!} />
           </div>
         </div>
-        <ol className="list-decimal space-y-1 pl-5 text-muted-foreground text-xs">
-          <li>Open WhatsApp on your phone</li>
-          <li>Go to Settings, then Linked Devices</li>
+        <ol
+          aria-label="Steps to connect WhatsApp"
+          className="list-decimal space-y-1 pl-5 text-muted-foreground text-xs"
+        >
           <li>
-            Tap <strong>Link a Device</strong> and scan this code
+            <strong>Open WhatsApp</strong> on your phone
+          </li>
+          <li>
+            Open <strong>Settings</strong>, then <strong>Linked Devices</strong>
+          </li>
+          <li>
+            Tap <strong>Link a Device</strong>, then scan this QR code
           </li>
         </ol>
       </div>
@@ -313,14 +320,21 @@ export function WhatsAppSettingsLinkingSection({
 
       {pairingCode ? (
         <ol
+          aria-label="Steps to connect WhatsApp with a pairing code"
           className={cn(
             "list-decimal space-y-1 pl-5 text-muted-foreground text-xs",
             !compact && "px-4 py-3 pl-8"
           )}
         >
-          <li>Open WhatsApp on your phone</li>
-          <li>Go to Settings, then Linked Devices</li>
-          <li>Choose Link with phone number and enter this code</li>
+          <li>
+            <strong>Open WhatsApp</strong> on your phone
+          </li>
+          <li>
+            Open <strong>Settings</strong>, then <strong>Linked Devices</strong>
+          </li>
+          <li>
+            Choose <strong>Link with phone number</strong> and enter this code
+          </li>
         </ol>
       ) : null}
 
