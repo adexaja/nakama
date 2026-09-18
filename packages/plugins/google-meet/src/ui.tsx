@@ -247,7 +247,7 @@ export function apply(ctx: Context) {
     const [duration, setDuration] = React.useState(120);
     const [captureUrl, setCaptureUrl] = React.useState("");
     const [busy, setBusy] = React.useState(false);
-    const [settings, setSettings] = React.useState(false);
+    const [settings, setSettings] = React.useState<boolean | null>(null);
     const [selected, setSelected] = React.useState<Meeting | null>(null);
     React.useEffect(() => {
       let alive = true;
@@ -508,7 +508,9 @@ export function apply(ctx: Context) {
         ) : (
           <p>Loading…</p>
         )}
-        {settings && <Settings close={() => setSettings(false)} />}
+        {(settings ?? (overview?.canConfigure && !overview.configured)) && (
+          <Settings close={() => setSettings(false)} />
+        )}
       </section>
     );
   }

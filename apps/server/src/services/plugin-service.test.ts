@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
@@ -96,7 +104,8 @@ describe("PluginService", () => {
         "../../../../packages/plugins"
       ),
       workerManager: {
-        async registerPluginWorkers(registration) {
+        async registerPluginWorkers(registration, start) {
+          expect(start).toBe(true);
           workers.push(...registration.workers.map((worker) => worker.key));
         },
         async unregisterPluginWorkers() {},
@@ -137,6 +146,67 @@ describe("PluginService", () => {
     );
     const errors = await new Response(child.stderr).text();
     expect(await child.exited, errors).toBe(0);
+  });
+
+  test("installs rebuilt Google Meet bytes without replacing another org's release", async () => {
+    const db = createInMemoryDatabaseAdapter();
+    const officialPackagesDir = join(configDir, "official");
+    await cp(
+      resolve(import.meta.dir, "../../../../packages/plugins/google-meet"),
+      join(officialPackagesDir, "google-meet"),
+      { recursive: true }
+    );
+    const service = new PluginService(db, configDir, {
+      officialPackagesDir,
+      workerManager: {
+        async registerPluginWorkers() {},
+        async unregisterPluginWorkers() {},
+      },
+    });
+    const actor = { id: "admin", role: "admin" as const };
+    const first = await service.installOfficialPlugin(
+      "org-a",
+      "google-meet",
+      actor
+    );
+    const originalPath = join(
+      getPluginReleaseDir("google-meet", first.selectedVersion!, configDir),
+      "ui/app.js"
+    );
+    const original = await readFile(originalPath, "utf8");
+    await appendFile(
+      join(officialPackagesDir, "google-meet/ui/app.js"),
+      "\n// rebuilt\n"
+    );
+
+    const second = await service.installOfficialPlugin(
+      "org-b",
+      "google-meet",
+      actor
+    );
+    expect(second.lifecycleState).toBe("enabled");
+    expect(second.selectedVersion).not.toBe(first.selectedVersion);
+    expect(
+      await readFile(
+        join(
+          getPluginReleaseDir(
+            "google-meet",
+            second.selectedVersion!,
+            configDir
+          ),
+          "ui/app.js"
+        ),
+        "utf8"
+      )
+    ).toBe(`${original}\n// rebuilt\n`);
+    expect(await readFile(originalPath, "utf8")).toBe(original);
+    expect(await db.getOrgPlugin("org-a", "google-meet")).toEqual(first);
+    const repeated = await service.installOfficialPlugin(
+      "org-b",
+      "google-meet",
+      actor
+    );
+    expect(repeated.selectedVersion).toBe(second.selectedVersion);
   });
 
   test("previews and installs a npm package without running top-level side-effect code", async () => {
