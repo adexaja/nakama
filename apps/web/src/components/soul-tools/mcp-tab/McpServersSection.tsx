@@ -95,6 +95,7 @@ function McpServerActions({
   onViewTools,
   onEdit,
   onConnect,
+  onTestConnection,
   onSync,
   onDelete,
 }: {
@@ -103,6 +104,7 @@ function McpServerActions({
   onViewTools: () => void;
   onEdit: () => void;
   onConnect: () => void;
+  onTestConnection: () => void;
   onSync: () => void;
   onDelete: () => void;
 }) {
@@ -156,6 +158,10 @@ function McpServerActions({
               Connect
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem disabled={busy} onClick={onTestConnection}>
+            <Plug01Icon aria-hidden />
+            Test connection
+          </DropdownMenuItem>
           <DropdownMenuItem disabled={busy} onClick={onEdit}>
             <PencilIcon aria-hidden />
             Edit
@@ -200,6 +206,7 @@ export function McpServersSection({
   onViewTools,
   onEdit,
   onConnect,
+  onTestConnection,
   onSync,
   onDelete,
 }: {
@@ -210,9 +217,15 @@ export function McpServersSection({
   onViewTools: (serverId: string) => void;
   onEdit: (serverId: string) => void;
   onConnect: (serverId: string) => void;
+  onTestConnection: (serverId: string) => void;
   onSync: (serverId: string) => void;
   onDelete: (server: McpServerSummary) => void;
 }) {
+  const orderedServers = [...servers].sort(
+    (left, right) =>
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+  );
+
   return (
     <section
       className={cn(
@@ -247,7 +260,7 @@ export function McpServersSection({
             </div>
           ) : (
             <ul className="divide-y divide-border">
-              {servers.map((server) => {
+              {orderedServers.map((server) => {
                 const assignedProfileCount = server.assignedProfileCount ?? 0;
 
                 return (
@@ -300,6 +313,7 @@ export function McpServersSection({
                         onDelete={() => onDelete(server)}
                         onEdit={() => onEdit(server.id)}
                         onSync={() => onSync(server.id)}
+                        onTestConnection={() => onTestConnection(server.id)}
                         onViewTools={() => onViewTools(server.id)}
                         server={server}
                       />

@@ -26,7 +26,7 @@ import {
   useAssignToolMutation,
   useCreateMcpServerMutation,
 } from "@/hooks/use-resource-mutations";
-import { formatError } from "@/lib/client";
+import { client, formatError } from "@/lib/client";
 
 export function ChatAddCapabilitiesDialogs({
   pluginOpen,
@@ -52,6 +52,7 @@ export function ChatAddCapabilitiesDialogs({
   const assignMcpMutation = useAssignMcpServerMutation();
   const createMcpMutation = useCreateMcpServerMutation();
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const assignedToolIds = new Set(profile?.tools.map((tool) => tool.id) ?? []);
   const assignedMcpIds = new Set(
@@ -68,6 +69,7 @@ export function ChatAddCapabilitiesDialogs({
 
   async function handleAssignTool(toolId: string) {
     setError(null);
+    setNotice(null);
 
     try {
       await assignToolMutation.mutateAsync({ profileId, toolId });
@@ -79,6 +81,7 @@ export function ChatAddCapabilitiesDialogs({
 
   async function handleAssignMcp(serverId: string) {
     setError(null);
+    setNotice(null);
 
     try {
       await assignMcpMutation.mutateAsync({ profileId, serverId });
@@ -90,6 +93,7 @@ export function ChatAddCapabilitiesDialogs({
 
   async function handleCreateMcp(request: CreateMcpServerRequest) {
     setError(null);
+    setNotice(null);
 
     try {
       const response = await createMcpMutation.mutateAsync({
@@ -105,6 +109,28 @@ export function ChatAddCapabilitiesDialogs({
       const message = formatError(err);
       setError(message);
       throw new Error(message);
+    }
+  }
+
+  async function handleTestMcp(server: (typeof availableMcpServers)[number]) {
+    setError(null);
+
+    try {
+      const result = await client.testMcpServer({
+        config: server.transport === "http" ? { url: "" } : { command: "" },
+        name: server.name,
+        serverId: server.id,
+        transport: server.transport,
+      });
+      if (result.ok) {
+        setNotice(
+          `Connection successful. Found ${result.toolCount} tool${result.toolCount === 1 ? "" : "s"}.`
+        );
+      } else {
+        setError(result.error ?? "Connection test failed.");
+      }
+    } catch (err) {
+      setError(formatError(err));
     }
   }
 
@@ -133,7 +159,7 @@ export function ChatAddCapabilitiesDialogs({
       <McpServerDialog
         availableServers={availableMcpServers}
         busy={busy}
-        error={mcpOpen ? error : null}
+        error={mcpOpen ? (error ?? notice) : null}
         onAssign={handleAssignMcp}
         onOpenChange={(open) => {
           if (!open) {
@@ -142,6 +168,7 @@ export function ChatAddCapabilitiesDialogs({
           onMcpOpenChange(open);
         }}
         onSubmit={handleCreateMcp}
+        onTestConnection={(server) => void handleTestMcp(server)}
         open={mcpOpen}
       />
     </>

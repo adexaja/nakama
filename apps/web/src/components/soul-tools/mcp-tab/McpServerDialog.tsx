@@ -100,6 +100,7 @@ function McpServerDialogPanels({
   busy,
   availableServers,
   onAssign,
+  onTestConnection,
   onOpenChange,
   state,
 }: {
@@ -107,6 +108,7 @@ function McpServerDialogPanels({
   busy: boolean;
   availableServers: McpServerSummary[];
   onAssign: (serverId: string) => void;
+  onTestConnection?: (server: McpServerSummary) => void;
   onOpenChange: (open: boolean) => void;
   state: McpServerDialogState;
 }) {
@@ -125,6 +127,7 @@ function McpServerDialogPanels({
         <McpServerAssignList
           disabled={busy}
           onAssign={onAssign}
+          onTestConnection={onTestConnection}
           servers={availableServers}
         />
       </div>
@@ -249,6 +252,7 @@ function McpServerDialogHeader({
   isEdit,
   mode,
   onAssign,
+  onTestConnection,
   onModeChange,
   transport,
 }: {
@@ -259,6 +263,7 @@ function McpServerDialogHeader({
   isEdit: boolean;
   mode: AddMcpMode;
   onAssign?: (serverId: string) => void;
+  onTestConnection?: (server: McpServerSummary) => void;
   onModeChange: (mode: AddMcpMode) => void;
   transport: string;
 }) {
@@ -296,6 +301,7 @@ function McpServerDialogBody({
   busy,
   canAssignExisting,
   onAssign,
+  onTestConnection,
   onOpenChange,
   state,
 }: {
@@ -304,6 +310,7 @@ function McpServerDialogBody({
   busy: boolean;
   canAssignExisting: boolean;
   onAssign?: (serverId: string) => void;
+  onTestConnection?: (server: McpServerSummary) => void;
   onOpenChange: (open: boolean) => void;
   state: McpServerDialogState;
 }) {
@@ -315,6 +322,7 @@ function McpServerDialogBody({
         busy={busy}
         onAssign={onAssign}
         onOpenChange={onOpenChange}
+        onTestConnection={onTestConnection}
         state={state}
       />
     );
@@ -339,6 +347,7 @@ export function McpServerDialog({
   onOpenChange,
   onSubmit,
   onAssign,
+  onTestConnection,
 }: {
   open: boolean;
   busy: boolean;
@@ -348,6 +357,7 @@ export function McpServerDialog({
   onOpenChange: (open: boolean) => void;
   onSubmit: (request: CreateMcpServerRequest) => Promise<void>;
   onAssign?: (serverId: string) => void;
+  onTestConnection?: (server: McpServerSummary) => void;
 }) {
   const state = useMcpServerDialogState({ busy, onSubmit, open, server });
   const canAssignExisting =
@@ -386,6 +396,7 @@ export function McpServerDialog({
             canAssignExisting={canAssignExisting}
             onAssign={onAssign}
             onOpenChange={onOpenChange}
+            onTestConnection={onTestConnection}
             state={state}
           />
         </DialogContent>

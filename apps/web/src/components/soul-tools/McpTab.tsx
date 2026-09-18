@@ -29,7 +29,7 @@ import {
   useSyncMcpServerMutation,
   useUpdateMcpServerMutation,
 } from "@/hooks/use-resource-mutations";
-import { formatError } from "@/lib/client";
+import { client, formatError } from "@/lib/client";
 
 /** The callback connects the server on its own, so the list is re-read until it lands. */
 const AUTHORIZATION_POLL_INTERVAL_MS = 3000;
@@ -53,6 +53,8 @@ export function McpTab({ embedded = false }: { embedded?: boolean } = {}) {
   const connectMutation = useConnectMcpServerMutation();
   const syncMutation = useSyncMcpServerMutation();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [testingServerId, setTestingServerId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [editServerId, setEditServerId] = useState<string | null>(null);
   const [detailServerId, setDetailServerId] = useState<string | null>(null);
@@ -68,13 +70,14 @@ export function McpTab({ embedded = false }: { embedded?: boolean } = {}) {
     servers.find((server) => server.id === detailServerId) ?? null;
 
   const loading = isLoading && servers.length === 0;
-  const busy = [
-    createMutation,
-    updateMutation,
-    deleteMutation,
-    connectMutation,
-    syncMutation,
-  ].some((mutation) => mutation.isPending);
+  const busy =
+    [
+      createMutation,
+      updateMutation,
+      deleteMutation,
+      connectMutation,
+      syncMutation,
+    ].some((mutation) => mutation.isPending) || testingServerId !== null;
   const errorMessage = actionError ?? (error ? formatError(error) : null);
 
   useEffect(() => {
@@ -153,6 +156,32 @@ export function McpTab({ embedded = false }: { embedded?: boolean } = {}) {
     }
   }
 
+  async function handleTestConnection(server: McpServerSummary) {
+    setActionError(null);
+    setActionNotice(null);
+    setTestingServerId(server.id);
+
+    try {
+      const result = await client.testMcpServer({
+        config: server.transport === "http" ? { url: "" } : { command: "" },
+        name: server.name,
+        serverId: server.id,
+        transport: server.transport,
+      });
+      if (result.ok) {
+        setActionNotice(
+          `Connection successful. Found ${result.toolCount} tool${result.toolCount === 1 ? "" : "s"}.`
+        );
+      } else {
+        setActionError(result.error ?? "Connection test failed.");
+      }
+    } catch (err) {
+      setActionError(formatError(err));
+    } finally {
+      setTestingServerId(null);
+    }
+  }
+
   if (loading) {
     return <McpPageState embedded={embedded} message="Loading MCP servers…" />;
   }
@@ -162,6 +191,11 @@ export function McpTab({ embedded = false }: { embedded?: boolean } = {}) {
       {errorMessage ? (
         <p className="mx-auto mb-4 max-w-3xl rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-destructive text-sm">
           {errorMessage}
+        </p>
+      ) : null}
+      {actionNotice ? (
+        <p className="mx-auto mb-4 max-w-3xl rounded-md border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-emerald-700 text-sm dark:text-emerald-300">
+          {actionNotice}
         </p>
       ) : null}
 
@@ -184,6 +218,12 @@ export function McpTab({ embedded = false }: { embedded?: boolean } = {}) {
         onDelete={requestDelete}
         onEdit={setEditServerId}
         onSync={(serverId) => void handleSync(serverId)}
+        onTestConnection={(serverId) => {
+          const server = servers.find((item) => item.id === serverId);
+          if (server) {
+            void handleTestConnection(server);
+          }
+        }}
         onViewTools={setDetailServerId}
         servers={servers}
       />
