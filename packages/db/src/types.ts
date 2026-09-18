@@ -120,6 +120,7 @@ export interface StoredSessionRecord {
   id: string;
   model: string | null;
   orgId?: string | null;
+  pinned?: boolean;
   profileId: string;
   title: string | null;
   userId?: string | null;
@@ -161,6 +162,7 @@ export interface StoredSessionSummaryRecord {
   id: string;
   messageCount: number;
   orgId?: string | null;
+  pinned: boolean;
   preview: string | null;
   profileId: string;
   title: string | null;
@@ -1042,6 +1044,7 @@ export interface DatabaseAdapter {
   publishOrgPluginRelease(
     input: PublishOrgPluginReleaseInput
   ): Promise<PluginPublishResult>;
+  renameSessionTitle(sessionId: string, title: string): Promise<boolean>;
   replaceMessagesForSession(
     sessionId: string,
     messages: StoredSessionMessageRecord[]
@@ -1117,6 +1120,7 @@ export interface DatabaseAdapter {
     }
   ): Promise<boolean>;
   updateSessionModel(sessionId: string, model: string | null): Promise<boolean>;
+  updateSessionPinned(sessionId: string, pinned: boolean): Promise<boolean>;
   updateSessionQuestionnaire(
     sessionId: string,
     questionnaire: AgentQuestionnaire | null

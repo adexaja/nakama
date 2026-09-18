@@ -938,7 +938,9 @@ export interface CreateSessionResponse {
 }
 
 export interface UpdateSessionRequest {
-  model: string | null;
+  model?: string | null;
+  pinned?: boolean;
+  title?: string;
 }
 
 export interface BranchSessionRequest {
@@ -1043,6 +1045,7 @@ export interface SessionSummary {
   createdAt: string;
   id: string;
   messageCount: number;
+  pinned: boolean;
   preview: string | null;
   profileId: string;
   title: string | null;

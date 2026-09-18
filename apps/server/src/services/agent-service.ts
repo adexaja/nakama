@@ -2090,6 +2090,7 @@ export class AgentService {
         createdAt: session.createdAt,
         id: session.id,
         messageCount: session.messageCount,
+        pinned: session.pinned,
         preview: session.preview,
         profileId: session.profileId,
         title: session.title,
@@ -2258,6 +2259,31 @@ export class AgentService {
     } finally {
       sessionTurnRegistry.cancelTurn(sessionId);
     }
+  }
+  async renameSession(
+    sessionId: string,
+    orgId: string,
+    title: string
+  ): Promise<boolean> {
+    const record = await this.getSessionRecordForOrg(sessionId, orgId);
+    if (!record) {
+      return false;
+    }
+
+    return this.db.renameSessionTitle(sessionId, title.trim());
+  }
+
+  async updateSessionPinned(
+    sessionId: string,
+    orgId: string,
+    pinned: boolean
+  ): Promise<boolean> {
+    const record = await this.getSessionRecordForOrg(sessionId, orgId);
+    if (!record) {
+      return false;
+    }
+
+    return this.db.updateSessionPinned(sessionId, pinned);
   }
 
   async beginSessionTurn(
