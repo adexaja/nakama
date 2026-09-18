@@ -15,6 +15,9 @@ export interface TextStyle {
   bold?: boolean;
   color?: NamedColor;
   dim?: boolean;
+  italic?: boolean;
+  strikethrough?: boolean;
+  underline?: boolean;
 }
 
 export interface StyledSegment {
@@ -257,6 +260,79 @@ export function normalizeStyledLine(input: string | StyledLine): StyledLine {
   return cloneStyledLine(input);
 }
 
+export function styledLineFromAnsi(input: string): StyledLine {
+  const segments: StyledSegment[] = [];
+  const pattern = /\x1b\[([0-9;]*)m/g;
+  let style: TextStyle = {};
+  let start = 0;
+
+  const addSegment = (text: string) => {
+    if (text) {
+      segments.push({
+        style: Object.keys(style).length > 0 ? { ...style } : undefined,
+        text,
+      });
+    }
+  };
+
+  for (const match of input.matchAll(pattern)) {
+    addSegment(input.slice(start, match.index));
+    for (const code of (match[1] || "0").split(";").map(Number)) {
+      switch (code) {
+        case 0:
+          style = {};
+          break;
+        case 1:
+          style = { ...style, bold: true };
+          break;
+        case 2:
+          style = { ...style, dim: true };
+          break;
+        case 3:
+          style = { ...style, italic: true };
+          break;
+        case 4:
+          style = { ...style, underline: true };
+          break;
+        case 9:
+          style = { ...style, strikethrough: true };
+          break;
+        case 22:
+          style = { ...style, bold: false, dim: false };
+          break;
+        case 23:
+          style = { ...style, italic: false };
+          break;
+        case 24:
+          style = { ...style, underline: false };
+          break;
+        case 29:
+          style = { ...style, strikethrough: false };
+          break;
+        case 31:
+          style = { ...style, color: "red" };
+          break;
+        case 32:
+          style = { ...style, color: "green" };
+          break;
+        case 33:
+          style = { ...style, color: "yellow" };
+          break;
+        case 36:
+          style = { ...style, color: "cyan" };
+          break;
+        case 39:
+          style = { ...style, color: "default" };
+          break;
+      }
+    }
+    start = (match.index ?? 0) + match[0].length;
+  }
+
+  addSegment(input.slice(start));
+  return { segments: segments.length > 0 ? segments : [{ text: "" }] };
+}
+
 export function styledLineText(line: StyledLine): string {
   return line.segments.map((segment) => segment.text).join("");
 }
@@ -278,6 +354,15 @@ export function serializeStyledLine(line: StyledLine): string {
     }
     if (style?.dim) {
       codes.push("2");
+    }
+    if (style?.italic) {
+      codes.push("3");
+    }
+    if (style?.underline) {
+      codes.push("4");
+    }
+    if (style?.strikethrough) {
+      codes.push("9");
     }
     if (style?.blink) {
       codes.push("5");

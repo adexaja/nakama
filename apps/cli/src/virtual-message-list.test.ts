@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { styledLineText } from "./styled-text";
 import { VirtualMessageList } from "./virtual-message-list";
 
 test("retains only the latest 1000 implicit messages after cached renders", () => {
@@ -57,4 +58,22 @@ test("evicts without a prior render and clears retained history", () => {
   expect(list.messageCount).toBe(1);
   expect(list.totalLines(80)).toBe(1);
   expect(list.messageLines(0, 80)).toEqual([" fresh "]);
+});
+
+test("renders assistant messages as markdown", () => {
+  const list = new VirtualMessageList();
+  list.beginMessage("assistant");
+  list.appendLine("# Hello\n\nThis is **bold** and `code`.");
+  list.sealMessage();
+
+  const lines = list.getLines(0, list.totalLines(40), 40);
+  expect(lines.map(styledLineText).join("\n")).not.toContain("**");
+  expect(
+    lines.some((line) => line.segments.some((segment) => segment.style?.bold))
+  ).toBe(true);
+  expect(
+    lines.some((line) =>
+      line.segments.some((segment) => segment.style?.color === "yellow")
+    )
+  ).toBe(true);
 });
