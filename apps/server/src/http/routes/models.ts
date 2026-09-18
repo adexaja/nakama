@@ -1,6 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import {
   type AgentBrowserStatusResponse,
+  type ApplyTelegramPairingRequest,
   type ComposioSettingsResponse,
   type ConfigureProviderRequest,
   type ConfigureProviderResponse,
@@ -22,7 +23,9 @@ import {
   resetWhatsAppSessionForReconnect,
   type SendEmailTestRequest,
   type SendEmailTestResponse,
-  type TelegramSettingsResponse,
+  type StartTelegramPairingRequest,
+  type TelegramPairingStartResponse,
+  type TelegramPairingStatusResponse,
   type ThinkingSettingsResponse,
   type TimezoneSettingsResponse,
   type TranscribeAudioRequest,
@@ -229,6 +232,20 @@ export function registerModelRoutes(
     .object({})
     .passthrough()
     .openapi("TelegramSettingsResponse");
+  const telegramPairingStartSchema = z
+    .object({})
+    .passthrough()
+    .openapi("TelegramPairingStartResponse");
+  const telegramPairingStatusSchema = z
+    .object({})
+    .passthrough()
+    .openapi("TelegramPairingStatusResponse");
+  const startTelegramPairingSchema = z
+    .object({ profileId: z.string() })
+    .openapi("StartTelegramPairingRequest");
+  const applyTelegramPairingSchema = z
+    .object({ profileId: z.string() })
+    .openapi("ApplyTelegramPairingRequest");
   const discordSettingsSchema = z
     .object({})
     .passthrough()
@@ -899,6 +916,97 @@ export function registerModelRoutes(
         },
       },
       summary: "Regenerate Telegram handshake",
+      tags: ["Models"],
+    })
+  );
+  app.openAPIRegistry.registerPath(
+    createRoute({
+      method: "post",
+      operationId: "startTelegramPairing",
+      path: "/v1/settings/telegram/pairing",
+      request: {
+        body: {
+          content: {
+            "application/json": { schema: startTelegramPairingSchema },
+          },
+          required: true,
+        },
+      },
+      responses: {
+        200: {
+          content: {
+            "application/json": { schema: telegramPairingStartSchema },
+          },
+          description: "Telegram pairing",
+        },
+      },
+      summary: "Start Telegram QR pairing",
+      tags: ["Models"],
+    })
+  );
+  app.openAPIRegistry.registerPath(
+    createRoute({
+      method: "get",
+      operationId: "getTelegramPairingStatus",
+      path: "/v1/settings/telegram/pairing/{pairingId}",
+      request: { params: z.object({ pairingId: z.string() }) },
+      responses: {
+        200: {
+          content: {
+            "application/json": { schema: telegramPairingStatusSchema },
+          },
+          description: "Telegram pairing status",
+        },
+      },
+      summary: "Get Telegram QR pairing status",
+      tags: ["Models"],
+    })
+  );
+  app.openAPIRegistry.registerPath(
+    createRoute({
+      method: "post",
+      operationId: "cancelTelegramPairing",
+      path: "/v1/settings/telegram/pairing/{pairingId}/cancel",
+      request: { params: z.object({ pairingId: z.string() }) },
+      responses: {
+        200: {
+          content: {
+            "application/json": { schema: telegramPairingStatusSchema },
+          },
+          description: "Telegram pairing status",
+        },
+      },
+      summary: "Cancel Telegram QR pairing",
+      tags: ["Models"],
+    })
+  );
+  app.openAPIRegistry.registerPath(
+    createRoute({
+      method: "post",
+      operationId: "applyTelegramPairing",
+      path: "/v1/settings/telegram/pairing/{pairingId}/apply",
+      request: {
+        params: z.object({ pairingId: z.string() }),
+        body: {
+          content: {
+            "application/json": { schema: applyTelegramPairingSchema },
+          },
+          required: true,
+        },
+      },
+      responses: {
+        200: {
+          content: {
+            "application/json": { schema: telegramPairingStatusSchema },
+          },
+          description: "Telegram pairing status",
+        },
+        400: {
+          content: { "application/json": { schema: errorSchema } },
+          description: "Error",
+        },
+      },
+      summary: "Apply Telegram QR pairing",
       tags: ["Models"],
     })
   );
@@ -1773,6 +1881,69 @@ export function registerModelRoutes(
     try {
       return json<TelegramSettingsResponse>(
         await agent.regenerateTelegramHandshake(orgId)
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return errorResponse(message, 400);
+    }
+  });
+  app.post("/v1/settings/telegram/pairing", async (c) => {
+    requireOrgAdminOrPlatformAdminFromContext(c);
+    const orgId = requireActiveOrgIdFromContext(c);
+    const body = await readJson<StartTelegramPairingRequest>(c.req.raw);
+    try {
+      return json<TelegramPairingStartResponse>(
+        await agent.startTelegramPairing(orgId, getRequestAuth(c).user.id, body)
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return errorResponse(message, 400);
+    }
+  });
+
+  app.get("/v1/settings/telegram/pairing/:pairingId", async (c) => {
+    requireOrgAdminOrPlatformAdminFromContext(c);
+    try {
+      return json<TelegramPairingStatusResponse>(
+        await agent.getTelegramPairingStatus(
+          requireActiveOrgIdFromContext(c),
+          getRequestAuth(c).user.id,
+          c.req.param("pairingId")
+        )
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return errorResponse(message, 400);
+    }
+  });
+
+  app.post("/v1/settings/telegram/pairing/:pairingId/cancel", (c) => {
+    requireOrgAdminOrPlatformAdminFromContext(c);
+    try {
+      return json<TelegramPairingStatusResponse>(
+        agent.cancelTelegramPairing(
+          requireActiveOrgIdFromContext(c),
+          getRequestAuth(c).user.id,
+          c.req.param("pairingId")
+        )
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return errorResponse(message, 400);
+    }
+  });
+
+  app.post("/v1/settings/telegram/pairing/:pairingId/apply", async (c) => {
+    requireOrgAdminOrPlatformAdminFromContext(c);
+    const body = await readJson<ApplyTelegramPairingRequest>(c.req.raw);
+    try {
+      return json<TelegramPairingStatusResponse>(
+        await agent.applyTelegramPairing(
+          requireActiveOrgIdFromContext(c),
+          getRequestAuth(c).user.id,
+          c.req.param("pairingId"),
+          body
+        )
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
