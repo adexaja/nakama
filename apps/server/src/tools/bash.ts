@@ -163,9 +163,12 @@ export async function runBash(
   const codingAgentMode =
     readOptionalBoolean(input, "codingAgent") === true ||
     commandLooksLikeCursorAgent(command);
+  const codingWorkspace = codingAgentMode
+    ? context.codingWorkspaceRoot
+    : undefined;
   const workspaceRoot = await resolveWorkspaceRoot(
     options.workspaceRoot ??
-      (codingAgentMode && context.codingWorkspaceRoot) ??
+      codingWorkspace ??
       getProfileSoulDir(orgId, profileId)
   );
   const rawCwd = readString(input, "cwd");
