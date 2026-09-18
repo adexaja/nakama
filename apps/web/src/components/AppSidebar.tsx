@@ -8,12 +8,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@nakama/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@nakama/ui/dropdown-menu";
 import { Input } from "@nakama/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@nakama/ui/tooltip";
 import { cn } from "@nakama/ui/utils";
@@ -21,8 +15,10 @@ import {
   ArrowDown01Icon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
-  MoreHorizontalIcon,
+  Delete02Icon,
   PencilEdit02Icon,
+  PinIcon,
+  PinOffIcon,
 } from "hugeicons-react";
 import type { ElementType } from "react";
 import { useState } from "react";
@@ -166,56 +162,61 @@ function RecentChats() {
     const href = buildChatPath(profileId, session.id);
     const title = session.title?.trim() || "Untitled chat";
     return (
-      <div className="group flex min-w-0 items-center" key={session.id}>
+      <div
+        className="group relative flex min-w-0 items-center"
+        key={session.id}
+      >
         <Link
           aria-current={location.pathname === href ? "page" : undefined}
-          className="sidebar-nav-link min-w-0 flex-1 px-2 py-1.5"
+          className="sidebar-nav-link min-w-0 flex-1 px-2 py-1.5 transition-[padding] group-focus-within:pr-24 group-hover:pr-24"
           data-active={location.pathname === href || undefined}
           title={title}
           to={href}
         >
           <span className="truncate">{title}</span>
         </Link>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                aria-label={`Actions for ${title}`}
-                className="mr-1 size-7 shrink-0 text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
-                size="icon-sm"
-                variant="ghost"
-              />
-            }
+        <div className="absolute right-1 flex translate-x-2 items-center opacity-0 transition-[opacity,transform] group-focus-within:translate-x-0 group-focus-within:opacity-100 group-hover:translate-x-0 group-hover:opacity-100">
+          <Button
+            aria-label={`Rename ${title}`}
+            className="size-7 text-muted-foreground"
+            onClick={() => setRenameTarget({ id: session.id, title })}
+            size="icon-sm"
+            title="Rename"
+            variant="ghost"
           >
-            <MoreHorizontalIcon aria-hidden="true" className="size-4" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => {
-                setRenameTarget({ id: session.id, title });
-              }}
-            >
-              Rename
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() =>
-                void updateSession.mutateAsync({
-                  input: { pinned: !session.pinned },
-                  profileId,
-                  sessionId: session.id,
-                })
-              }
-            >
-              {session.pinned ? "Unpin" : "Pin"}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-destructive"
-              onClick={() => setDeleteTarget({ id: session.id, title })}
-            >
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+            <PencilEdit02Icon aria-hidden="true" className="size-4" />
+          </Button>
+          <Button
+            aria-label={session.pinned ? `Unpin ${title}` : `Pin ${title}`}
+            className="size-7 text-muted-foreground"
+            onClick={() =>
+              void updateSession.mutateAsync({
+                input: { pinned: !session.pinned },
+                profileId,
+                sessionId: session.id,
+              })
+            }
+            size="icon-sm"
+            title={session.pinned ? "Unpin" : "Pin"}
+            variant="ghost"
+          >
+            {session.pinned ? (
+              <PinOffIcon aria-hidden="true" className="size-4" />
+            ) : (
+              <PinIcon aria-hidden="true" className="size-4" />
+            )}
+          </Button>
+          <Button
+            aria-label={`Delete ${title}`}
+            className="size-7 text-destructive"
+            onClick={() => setDeleteTarget({ id: session.id, title })}
+            size="icon-sm"
+            title="Delete"
+            variant="ghost"
+          >
+            <Delete02Icon aria-hidden="true" className="size-4" />
+          </Button>
+        </div>
       </div>
     );
   };
@@ -283,7 +284,7 @@ function RecentChats() {
               No recent chats
             </p>
           )}
-          {recentSessions.slice(0, 15).map(renderSession)}
+          {recentSessions.map(renderSession)}
         </div>
       )}
       {renameTarget ? (
@@ -346,7 +347,7 @@ function RecentChats() {
       ) : null}
       {deleteTarget ? (
         <ConfirmDialog
-          confirmLabel="Delete permanently"
+          confirmLabel="Delete"
           description={`Delete "${deleteTarget.title}" permanently? This cannot be undone.`}
           onClose={() => setDeleteTarget(null)}
           onConfirm={async () => {
