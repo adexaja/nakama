@@ -42,10 +42,6 @@ const HIDDEN_SLASH_SKILL_NAMES = new Set<string>([
 /** Composer slash tokens that are not skill names (must not become `/skill …`). */
 export const RESERVED_COMPOSER_SLASH_COMMANDS: ReservedSlashCommand[] = [
   {
-    description: "Enable automatic learning after complex turns",
-    name: "enable-learning-loop",
-  },
-  {
     description: "Distill a reusable skill from sources",
     name: "learn",
   },
@@ -135,10 +131,6 @@ export function matchComposerAddCommand(
 
 export function profileCanUseLearnCommand(skills: SkillSummary[]): boolean {
   return skills.some((skill) => skill.name === "manage-skills");
-}
-
-export function matchComposerLearningLoopCommand(text: string): boolean {
-  return text.trim() === "/enable-learning-loop";
 }
 
 export function filterSkillsForSlashQuery(

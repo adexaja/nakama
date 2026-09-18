@@ -17,7 +17,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@nakama/ui/dropdown-menu";
-import { toast } from "@nakama/ui/toast";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@nakama/ui/tooltip";
 import { cn } from "@nakama/ui/utils";
 import {
@@ -74,7 +73,6 @@ import {
   filterComposerSlashSuggestions,
   findActiveSkillSlashRange,
   matchComposerAddCommand,
-  matchComposerLearningLoopCommand,
   replaceSlashRangeWithReservedCommand,
   replaceSlashRangeWithSkillInvocation,
   type SkillSlashRange,
@@ -97,7 +95,6 @@ import {
   composerShellCompactClass,
   composerToolbarClass,
 } from "@/lib/chat-stream";
-import { formatError } from "@/lib/client";
 import { prepareChatUploadFiles } from "@/lib/compress-image";
 import { encodeModelSelection } from "@/lib/models";
 import {
@@ -593,7 +590,7 @@ function ChatComposerMain({
 }
 
 export function ChatComposer(props: ChatComposerProps) {
-  const { activeOrg, updateOrg, user } = useAuth();
+  const { user } = useAuth();
   const { textInput } = usePromptInputController();
   const [addDialog, setAddDialog] = useState<ComposerAddCommandAction | null>(
     null
@@ -623,17 +620,6 @@ export function ChatComposer(props: ChatComposerProps) {
   const composerProps: ChatComposerProps = {
     ...props,
     onSubmit: (text, files) => {
-      if (matchComposerLearningLoopCommand(text)) {
-        clearDraft();
-        if (!activeOrg) {
-          toast("Select an organization before enabling the learning loop.");
-          return;
-        }
-        void updateOrg(activeOrg.id, { skillsPostTurnReview: true })
-          .then(() => toast("Learning loop activated."))
-          .catch((error) => toast(formatError(error)));
-        return;
-      }
       const addCommand = canAddCapabilities
         ? matchComposerAddCommand(text)
         : null;

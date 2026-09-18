@@ -8,7 +8,6 @@ import {
   getReservedCommandTokenRanges,
   getSkillTokenRanges,
   matchComposerAddCommand,
-  matchComposerLearningLoopCommand,
   replaceSlashRangeWithReservedCommand,
   replaceSlashRangeWithSkillInvocation,
 } from "./chat-composer-skills";
@@ -150,7 +149,7 @@ describe("filterComposerSlashSuggestions", () => {
         (item) =>
           item.kind === "command" ? item.command.name : item.skill.name
       )
-    ).toEqual(["enable-learning-loop", "learn", "weather"]);
+    ).toEqual(["learn", "weather"]);
   });
 
   test("hides /learn when manage-skills is not assigned", () => {
@@ -168,9 +167,15 @@ describe("filterComposerSlashSuggestions", () => {
       [manageSkillsSkill, weatherSkill, deploySkill],
       "lea"
     );
-    expect(
-      suggestions.map((item) => item.kind === "command" && item.command.name)
-    ).toEqual(["learn", "enable-learning-loop"]);
+    expect(suggestions).toEqual([
+      {
+        command: {
+          description: "Distill a reusable skill from sources",
+          name: "learn",
+        },
+        kind: "command",
+      },
+    ]);
   });
 
   test("does not match /learn via description keywords", () => {
@@ -218,17 +223,6 @@ describe("matchComposerAddCommand", () => {
     expect(matchComposerAddCommand("/add-plugin")).toBe("add-plugin");
     expect(matchComposerAddCommand("/add-plugin workflows")).toBeNull();
     expect(matchComposerAddCommand("/add-tool please")).toBeNull();
-  });
-});
-
-describe("matchComposerLearningLoopCommand", () => {
-  test("matches the bare learning loop command", () => {
-    expect(matchComposerLearningLoopCommand("  /enable-learning-loop  ")).toBe(
-      true
-    );
-    expect(matchComposerLearningLoopCommand("/enable-learning-loop now")).toBe(
-      false
-    );
   });
 });
 
