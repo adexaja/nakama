@@ -1,20 +1,33 @@
 import { Button } from "@nakama/ui/button";
+import { ConfirmDialog } from "@nakama/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@nakama/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@nakama/ui/tooltip";
 import { cn } from "@nakama/ui/utils";
 import {
   ArrowDown01Icon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
+  MoreHorizontalIcon,
   PencilEdit02Icon,
 } from "hugeicons-react";
 import type { ElementType } from "react";
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { useActiveChatProfile } from "@/context/use-active-chat-profile";
 import { useAuth } from "@/context/use-auth";
 import { usePrefetchAppData, useProfilesQuery } from "@/hooks/use-app-queries";
 import { useAutomationUnreadTotal } from "@/hooks/use-automations";
-import { useHistorySessionsQuery } from "@/hooks/use-resource-mutations";
+import {
+  useDeleteSessionMutation,
+  useHistorySessionsQuery,
+  useUpdateSessionMutation,
+} from "@/hooks/use-resource-mutations";
 import {
   useLocalStorageFlag,
   useSidebarCollapsed,
@@ -124,6 +137,12 @@ function RecentChats() {
     isLoading,
     error,
   } = useHistorySessionsQuery(profileId);
+  const updateSession = useUpdateSessionMutation();
+  const deleteSession = useDeleteSessionMutation();
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
   const { collapsed, toggle } = useLocalStorageFlag(
     SIDEBAR_RECENTS_COLLAPSED_KEY,
     getInitialRecentsCollapsed
@@ -190,20 +209,80 @@ function RecentChats() {
             const href = buildChatPath(profileId, session.id);
             const title = session.title?.trim() || "Untitled chat";
             return (
-              <Link
-                aria-current={location.pathname === href ? "page" : undefined}
-                className="sidebar-nav-link px-2 py-1.5"
-                data-active={location.pathname === href || undefined}
-                key={session.id}
-                title={title}
-                to={href}
-              >
-                <span className="truncate">{title}</span>
-              </Link>
+              <div className="group flex min-w-0 items-center" key={session.id}>
+                <Link
+                  aria-current={location.pathname === href ? "page" : undefined}
+                  className="sidebar-nav-link min-w-0 flex-1 px-2 py-1.5"
+                  data-active={location.pathname === href || undefined}
+                  title={title}
+                  to={href}
+                >
+                  <span className="truncate">{title}</span>
+                </Link>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        aria-label={`Actions for ${title}`}
+                        className="mr-1 size-7 shrink-0 text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+                        size="icon-sm"
+                        variant="ghost"
+                      />
+                    }
+                  >
+                    <MoreHorizontalIcon aria-hidden="true" className="size-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => {
+                        const nextTitle = window.prompt("Rename chat", title);
+                        if (nextTitle?.trim()) {
+                          void updateSession.mutateAsync({
+                            input: { title: nextTitle.trim() },
+                            profileId,
+                            sessionId: session.id,
+                          });
+                        }
+                      }}
+                    >
+                      Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() =>
+                        void updateSession.mutateAsync({
+                          input: { pinned: !session.pinned },
+                          profileId,
+                          sessionId: session.id,
+                        })
+                      }
+                    >
+                      {session.pinned ? "Unpin" : "Pin"}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-destructive"
+                      onClick={() => setDeleteTarget({ id: session.id, title })}
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             );
           })}
         </div>
       )}
+      {deleteTarget ? (
+        <ConfirmDialog
+          confirmLabel="Delete"
+          description={`Delete "${deleteTarget.title}"? This cannot be undone.`}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={async () => {
+            await deleteSession.mutateAsync(deleteTarget.id);
+            setDeleteTarget(null);
+          }}
+          title="Delete chat?"
+        />
+      ) : null}
     </div>
   );
 }

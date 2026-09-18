@@ -701,6 +701,11 @@ export class NakamaClient {
       method: "PATCH",
     });
   }
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.request<void>(`/v1/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+    });
+  }
 
   async subscribeSessionStream(
     sessionId: string,

@@ -161,6 +161,7 @@ interface SessionRow {
   created_at: string;
   id: string;
   model: string | null;
+  pinned: number;
   profile_id: string;
   title: string | null;
   updated_at?: string | null;
@@ -196,6 +197,7 @@ interface SessionSummaryRow {
   first_user_payload: string | null;
   id: string;
   message_count: number;
+  pinned: number;
   profile_id: string;
   title: string | null;
   updated_at: string;
@@ -942,8 +944,8 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
   const listSessionsStmt = db.prepare("SELECT * FROM sessions");
   const getSessionStmt = db.prepare("SELECT * FROM sessions WHERE id = ?");
   const upsertSessionStmt = db.prepare(`
-    INSERT INTO sessions (id, profile_id, channel, created_at, updated_at, user_id, model)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sessions (id, profile_id, channel, created_at, updated_at, user_id, model, pinned)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       profile_id = excluded.profile_id,
       channel = excluded.channel,
@@ -957,11 +959,17 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
   const updateSessionModelStmt = db.prepare(
     "UPDATE sessions SET model = ? WHERE id = ?"
   );
+  const updateSessionPinnedStmt = db.prepare(
+    "UPDATE sessions SET pinned = ? WHERE id = ?"
+  );
   const updateSessionTitleStmt = db.prepare(`
     UPDATE sessions SET title = ? WHERE id = ? AND title IS NULL
   `);
   const getSessionTodosStmt = db.prepare(
     "SELECT agent_todos FROM sessions WHERE id = ?"
+  );
+  const renameSessionTitleStmt = db.prepare(
+    "UPDATE sessions SET title = ? WHERE id = ?"
   );
   const updateSessionTodosStmt = db.prepare(
     "UPDATE sessions SET agent_todos = ? WHERE id = ?"
@@ -1023,14 +1031,14 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
   const getAttachmentStmt = db.prepare(
     "SELECT * FROM attachments WHERE id = ?"
   );
+  const deleteAttachmentStmt = db.prepare(
+    "DELETE FROM attachments WHERE id = ?"
+  );
   const listAttachmentsForSessionStmt = db.prepare(
     "SELECT * FROM attachments WHERE session_id = ?"
   );
   const listEphemeralAttachmentsStmt = db.prepare(
     "SELECT * FROM attachments WHERE ephemeral = 1"
-  );
-  const deleteAttachmentStmt = db.prepare(
-    "DELETE FROM attachments WHERE id = ?"
   );
   const listSessionSummariesStmt = db.prepare(`
     SELECT
@@ -1039,6 +1047,7 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
       s.channel,
       s.created_at,
       s.title,
+      s.pinned,
       COUNT(m.id) AS message_count,
       max(
         COALESCE(MAX(m.created_at), s.created_at),
@@ -1057,7 +1066,7 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     WHERE s.profile_id = ? AND s.channel = ?
     GROUP BY s.id
     HAVING COUNT(m.id) > 0
-    ORDER BY updated_at DESC, s.created_at DESC
+    ORDER BY s.pinned DESC, updated_at DESC, s.created_at DESC
   `);
 
   const getLlmUsageStatsStmt = db.prepare(
@@ -3657,6 +3666,10 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     async publishOrgPluginRelease(input) {
       return publishOrgPluginReleaseTx(input);
     },
+    async renameSessionTitle(sessionId, title) {
+      const result = renameSessionTitleStmt.run(title, sessionId);
+      return result.changes > 0;
+    },
 
     async replaceMessagesForSession(sessionId, messages) {
       replaceMessagesForSessionTransaction(sessionId, messages);
@@ -3783,6 +3796,10 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
 
     async updateSessionModel(sessionId, model) {
       const result = updateSessionModelStmt.run(model, sessionId);
+      return result.changes > 0;
+    },
+    async updateSessionPinned(sessionId, pinned) {
+      const result = updateSessionPinnedStmt.run(pinned ? 1 : 0, sessionId);
       return result.changes > 0;
     },
 
@@ -3968,10 +3985,10 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
         record.createdAt,
         record.createdAt,
         record.userId ?? null,
-        record.model
+        record.model,
+        record.pinned ? 1 : 0
       );
     },
-
     async upsertSkill(record) {
       upsertSkillStmt.run(
         record.id,
@@ -4365,6 +4382,8 @@ function toSessionRecord(row: SessionRow): StoredSessionRecord {
     createdAt: row.created_at,
     id: row.id,
     model: row.model ?? null,
+    orgId: null,
+    pinned: row.pinned === 1,
     profileId: row.profile_id,
     title: row.title ?? null,
     userId: row.user_id ?? null,
@@ -4429,6 +4448,7 @@ function toSessionSummaryRecord(
     createdAt: row.created_at,
     id: row.id,
     messageCount: row.message_count,
+    pinned: row.pinned === 1,
     preview: previewFromFirstUserPayload(row.first_user_payload),
     profileId: row.profile_id,
     title: row.title ?? null,

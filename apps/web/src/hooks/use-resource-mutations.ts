@@ -119,6 +119,16 @@ export function useUpdateSessionMutation() {
     },
   });
 }
+export function useDeleteSessionMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (sessionId: string) => client.deleteSession(sessionId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    },
+  });
+}
 
 export function useCloneProfileMutation() {
   const queryClient = useQueryClient();
@@ -507,7 +517,11 @@ export function useHistorySessionsQuery(profileId: string) {
 
   const sessions = results
     .flatMap((result) => result.data ?? [])
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    .sort(
+      (left, right) =>
+        Number(right.pinned) - Number(left.pinned) ||
+        right.updatedAt.localeCompare(left.updatedAt)
+    );
 
   return {
     data: sessions,
