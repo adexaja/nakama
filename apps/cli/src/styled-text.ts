@@ -51,9 +51,11 @@ const COLOR_CODES: Record<NamedColor, string> = {
 
 const BACKGROUND_CODES: Record<Theme, Record<NamedBackgroundColor, string>> = {
   dark: {
-    surface: "48;5;236",
+    // Codex tints a dark terminal background toward white by ~12%.
+    surface: "48;5;235",
   },
   light: {
+    // Codex tints a light terminal background toward black by ~4%.
     surface: "48;5;254",
   },
 };
@@ -62,9 +64,22 @@ const DEFAULTS_TIMEOUT_MS = 500;
 
 let currentTheme: Theme = "dark";
 let sessionMacOsTheme: Theme | undefined;
+let terminalBackgroundRgb: readonly [number, number, number] | undefined;
 
 export function setTheme(theme: Theme): void {
   currentTheme = theme;
+}
+
+function surfaceBackgroundCode(): string {
+  if (!terminalBackgroundRgb) {
+    return `48;5;${currentTheme === "dark" ? "235" : "254"}`;
+  }
+
+  const [r, g, b] = terminalBackgroundRgb;
+  const tint = currentTheme === "light" ? 0.04 : 0.12;
+  const target = currentTheme === "light" ? 0 : 255;
+  const blend = (value: number) => Math.round(value + (target - value) * tint);
+  return `48;2;${blend(r)};${blend(g)};${blend(b)}`;
 }
 
 export function getCliStatePath(): string {
@@ -171,7 +186,9 @@ export async function detectMacOsTheme(
 export async function detectTheme(): Promise<Theme | null> {
   // macOS system appearance — most reliable for Apple terminals
   if (process.platform === "darwin") {
-    return detectMacOsTheme();
+    const theme = await detectMacOsTheme();
+    await probeTerminalBackground();
+    return theme;
   }
 
   // Many terminals set this: "0;15" = dark bg light fg, "15;0" = light bg dark fg
@@ -189,18 +206,42 @@ export async function detectTheme(): Promise<Theme | null> {
     return null;
   }
 
+  const background = await probeTerminalBackground();
+  if (background) {
+    const [r, g, b] = background;
+    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+    return luminance > 128 ? "light" : "dark";
+  }
+
+  return null;
+}
+
+async function probeTerminalBackground(): Promise<
+  readonly [number, number, number] | null
+> {
+  if (!(process.stdin.isTTY && process.stdout.isTTY)) {
+    return null;
+  }
+
   return new Promise((resolve) => {
     const { stdin, stdout } = process;
     const wasRaw = stdin.isRaw;
     let resolved = false;
 
-    const finish = (result: Theme | null) => {
+    if (!wasRaw) {
+      stdin.setRawMode?.(true);
+    }
+
+    const finish = (result: readonly [number, number, number] | null) => {
       if (resolved) {
         return;
       }
       resolved = true;
       clearTimeout(timer);
       stdin.off("data", onData);
+      if (!wasRaw) {
+        stdin.setRawMode?.(false);
+      }
       if (!wasRaw) {
         stdin.pause();
       }
@@ -223,13 +264,11 @@ export async function detectTheme(): Promise<Theme | null> {
       if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
         return;
       }
-      const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-      finish(luminance > 128 ? "light" : "dark");
+      terminalBackgroundRgb = [r, g, b];
+      finish([r, g, b]);
     }
 
-    if (!wasRaw) {
-      stdin.resume();
-    }
+    stdin.resume();
     stdin.on("data", onData);
     stdout.write("\x1b]11;?\x1b\\");
   });
@@ -371,7 +410,11 @@ export function serializeStyledLine(line: StyledLine): string {
       codes.push(COLOR_CODES[style.color]);
     }
     if (style?.background) {
-      codes.push(BACKGROUND_CODES[currentTheme][style.background]);
+      codes.push(
+        style.background === "surface"
+          ? surfaceBackgroundCode()
+          : BACKGROUND_CODES[currentTheme][style.background]
+      );
     }
 
     if (codes.length > 0) {
