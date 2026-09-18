@@ -23,7 +23,6 @@ import {
   ArrowRight01Icon,
   MoreHorizontalIcon,
   PencilEdit02Icon,
-  PinIcon,
 } from "hugeicons-react";
 import type { ElementType } from "react";
 import { useState } from "react";
@@ -162,9 +161,75 @@ function RecentChats() {
     SIDEBAR_RECENTS_COLLAPSED_KEY,
     getInitialRecentsCollapsed
   );
+  const pinnedSessions = sessions.filter((session) => session.pinned);
+  const recentSessions = sessions.filter((session) => !session.pinned);
+  const renderSession = (session: (typeof sessions)[number]) => {
+    const href = buildChatPath(profileId, session.id);
+    const title = session.title?.trim() || "Untitled chat";
+    return (
+      <div className="group flex min-w-0 items-center" key={session.id}>
+        <Link
+          aria-current={location.pathname === href ? "page" : undefined}
+          className="sidebar-nav-link min-w-0 flex-1 px-2 py-1.5"
+          data-active={location.pathname === href || undefined}
+          title={title}
+          to={href}
+        >
+          <span className="truncate">{title}</span>
+        </Link>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                aria-label={`Actions for ${title}`}
+                className="mr-1 size-7 shrink-0 text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+                size="icon-sm"
+                variant="ghost"
+              />
+            }
+          >
+            <MoreHorizontalIcon aria-hidden="true" className="size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => {
+                setRenameTarget({ id: session.id, title });
+                setRenameValue(title);
+              }}
+            >
+              Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() =>
+                void updateSession.mutateAsync({
+                  input: { pinned: !session.pinned },
+                  profileId,
+                  sessionId: session.id,
+                })
+              }
+            >
+              {session.pinned ? "Unpin" : "Pin"}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-destructive"
+              onClick={() => setDeleteTarget({ id: session.id, title })}
+            >
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    );
+  };
 
   return (
     <div className="mt-5 flex min-h-0 flex-1 flex-col">
+      {!collapsed && pinnedSessions.length > 0 ? (
+        <div className="mb-3 px-2">
+          <p className="sidebar-nav-group-label px-0 text-sm">Pinned</p>
+          {pinnedSessions.map(renderSession)}
+        </div>
+      ) : null}
       <div className="mb-1.5 flex shrink-0 items-center gap-1 px-2">
         <button
           aria-expanded={!collapsed}
@@ -220,70 +285,7 @@ function RecentChats() {
               No recent chats
             </p>
           )}
-          {sessions.slice(0, 15).map((session) => {
-            const href = buildChatPath(profileId, session.id);
-            const title = session.title?.trim() || "Untitled chat";
-            return (
-              <div className="group flex min-w-0 items-center" key={session.id}>
-                <Link
-                  aria-current={location.pathname === href ? "page" : undefined}
-                  className="sidebar-nav-link min-w-0 flex-1 px-2 py-1.5"
-                  data-active={location.pathname === href || undefined}
-                  title={title}
-                  to={href}
-                >
-                  {session.pinned ? (
-                    <PinIcon
-                      aria-label="Pinned"
-                      className="mr-1.5 inline-block size-3.5 shrink-0 text-muted-foreground"
-                    />
-                  ) : null}
-                  <span className="truncate">{title}</span>
-                </Link>
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        aria-label={`Actions for ${title}`}
-                        className="mr-1 size-7 shrink-0 text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
-                        size="icon-sm"
-                        variant="ghost"
-                      />
-                    }
-                  >
-                    <MoreHorizontalIcon aria-hidden="true" className="size-4" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() => {
-                        setRenameTarget({ id: session.id, title });
-                        setRenameValue(title);
-                      }}
-                    >
-                      Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() =>
-                        void updateSession.mutateAsync({
-                          input: { pinned: !session.pinned },
-                          profileId,
-                          sessionId: session.id,
-                        })
-                      }
-                    >
-                      {session.pinned ? "Unpin" : "Pin"}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-destructive"
-                      onClick={() => setDeleteTarget({ id: session.id, title })}
-                    >
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            );
-          })}
+          {recentSessions.slice(0, 15).map(renderSession)}
         </div>
       )}
       {renameTarget ? (
