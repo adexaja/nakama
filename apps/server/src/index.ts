@@ -136,8 +136,8 @@ if (interruptedRuns > 0) {
 // Channel credentials used to be install-wide. On a single-org install that
 // config can only belong to that org, so claim it once before any scope-exact
 // read reports the org as unconfigured.
-const [soleOrganization, ...otherOrganizations] =
-  await database.adapter.listOrganizations();
+const organizations = await database.adapter.listOrganizations();
+const [soleOrganization, ...otherOrganizations] = organizations;
 if (soleOrganization && otherOrganizations.length === 0) {
   const claimed = await claimLegacyTelegramConfig(soleOrganization.id);
 
@@ -172,6 +172,14 @@ agent.setServerTools({
 await agent.ensureVisionSettingsLoaded();
 await agent.ensureTranscriptionSettingsLoaded();
 await agent.ensureImageGenerationSettingsLoaded();
+// A restart drops the cognito session map, so whatever it was holding can no
+// longer be reached, let alone cleaned up on close.
+const sweptAttachments = await agent.sweepEphemeralAttachments();
+if (sweptAttachments > 0) {
+  console.info(
+    `[cognito] swept ${sweptAttachments} attachment(s) left by a previous run`
+  );
+}
 const mcpClientManager = new McpClientManager();
 const mcpService = new McpService(database.adapter, mcpClientManager);
 const composioService = new ComposioService(database.adapter, authService);
@@ -235,6 +243,8 @@ const workerManager = new WorkerManagerService(
     };
   }
 );
+
+await workerManager.migrateLegacyWhatsApp(organizations);
 
 const orgService = new OrgService(database.adapter, authService);
 const pluginService = new PluginService(database.adapter, getUserConfigDir(), {

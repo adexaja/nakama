@@ -28,6 +28,7 @@ export interface WhatsAppSocketDeps {
   onDisconnected?: () => void;
   onMessage: (data: WhatsAppInboundChat) => Promise<void>;
   onQr?: (qr: string) => void;
+  orgId?: string | null;
 }
 
 export interface WhatsAppSocketHandle {
@@ -39,7 +40,7 @@ export interface WhatsAppSocketHandle {
 export async function createWhatsAppSocket(
   deps: WhatsAppSocketDeps
 ): Promise<WhatsAppSocketHandle> {
-  const authDir = getWhatsAppConfigDir() + "/auth";
+  const authDir = getWhatsAppConfigDir(deps.orgId) + "/auth";
   const { state, saveCreds } = await usePrivateMultiFileAuthState(authDir);
   const { version } = await fetchLatestBaileysVersion();
 

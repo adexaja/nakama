@@ -18,10 +18,13 @@ export interface WhatsAppWorkerHeartbeat extends WorkerHeartbeatBase {
 
 const QR_CODE_FILENAME = "worker-qr.txt";
 
-const store = createWorkerHeartbeatStore<WhatsAppWorkerHeartbeat>({
-  getDir: getWhatsAppConfigDir,
-  parse: (value) => value as unknown as WhatsAppWorkerHeartbeat,
-});
+export function createWhatsAppWorkerHeartbeat(orgId: string | null = null) {
+  return createWorkerHeartbeatStore<WhatsAppWorkerHeartbeat>({
+    getDir: () => getWhatsAppConfigDir(orgId),
+    parse: (value) => value as unknown as WhatsAppWorkerHeartbeat,
+  });
+}
+const store = createWhatsAppWorkerHeartbeat();
 
 export const getWhatsAppWorkerHeartbeatPath = store.getPath;
 export const parseWhatsAppWorkerHeartbeat = store.parse;
@@ -31,8 +34,8 @@ export const isWhatsAppWorkerRunning = store.isRunning;
 export const isWhatsAppProcessAlive = isProcessAlive;
 export const isWhatsAppHeartbeatAlive = store.isAlive;
 
-export function getWhatsAppQrCodePath(): string {
-  return join(getWhatsAppConfigDir(), QR_CODE_FILENAME);
+export function getWhatsAppQrCodePath(orgId: string | null = null): string {
+  return join(getWhatsAppConfigDir(orgId), QR_CODE_FILENAME);
 }
 
 export function resolveWhatsAppWorkerStatus(
@@ -51,35 +54,49 @@ export function resolveWhatsAppWorkerStatus(
 export async function writeWhatsAppWorkerHeartbeat(
   pid = process.pid,
   updatedAt = new Date().toISOString(),
-  connected = false
+  connected = false,
+  orgId: string | null = null
 ): Promise<void> {
-  await store.write({ connected, pid, updatedAt });
-}
-
-export async function writeWhatsAppQrCode(qr: string): Promise<void> {
-  await writeTextFile(getWhatsAppQrCodePath(), qr, {
-    ensureDir: getWhatsAppConfigDir(),
+  await createWhatsAppWorkerHeartbeat(orgId).write({
+    connected,
+    pid,
+    updatedAt,
   });
 }
 
-export async function clearWhatsAppQrCode(): Promise<void> {
-  const path = getWhatsAppQrCodePath();
+export async function writeWhatsAppQrCode(
+  qr: string,
+  orgId: string | null = null
+): Promise<void> {
+  await writeTextFile(getWhatsAppQrCodePath(orgId), qr, {
+    ensureDir: getWhatsAppConfigDir(orgId),
+  });
+}
+
+export async function clearWhatsAppQrCode(
+  orgId: string | null = null
+): Promise<void> {
+  const path = getWhatsAppQrCodePath(orgId);
 
   if (await pathExists(path)) {
     await removeFile(path);
   }
 }
 
-export async function readWhatsAppQrCode(): Promise<string | null> {
-  const raw = await readTextOrNull(getWhatsAppQrCodePath());
+export async function readWhatsAppQrCode(
+  orgId: string | null = null
+): Promise<string | null> {
+  const raw = await readTextOrNull(getWhatsAppQrCodePath(orgId));
   return raw?.trim() || null;
 }
 
-export async function getWhatsAppWorkerStatus(): Promise<WhatsAppWorkerStatus> {
-  const settings = await loadWhatsAppSettingsPublic();
-  const heartbeat = await readWhatsAppWorkerHeartbeat();
+export async function getWhatsAppWorkerStatus(
+  orgId: string | null = null
+): Promise<WhatsAppWorkerStatus> {
+  const settings = await loadWhatsAppSettingsPublic(orgId);
+  const heartbeat = await createWhatsAppWorkerHeartbeat(orgId).read();
   const running = isWhatsAppHeartbeatAlive(heartbeat);
-  const qrCode = await readWhatsAppQrCode();
+  const qrCode = await readWhatsAppQrCode(orgId);
   const connected = heartbeat?.connected === true;
 
   return resolveWhatsAppWorkerStatus(settings, running, qrCode, connected);

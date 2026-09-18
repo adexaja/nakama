@@ -6,6 +6,7 @@ import {
 } from "@nakama/core/whatsapp-config";
 
 export interface WhatsAppBridgeConfig {
+  orgId?: string | null;
   phoneNumber: string;
   profileId: string;
 }
@@ -13,14 +14,19 @@ export interface WhatsAppBridgeConfig {
 export async function loadConfig(
   env: Record<string, string | undefined> = process.env
 ): Promise<WhatsAppBridgeConfig> {
-  const file = await loadWhatsAppConfigFile();
-  const resolved = resolveWhatsAppConfigFromSources({ env, file });
+  const orgId = env.NAKAMA_WHATSAPP_ORG_ID?.trim() || null;
+  const file = await loadWhatsAppConfigFile(orgId);
+  const resolved = resolveWhatsAppConfigFromSources({
+    env: orgId ? {} : env,
+    file,
+  });
 
   if (!resolved) {
     throw new Error(formatNotConfiguredMessage());
   }
 
   return {
+    orgId,
     phoneNumber: resolved.phoneNumber,
     profileId: resolved.profileId || DEFAULT_WHATSAPP_PROFILE_ID,
   };

@@ -162,9 +162,9 @@ describe("createHonoApp", () => {
     const database = await createSqliteDatabase(":memory:");
     const { app } = createMinimalHonoApp({
       databaseAdapter: database.adapter,
-      webDistDir: resolve(import.meta.dir, "../../../web"),
     });
     try {
+      expect((await app.request("/up")).status).toBe(200);
       expect((await app.request("/healthz")).status).toBe(200);
       expect((await app.request("/readyz")).status).toBe(200);
       await database.close();
@@ -933,11 +933,11 @@ describe("createHonoApp", () => {
     ).toBe(true);
   });
 
-  test("requires platform admin to control messaging workers", async () => {
+  test("allows org admins to control their WhatsApp worker", async () => {
     const options = createServerOptions();
     const calls: string[] = [];
-    options.workerManager.startWorker = async (name: string) => {
-      calls.push(`start:${name}`);
+    options.workerManager.startWorker = async (name: string, orgId: string) => {
+      calls.push(`start:${name}:${orgId}`);
     };
     options.workerManager.stopWorker = async (name: string) => {
       calls.push(`stop:${name}`);
@@ -978,8 +978,8 @@ describe("createHonoApp", () => {
       })
     );
 
-    expect(denied.status).toBe(403);
-    expect(calls).toEqual([]);
+    expect(denied.status).toBe(200);
+    expect(calls).toEqual([`start:whatsapp:${platformSession.orgId}`]);
 
     const allowed = await app.fetch(
       new Request("http://localhost:4310/v1/workers/telegram/stop", {
@@ -991,7 +991,10 @@ describe("createHonoApp", () => {
     );
 
     expect(allowed.status).toBe(200);
-    expect(calls).toEqual(["stop:telegram"]);
+    expect(calls).toEqual([
+      `start:whatsapp:${platformSession.orgId}`,
+      "stop:telegram",
+    ]);
   });
 
   test("plugin worker controls and logs require an admin of the owning org", async () => {

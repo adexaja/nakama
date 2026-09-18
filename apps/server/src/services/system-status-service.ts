@@ -35,7 +35,7 @@ export class SystemStatusService {
     const models = await this.agent.getModels();
     const usageFields = this.agent.getUsageStatusFields();
 
-    const statuses = await this.workerManager.getAllWorkerStatuses();
+    const statuses = await this.workerManager.getAllWorkerStatuses(orgId);
     const automationProcess = statuses.automation ?? null;
     const automationHeartbeat = await getAutomationWorkerHeartbeatStatus();
     const automationRunning = automationHeartbeat.running;
@@ -104,7 +104,7 @@ export class SystemStatusService {
         };
       }
 
-      const heartbeat = await getWhatsAppWorkerStatus();
+      const heartbeat = await getWhatsAppWorkerStatus(orgId);
       return {
         ...heartbeat,
         process: pm2Status,
@@ -120,7 +120,7 @@ export class SystemStatusService {
       return getDiscordWorkerStatus();
     }
 
-    return getWhatsAppWorkerStatus();
+    return getWhatsAppWorkerStatus(orgId);
   }
 
   private getLlmUsage(

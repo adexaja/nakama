@@ -61,6 +61,7 @@ export function registerSessionRoutes(
   const createSessionRequestSchema = z
     .object({
       channel: agentChannelSchema,
+      cognito: z.boolean().optional(),
       model: z.string().trim().min(1).optional(),
       profileId: z.string().optional(),
     })
@@ -174,6 +175,28 @@ export function registerSessionRoutes(
   const streamQuerySchema = z.object({
     stream: z.enum(["true", "false"]).optional(),
   });
+
+  app.openAPIRegistry.registerPath(
+    createRoute({
+      method: "get",
+      operationId: "getChatImageAttachment",
+      path: "/v1/attachments/{attachmentId}/content",
+      request: { params: z.object({ attachmentId: z.string() }) },
+      responses: {
+        200: {
+          description: "Image bytes",
+          content: {
+            "image/*": { schema: z.string().openapi({ format: "binary" }) },
+          },
+        },
+        401: { description: "Authentication required" },
+        403: { description: "Profile access denied" },
+        404: { description: "Image not found" },
+      },
+      summary: "Read an image attached to chat",
+      tags: ["Chat"],
+    })
+  );
 
   app.openAPIRegistry.registerPath(
     createRoute({
@@ -386,6 +409,25 @@ export function registerSessionRoutes(
     })
   );
 
+  app.get("/v1/attachments/:attachmentId/content", async (c) => {
+    const attachment = await agent.readChatImageAttachment(
+      requireActiveOrgIdFromContext(c),
+      c.req.param("attachmentId"),
+      getRequestAuth(c)
+    );
+    if (!attachment) {
+      return errorResponse("Image not found", 404);
+    }
+    return new Response(attachment.bytes, {
+      headers: {
+        "Cache-Control": "private, no-store",
+        "Content-Disposition": "attachment",
+        "Content-Type": attachment.mediaType,
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  });
+
   app.post("/v1/sessions", async (c) => {
     const auth = requireNotViewerFromContext(c);
     const orgId = requireActiveOrgIdFromContext(c);
@@ -403,6 +445,7 @@ export function registerSessionRoutes(
       body.profileId,
       auth.user.id,
       {
+        cognito: body.cognito,
         excludeSuperBot: auth.mode === "local-token" && channel !== "cli",
         isPlatformAdmin: auth.isPlatformAdmin,
         model: body.model,

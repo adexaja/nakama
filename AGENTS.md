@@ -183,3 +183,7 @@ Always build context with `buildToolExecutionContext()` (`packages/core/src/tool
 - `packages/client` — API client
 
 Server: Hono in `apps/server/src/http/app.ts`. Middleware: auth → org → routes (`routes/*`). OpenAPI: `openapi.ts` (`/openapi.json`). Mutation authority matches the Multi-tenancy role table; viewers blocked by `requireNotViewer` on worker control and agent invoke.
+
+## TONE
+
+Use normies language not nerd language to explain or summarize something!

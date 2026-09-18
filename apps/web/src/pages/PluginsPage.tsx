@@ -35,6 +35,7 @@ import {
   useDeleteRetainedPluginData,
   useDisableOrgPlugin,
   useEnableOrgPlugin,
+  useInstallGoogleMeet,
   useInstallOfficialPlugin,
   useInstallOrgPlugin,
   useInstallPluginPackage,
@@ -65,6 +66,12 @@ const PLUGIN_DESCRIPTIONS: Record<string, string> = {
 
 type PluginDialog =
   | { type: "package-entry" }
+  | {
+      type: "official-install";
+      pluginId: string;
+      name: string;
+      description: string;
+    }
   | {
       source: PluginPackageRequest;
       preview: PluginPackagePreviewResponse;
@@ -112,22 +119,7 @@ function usePluginCatalog(canInstallPackages: boolean) {
   };
 }
 
-export function PluginsPage() {
-  const { pluginId: selectedPluginId } = useParams<{ pluginId: string }>();
-  const { user, activeOrg } = useAuth();
-  const isPlatformAdmin = user?.isPlatformAdmin === true;
-  const canManage = canAccessSystemPage(isPlatformAdmin, activeOrg?.role);
-  const canInstallPackages = canManagePluginReleases(isPlatformAdmin);
-  const orgId = activeOrg?.id ?? "";
-  const {
-    plugins,
-    official,
-    releases,
-    pluginIds,
-    isLoading,
-    catalogLoading,
-    error: queryError,
-  } = usePluginCatalog(canInstallPackages);
+function usePluginManagement(canInstallPackages: boolean, orgId: string) {
   const installOfficial = useInstallOfficialPlugin();
   const previewPackage = usePreviewPluginPackage();
   const installPackage = useInstallPluginPackage();
@@ -142,13 +134,15 @@ export function PluginsPage() {
   const reinstallOfficial = useReinstallOfficialPlugin();
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const [dialog, setDialog] = useState<PluginDialog | null>(null);
+  const [meetInstall, setMeetInstall] = useState<{
+    orgId: string;
+    expectedRevision?: number;
+  } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [accessDialog, setAccessDialog] = useState<{
     orgId: string;
     plugin: OrgPluginDetail;
   } | null>(null);
-  const agentAccess = usePluginAgentAccess();
-  const accessData = isPlatformAdmin ? agentAccess.data : undefined;
 
   const busy = [
     previewPackage,
@@ -211,7 +205,9 @@ export function PluginsPage() {
 
     setActionError(null);
     try {
-      if (dialog.type === "package") {
+      if (dialog.type === "official-install") {
+        await installOfficial.mutateAsync(dialog.pluginId);
+      } else if (dialog.type === "package") {
         await installPackage.mutateAsync({
           expectedDigest: dialog.preview.digest,
           expectedIntegrity: dialog.preview.integrity,
@@ -269,6 +265,61 @@ export function PluginsPage() {
     }
   }
 
+  return {
+    accessDialog,
+    actionError,
+    busy,
+    closeDialog,
+    confirmDialog,
+    dialog,
+    handleUpdate,
+    meetInstall,
+    previewNpmPackage,
+    reinstallOfficial,
+    rememberFocus,
+    setAccessDialog,
+    setActionError,
+    setDialog,
+    setMeetInstall,
+  };
+}
+
+export function PluginsPage() {
+  const { pluginId: selectedPluginId } = useParams<{ pluginId: string }>();
+  const { user, activeOrg } = useAuth();
+  const isPlatformAdmin = user?.isPlatformAdmin === true;
+  const canManage = canAccessSystemPage(isPlatformAdmin, activeOrg?.role);
+  const canInstallPackages = canManagePluginReleases(isPlatformAdmin);
+  const orgId = activeOrg?.id ?? "";
+  const {
+    plugins,
+    official,
+    releases,
+    pluginIds,
+    isLoading,
+    catalogLoading,
+    error: queryError,
+  } = usePluginCatalog(canInstallPackages);
+  const {
+    accessDialog,
+    actionError,
+    busy,
+    closeDialog,
+    confirmDialog,
+    dialog,
+    handleUpdate,
+    meetInstall,
+    previewNpmPackage,
+    reinstallOfficial,
+    rememberFocus,
+    setAccessDialog,
+    setActionError,
+    setDialog,
+    setMeetInstall,
+  } = usePluginManagement(canInstallPackages, orgId);
+  const agentAccess = usePluginAgentAccess();
+  const accessData = isPlatformAdmin ? agentAccess.data : undefined;
+
   if (isLoading && plugins.length === 0) {
     return <PluginEmptyState detail={Boolean(selectedPluginId)} loading />;
   }
@@ -280,7 +331,7 @@ export function PluginsPage() {
     : pluginIds;
 
   return (
-    <div className="min-w-0">
+    <div className="mx-auto min-w-0 max-w-3xl space-y-6">
       <PluginPageHeader
         busy={busy}
         canInstall={canInstallPackages}
@@ -303,7 +354,7 @@ export function PluginsPage() {
           className={
             selectedPluginId
               ? "min-w-0"
-              : "grid grid-cols-[repeat(auto-fit,minmax(min(100%,18rem),1fr))] items-start gap-x-8 gap-y-2 pt-3"
+              : "divide-y divide-border overflow-hidden rounded-xl border border-border bg-card text-card-foreground"
           }
         >
           {visiblePluginIds.map((pluginId) => {
@@ -337,9 +388,16 @@ export function PluginsPage() {
                   rememberFocus(target);
                   setActionError(null);
                   if (type === "install" && catalog) {
-                    void installOfficial
-                      .mutateAsync(pluginId)
-                      .catch((err) => setActionError(formatError(err)));
+                    if (pluginId === "google-meet") {
+                      setMeetInstall({ orgId });
+                      return;
+                    }
+                    setDialog({
+                      description: catalog.description,
+                      name: catalog.name,
+                      pluginId,
+                      type: "official-install",
+                    });
                     return;
                   }
                   if (!plugin) {
@@ -350,6 +408,13 @@ export function PluginsPage() {
                     return;
                   }
                   if (type === "reinstall") {
+                    if (pluginId === "google-meet") {
+                      setMeetInstall({
+                        expectedRevision: plugin.revision,
+                        orgId,
+                      });
+                      return;
+                    }
                     void reinstallOfficial
                       .mutateAsync({
                         expectedRevision: plugin.revision,
@@ -400,7 +465,161 @@ export function PluginsPage() {
         onPreview={(source) => void previewNpmPackage(source)}
         orgId={orgId}
       />
+      {meetInstall?.orgId === orgId && (
+        <GoogleMeetInstallDialog
+          expectedRevision={meetInstall.expectedRevision}
+          isPlatformAdmin={isPlatformAdmin}
+          key={orgId}
+          onClose={() => setMeetInstall(null)}
+          orgId={orgId}
+        />
+      )}
     </div>
+  );
+}
+
+function GoogleMeetInstallDialog({
+  orgId,
+  isPlatformAdmin,
+  onClose,
+  expectedRevision,
+}: {
+  orgId: string;
+  isPlatformAdmin: boolean;
+  onClose(): void;
+  expectedRevision?: number;
+}) {
+  const { dependencies, install } = useInstallGoogleMeet(
+    orgId,
+    expectedRevision
+  );
+  const status = dependencies.data;
+  const error = install.error ?? dependencies.error;
+  const needsAdmin = !isPlatformAdmin && status?.state !== "ready";
+  const busy = install.isPending;
+  return (
+    <Dialog
+      onOpenChange={(open) => {
+        if (!(open || busy)) {
+          onClose();
+        }
+      }}
+      open
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Install Google Meet</DialogTitle>
+          <DialogDescription>
+            These dependencies are shared by organizations on this Nakama
+            server. Downloads are saved for reuse.
+          </DialogDescription>
+        </DialogHeader>
+        <GoogleMeetInstallProgress
+          dependencies={dependencies}
+          install={install}
+        />
+        {(error || status?.error) && (
+          <p className="text-destructive text-sm" role="alert">
+            {error ? formatError(error) : status?.error}
+          </p>
+        )}
+        {needsAdmin && (
+          <p className="text-sm">
+            A platform administrator must install the shared dependencies first.
+          </p>
+        )}
+        <GoogleMeetInstallFooter
+          dependencies={dependencies}
+          install={install}
+          needsAdmin={needsAdmin}
+          onClose={onClose}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type GoogleMeetInstallState = ReturnType<typeof useInstallGoogleMeet>;
+
+function GoogleMeetInstallProgress({
+  dependencies,
+  install,
+}: GoogleMeetInstallState) {
+  const status = dependencies.data;
+  let pluginStatus = "Waiting";
+  if (install.isSuccess) {
+    pluginStatus = "Installed";
+  } else if (install.isPending && status?.state === "ready") {
+    pluginStatus = "Installing…";
+  }
+  return dependencies.isLoading ? (
+    <Spinner />
+  ) : (
+    <ol aria-live="polite" className="space-y-3 text-sm">
+      {status?.steps.map((step) => (
+        <li className="flex items-start justify-between gap-4" key={step.id}>
+          <span>{step.label}</span>
+          <span className="flex shrink-0 items-center gap-2">
+            {step.state === "installing" && <Spinner />}
+            {
+              {
+                failed: "Failed",
+                installing: "Installing…",
+                pending: "To install",
+                ready: "Ready",
+              }[step.state]
+            }
+          </span>
+        </li>
+      ))}
+      <li className="flex justify-between gap-4">
+        <span>Google Meet plugin</span>
+        <span>{pluginStatus}</span>
+      </li>
+    </ol>
+  );
+}
+
+function GoogleMeetInstallFooter({
+  dependencies,
+  install,
+  needsAdmin,
+  onClose,
+}: GoogleMeetInstallState & { needsAdmin: boolean; onClose(): void }) {
+  const status = dependencies.data;
+  const busy = install.isPending;
+  let label = "Install dependencies and plugin";
+  if (busy) {
+    label = "Installing…";
+  } else if (status?.state === "failed" || install.isError) {
+    label = "Retry";
+  } else if (status?.state === "ready") {
+    label = "Install plugin";
+  }
+  return (
+    <DialogFooter>
+      <Button disabled={busy} onClick={onClose} variant="outline">
+        {install.isSuccess ? "Close" : "Cancel"}
+      </Button>
+      {install.isSuccess ? (
+        <Button render={<Link to="/plugins/google-meet" />}>
+          Open Google Meet
+        </Button>
+      ) : (
+        <Button
+          disabled={
+            busy ||
+            dependencies.isLoading ||
+            !status ||
+            status.state === "unsupported" ||
+            needsAdmin
+          }
+          onClick={() => install.mutate()}
+        >
+          {label}
+        </Button>
+      )}
+    </DialogFooter>
   );
 }
 
@@ -434,19 +653,17 @@ function PluginPageHeader({
   onInstall(event: MouseEvent<HTMLButtonElement>): void;
 }) {
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div className="flex flex-wrap items-center justify-end gap-3 empty:hidden">
       {detail ? (
         <Link
-          className="text-muted-foreground text-sm hover:text-foreground"
+          className="mr-auto text-muted-foreground text-sm hover:text-foreground"
           to="/customize/plugins"
         >
           ← Back to plugins
         </Link>
-      ) : (
-        <h2 className="type-section-title">Plugins</h2>
-      )}
+      ) : null}
       {canInstall && !detail ? (
-        <Button disabled={busy} onClick={onInstall} size="sm">
+        <Button disabled={busy} onClick={onInstall} size="sm" variant="outline">
           Install external plugin
         </Button>
       ) : null}
@@ -594,7 +811,7 @@ interface PluginRowProps {
     type:
       | Exclude<
           PluginDialog["type"],
-          "package" | "package-entry" | "remove-release"
+          "package" | "package-entry" | "remove-release" | "official-install"
         >
       | "reinstall"
       | "access",
@@ -623,7 +840,7 @@ function PluginRow({
   onRemove,
 }: PluginRowProps) {
   return (
-    <li className={detail ? "min-w-0" : "min-w-0 py-5"}>
+    <li className={detail ? "min-w-0" : "min-w-0 px-4 py-3"}>
       <div className="flex flex-wrap items-center gap-3">
         <PluginIdentity
           catalogDescription={catalogDescription}
@@ -688,9 +905,7 @@ function PluginIdentity({
 >) {
   const canOpen = plugin?.lifecycleState === "enabled" && plugin.ui !== null;
   return (
-    <div
-      className={`relative flex min-w-0 flex-1 items-center gap-3 ${detail ? "" : "p-3"}`}
-    >
+    <div className="relative flex min-w-0 flex-1 items-center gap-3">
       {detail ? null : (
         <Link
           aria-label={`${canOpen ? "Open" : "View details for"} ${name}`}
@@ -732,7 +947,7 @@ function PluginIdentity({
             ) : null}
           </div>
         ) : (
-          <p className="mt-1 line-clamp-2 text-muted-foreground text-sm">
+          <p className="mt-1 break-words text-muted-foreground text-sm">
             {PLUGIN_DESCRIPTIONS[pluginId] ||
               plugin?.description ||
               catalogDescription ||
@@ -1228,6 +1443,9 @@ function DialogBody({
   dialog: Exclude<PluginDialog, { type: "package-entry" }>;
   orgId: string;
 }) {
+  if (dialog.type === "official-install") {
+    return <p className="text-sm">{dialog.description}</p>;
+  }
   if (dialog.type === "package") {
     return (
       <ul className="min-w-0 space-y-1 text-sm [overflow-wrap:anywhere]">
@@ -1288,6 +1506,9 @@ function dialogTitle(dialog: PluginDialog | null): string {
   if (dialog.type === "package-entry") {
     return "Install external plugin";
   }
+  if (dialog.type === "official-install") {
+    return `Install ${dialog.name}?`;
+  }
   if (dialog.type === "package") {
     return "Install this package?";
   }
@@ -1316,7 +1537,11 @@ function confirmLabel(dialog: PluginDialog | null): string {
   if (!dialog) {
     return "Confirm";
   }
-  if (dialog.type === "package" || dialog.type === "install") {
+  if (
+    dialog.type === "package" ||
+    dialog.type === "install" ||
+    dialog.type === "official-install"
+  ) {
     return "Install";
   }
   if (dialog.type === "enable") {

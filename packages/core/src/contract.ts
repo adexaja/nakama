@@ -922,6 +922,13 @@ export interface ListChannelOrgMappingsResponse {
 
 export interface CreateSessionRequest {
   channel: AgentChannel;
+  /**
+   * A cognito session lives only in server memory: no `sessions` row, no
+   * `session_messages`, no generated title, and no write-back into profile or
+   * org memory. It still loads soul, skills, plugins and memory, it just
+   * leaves nothing behind. Absent or false means an ordinary session.
+   */
+  cognito?: boolean;
   model?: string;
   profileId?: string;
 }
@@ -2529,6 +2536,12 @@ export interface ToolContext {
   /** Emits concise live status lines while a sub-agent child loop runs (parent web UI). */
   emitSubAgentActivity?: (label: string) => void;
   /**
+   * When true (a cognito session), write_file / write_docx / edit_file / delete_file
+   * refuse MEMORY.md and memory-archive/YYYY-MM.md under the profile workspace, so a
+   * chat that leaves no trace cannot leave one through the file tools either.
+   */
+  forbidMemoryWrites?: boolean;
+  /**
    * When true (skill_manage is in the session tool list), write_file / edit_file / delete_file
    * refuse paths matching skills/<name>/SKILL.md under the profile workspace.
    */
@@ -2589,6 +2602,12 @@ export interface ToolContext {
    * was never chosen, which falls back to the server's NAKAMA_OMNI env var.
    */
   tokenOptimizerEnabled?: boolean | null;
+  /**
+   * Present only in a cognito session. Attachments there have no `sessions`
+   * row to reference, so they are written with a null session_id and their
+   * ids reported here, which is the only handle on them for cleanup.
+   */
+  trackEphemeralAttachment?: (attachmentId: string) => void;
   userId?: string;
   workflowId?: string;
   workflowRunId?: string;
@@ -2707,6 +2726,16 @@ export interface ComposioToolErrorResult {
   code: ComposioToolErrorCode;
   error: string;
   toolkitSlug?: string;
+}
+
+export interface PluginDependencyStatus {
+  error?: string;
+  state: "pending" | "installing" | "ready" | "failed" | "unsupported";
+  steps: Array<{
+    id: string;
+    label: string;
+    state: "pending" | "installing" | "ready" | "failed";
+  }>;
 }
 
 export interface PluginReleaseSummary {

@@ -2,7 +2,8 @@ import type {
   DiscordWorkerStatus,
   SystemStatusResponse,
 } from "@nakama/core/contract";
-import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/context/use-auth";
 import { client } from "@/lib/client";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -25,15 +26,16 @@ function normalizeSystemStatus(
   };
 }
 
-export const systemStatusQueryOptions = queryOptions({
-  queryFn: async () => normalizeSystemStatus(await client.getSystemStatus()),
-  queryKey: queryKeys.systemStatus,
-  refetchInterval: REFRESH_INTERVAL_MS,
-  refetchIntervalInBackground: true,
-});
-
 export function useSystemStatusQuery() {
-  return useQuery(systemStatusQueryOptions);
+  const { activeOrg } = useAuth();
+  const orgId = activeOrg?.id ?? null;
+  const api = client.forOrg(orgId);
+  return useQuery({
+    queryFn: async () => normalizeSystemStatus(await api.getSystemStatus()),
+    queryKey: [...queryKeys.systemStatus, orgId],
+    refetchInterval: REFRESH_INTERVAL_MS,
+    refetchIntervalInBackground: true,
+  });
 }
 
 export function useRefreshSystemStatus() {

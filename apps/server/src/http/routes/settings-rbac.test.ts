@@ -1,12 +1,107 @@
 import { describe, expect, test } from "bun:test";
 import type { OrgRole } from "@nakama/core";
+import {
+  loadWhatsAppConfigFile,
+  syncWhatsAppOwnerPairing,
+} from "@nakama/core/whatsapp-config";
+import {
+  getWhatsAppWorkerStatus,
+  writeWhatsAppQrCode,
+} from "@nakama/core/whatsapp-worker";
 import { createInMemoryDatabaseAdapter } from "@nakama/db";
+import { AgentService } from "../../services/agent-service";
 import { setupTestConfigDir } from "../../test-config-dir";
 import type { ServerOptions } from "../context";
 import { createMinimalHonoApp } from "../test-app-helpers";
 import { loginUserSession, seedOrgAdmin } from "../test-session-helpers";
 
 setupTestConfigDir("nakama-settings-rbac-test-");
+
+test("WhatsApp HTTP settings, profiles, QR codes and reconnect are isolated by organization", async () => {
+  const db = createInMemoryDatabaseAdapter();
+  const service = new AgentService(null, null, db);
+  const workerCalls: string[] = [];
+  const { app, authService } = createMinimalHonoApp({
+    databaseAdapter: db,
+    agent: service,
+    workerManager: {
+      getWorkerStatus: async () => ({ managed: true, status: "online" }),
+      stopWorker: async (_name: string, orgId: string) => {
+        workerCalls.push("stop:" + orgId);
+      },
+      startWorker: async (_name: string, orgId: string) => {
+        workerCalls.push("start:" + orgId);
+      },
+    },
+  });
+  for (const id of ["a", "b"]) {
+    await seedOrgAdmin(db, {
+      authService,
+      orgId: "wa_" + id,
+      userId: "wa_user_" + id,
+      email: id + "@wa.test",
+      password: "password123",
+      profileId: "profile_wa_" + id,
+    });
+  }
+  const a = await loginUserSession(app, "a@wa.test", "password123", "wa_a");
+  const b = await loginUserSession(app, "b@wa.test", "password123", "wa_b");
+  for (const [id, session] of [
+    ["a", a],
+    ["b", b],
+  ] as const) {
+    const saved = await callRoute(app, session, {
+      method: "PUT",
+      path: "/v1/settings/whatsapp",
+      body: {
+        profileId: "profile_wa_" + id,
+        allowedPhones: id === "a" ? "628111111111" : "628222222222",
+      },
+    });
+    expect(saved.status).toBe(200);
+  }
+  const foreignProfile = await callRoute(app, a, {
+    method: "PUT",
+    path: "/v1/settings/whatsapp",
+    body: { profileId: "profile_wa_b" },
+  });
+  expect(foreignProfile.status).toBe(404);
+  const foreignOrg = await app.fetch(
+    new Request("http://localhost:4310/v1/settings/whatsapp", {
+      headers: a.headers({}, "wa_b"),
+    })
+  );
+  expect(foreignOrg.status).toBe(404);
+  await writeWhatsAppQrCode("qr-a", "wa_a");
+  await writeWhatsAppQrCode("qr-b", "wa_b");
+  expect((await getWhatsAppWorkerStatus("wa_a")).qrCode).toBe("qr-a");
+  expect((await getWhatsAppWorkerStatus("wa_b")).qrCode).toBe("qr-b");
+  await syncWhatsAppOwnerPairing(
+    { ownerJid: "628222222222@s.whatsapp.net" },
+    "wa_b"
+  );
+  const reconnect = await callRoute(app, a, {
+    method: "POST",
+    path: "/v1/settings/whatsapp/reconnect",
+  });
+  expect(reconnect.status).toBe(200);
+  expect(workerCalls).toEqual(["stop:wa_a", "start:wa_a"]);
+  expect((await getWhatsAppWorkerStatus("wa_b")).qrCode).toBe("qr-b");
+  expect((await loadWhatsAppConfigFile("wa_b"))?.pairedJid).toBe(
+    "628222222222@s.whatsapp.net"
+  );
+  expect((await loadWhatsAppConfigFile("wa_a"))?.profileId).toBe(
+    "profile_wa_a"
+  );
+  const readB = await callRoute(app, b, {
+    method: "GET",
+    path: "/v1/settings/whatsapp",
+  });
+  expect(await readB.json()).toMatchObject({
+    profileId: "profile_wa_b",
+    allowedPhones: ["628222222222"],
+  });
+});
 
 const ORG_ID = "org_settings_rbac";
 const PASSWORD = "password123";
@@ -88,14 +183,25 @@ const INSTALL_WRITES: { body?: unknown; method: string; path: string }[] = [
     path: "/v1/settings/error-tracking",
   },
   { method: "POST", path: "/v1/settings/error-tracking/test" },
-  { body: { enabled: true }, method: "PUT", path: "/v1/settings/whatsapp" },
-  {
-    body: { phoneNumber: "1" },
-    method: "POST",
-    path: "/v1/settings/whatsapp/pairing-code",
-  },
-  { method: "POST", path: "/v1/settings/whatsapp/reconnect" },
 ];
+
+for (const role of ["member", "viewer"] as const) {
+  for (const [method, path] of [
+    ["PUT", "/v1/settings/whatsapp"],
+    ["POST", "/v1/settings/whatsapp/pairing-code"],
+    ["POST", "/v1/settings/whatsapp/reconnect"],
+    ["POST", "/v1/workers/whatsapp/start"],
+    ["GET", "/v1/workers/whatsapp/logs"],
+  ]) {
+    test(`WhatsApp ${method} ${path} rejects ${role}`, async () => {
+      const { app, calls, session } = await login(role);
+      expect((await callRoute(app, session, { method, path })).status).toBe(
+        403
+      );
+      expect(calls).toEqual([]);
+    });
+  }
+}
 
 function createApp() {
   const calls: string[] = [];

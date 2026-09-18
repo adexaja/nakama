@@ -82,6 +82,9 @@ export interface ChatHandlerDeps {
 
 export function createChatHandler(deps: ChatHandlerDeps) {
   const { client, config, authStore, sessionStore, orgStore, getSocket } = deps;
+  if (config.orgId) {
+    client.setOrgId(config.orgId);
+  }
 
   return async function handleMessage(
     data: Pick<WhatsAppInboundChat, "jid" | "text"> &
@@ -353,6 +356,10 @@ export function createChatHandler(deps: ChatHandlerDeps) {
     messageText: string,
     replyJid: string
   ): Promise<boolean> {
+    if (config.orgId) {
+      client.setOrgId(config.orgId);
+      return true;
+    }
     const orgContext = await prepareChannelOrgContext({
       getSelectedOrgId: () => orgStore.get(channelOrgKey)?.orgId,
       listOrgs: () => client.listUserOrgs(),
@@ -389,6 +396,10 @@ export function createChatHandler(deps: ChatHandlerDeps) {
     jid: string,
     text: string
   ): Promise<void> {
+    if (config.orgId) {
+      await sendText(jid, "This number serves a single organization.");
+      return;
+    }
     const { orgs } = await client.listUserOrgs();
 
     if (orgs.length === 0) {
@@ -517,7 +528,7 @@ export function createChatHandler(deps: ChatHandlerDeps) {
       await sendText(jid, formatClientError(error));
       return;
     } finally {
-      clearActiveStream(conversationKey);
+      clearActiveStream(conversationKey, signal);
       typingLoop.stop();
     }
 

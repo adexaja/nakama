@@ -109,6 +109,40 @@ describe("AgentService sub-agent roles", () => {
 });
 
 describe("AgentService branching", () => {
+  test("reopens a saved session with a retired ChatGPT model", async () => {
+    const db = createInMemoryDatabaseAdapter();
+    await db.upsertProfile(createDefaultProfile());
+    const sessionId = await new AgentService(null, null, db).createSession(
+      ORG_ID,
+      "web",
+      "profile_default"
+    );
+    await db.updateSessionModel(sessionId, "chatgpt-1::gpt-5.4-mini");
+    const service = new AgentService(
+      {
+        defaultProviderId: "chatgpt-1",
+        providers: [
+          {
+            apiKey: "",
+            createdAt: "2026-09-16T00:00:00.000Z",
+            id: "chatgpt-1",
+            label: "ChatGPT",
+            type: "chatgpt",
+          },
+        ],
+      },
+      null,
+      db
+    );
+
+    expect((await service.getSessionMessages(sessionId, ORG_ID))?.model).toBe(
+      "chatgpt-1::gpt-5.4-mini"
+    );
+    expect((await db.getSession(sessionId))?.model).toBe(
+      "chatgpt-1::gpt-5.4-mini"
+    );
+  });
+
   test("keeps model selection scoped to the chat session", async () => {
     const db = createInMemoryDatabaseAdapter();
     await db.upsertProfile({
@@ -1215,65 +1249,64 @@ describe("AgentService WhatsApp allowed phones", () => {
     await rm(configDir, { force: true, recursive: true });
   });
 
-  test("writes allowed phones to WhatsApp config", async () => {
-    const service = new AgentService(
-      null,
-      null,
-      createInMemoryDatabaseAdapter()
-    );
+  async function createWhatsAppService() {
+    const db = createInMemoryDatabaseAdapter();
+    await db.upsertProfile({
+      ...createDefaultProfile(),
+      id: "well-test-report-validator",
+    });
+    return new AgentService(null, null, db);
+  }
 
-    const saved = await service.setWhatsAppSettings({
+  test("writes allowed phones to WhatsApp config", async () => {
+    const service = await createWhatsAppService();
+
+    const saved = await service.setWhatsAppSettings(ORG_ID, {
       allowedPhones: "+62 813-5231-1912",
       profileId: "well-test-report-validator",
     });
 
     expect(saved.allowedPhones).toEqual(["6281352311912"]);
-    expect((await service.getWhatsAppSettings()).allowedPhones).toEqual([
+    expect((await service.getWhatsAppSettings(ORG_ID)).allowedPhones).toEqual([
       "6281352311912",
     ]);
-    expect((await loadWhatsAppConfigFile())?.allowedPhones).toEqual([
+    expect((await loadWhatsAppConfigFile(ORG_ID))?.allowedPhones).toEqual([
       "6281352311912",
     ]);
   });
 
   test("keeps allowed phones when only the profile is saved", async () => {
-    const service = new AgentService(
-      null,
-      null,
-      createInMemoryDatabaseAdapter()
-    );
-    await service.setWhatsAppSettings({
+    const service = await createWhatsAppService();
+    await service.setWhatsAppSettings(ORG_ID, {
       allowedPhones: "6281352311912",
       profileId: "well-test-report-validator",
     });
 
-    const saved = await service.setWhatsAppSettings({
+    const saved = await service.setWhatsAppSettings(ORG_ID, {
       profileId: "well-test-report-validator",
     });
 
     expect(saved.allowedPhones).toEqual(["6281352311912"]);
-    expect((await loadWhatsAppConfigFile())?.allowedPhones).toEqual([
+    expect((await loadWhatsAppConfigFile(ORG_ID))?.allowedPhones).toEqual([
       "6281352311912",
     ]);
   });
 
   test("writes requireGroupMention to WhatsApp config", async () => {
-    const service = new AgentService(
-      null,
-      null,
-      createInMemoryDatabaseAdapter()
-    );
+    const service = await createWhatsAppService();
 
-    const saved = await service.setWhatsAppSettings({
+    const saved = await service.setWhatsAppSettings(ORG_ID, {
       profileId: "default",
       requireGroupMention: false,
     });
 
     expect(saved.requireGroupMention).toBe(false);
-    expect((await service.getWhatsAppSettings()).requireGroupMention).toBe(
+    expect(
+      (await service.getWhatsAppSettings(ORG_ID)).requireGroupMention
+    ).toBe(false);
+    expect((await loadWhatsAppConfigFile(ORG_ID))?.requireGroupMention).toBe(
       false
     );
-    expect((await loadWhatsAppConfigFile())?.requireGroupMention).toBe(false);
   });
 });
 

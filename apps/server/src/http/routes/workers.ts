@@ -15,13 +15,17 @@ import {
 import { errorResponse, json } from "../shared";
 import type { AppEnv, HonoApp } from "../types";
 
-const PLATFORM_ADMIN_WORKERS = new Set(["telegram", "whatsapp", "discord"]);
+const PLATFORM_ADMIN_WORKERS = new Set(["telegram", "discord"]);
 
 function requireWorkerAuthorization(
   c: Context<AppEnv>,
   name: string,
   manager: ServerOptions["workerManager"]
 ): void {
+  if (name === "whatsapp") {
+    requireOrgAdminOrPlatformAdminFromContext(c);
+    return;
+  }
   if (name.startsWith("plugin-")) {
     requireOrgAdminOrPlatformAdminFromContext(c);
     if (!manager.isPluginWorkerForOrg(name, requireActiveOrgIdFromContext(c))) {
@@ -189,11 +193,20 @@ export function registerWorkerRoutes(
 
     try {
       if (action === "start") {
-        await workerManager.startWorker(name);
+        await workerManager.startWorker(
+          name,
+          name === "whatsapp" ? requireActiveOrgIdFromContext(c) : null
+        );
       } else if (action === "stop") {
-        await workerManager.stopWorker(name);
+        await workerManager.stopWorker(
+          name,
+          name === "whatsapp" ? requireActiveOrgIdFromContext(c) : null
+        );
       } else {
-        await workerManager.restartWorker(name);
+        await workerManager.restartWorker(
+          name,
+          name === "whatsapp" ? requireActiveOrgIdFromContext(c) : null
+        );
       }
 
       return json({ ok: true });
@@ -220,7 +233,11 @@ export function registerWorkerRoutes(
     );
 
     try {
-      const logs = await workerManager.getWorkerLogs(name, lines);
+      const logs = await workerManager.getWorkerLogs(
+        name,
+        lines,
+        name === "whatsapp" ? requireActiveOrgIdFromContext(c) : null
+      );
       return json<WorkerLogsResponse>(logs);
     } catch (err) {
       void reportError(err, { kind: "http", source: "server" });
@@ -238,7 +255,10 @@ export function registerWorkerRoutes(
     }
 
     try {
-      await workerManager.clearWorkerLogs(name);
+      await workerManager.clearWorkerLogs(
+        name,
+        name === "whatsapp" ? requireActiveOrgIdFromContext(c) : null
+      );
       return json({ ok: true });
     } catch (err) {
       void reportError(err, { kind: "http", source: "server" });

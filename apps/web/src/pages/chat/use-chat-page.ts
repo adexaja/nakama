@@ -180,6 +180,7 @@ export function useChatPage() {
       search: location.search,
     });
   const [session, setSession] = useState<RemoteChatSession | null>(null);
+  const [cognito, setCognito] = useState(false);
   const [sessionModel, setSessionModel] = useState<string | null>(null);
   const [sessionChannel, setSessionChannel] = useState<AgentChannel>("web");
   const [messages, setMessages] = useState<ChatListItem[]>([]);
@@ -218,7 +219,13 @@ export function useChatPage() {
   const profileIdRef = useRef(profileId);
   const busyRef = useRef(busy);
   const activeSessionIdRef = useRef<string | null>(session?.id ?? null);
+  // Read inside sendMessage, which is memoised on other deps.
+  const cognitoRef = useRef(cognito);
   const sessionLoadRef = useRef(0);
+
+  useEffect(() => {
+    cognitoRef.current = cognito;
+  }, [cognito]);
 
   useEffect(
     () => () => {
@@ -696,6 +703,42 @@ export function useChatPage() {
     [branchSessionMutation, profileId, resumeSession, session]
   );
 
+  /**
+   * Switching cognito on or off always starts a fresh chat. The two modes
+   * persist differently, so carrying a conversation across the boundary would
+   * be wrong in both directions.
+   */
+  const handleCognitoChange = useCallback(
+    (next: boolean) => {
+      if (busyRef.current) {
+        return;
+      }
+
+      const current = cognitoRef.current;
+
+      if (current === next) {
+        return;
+      }
+
+      const endingSessionId = current ? activeSessionIdRef.current : null;
+
+      if (endingSessionId) {
+        // End it first, so the server drops it even if resetting the view
+        // throws. Nothing reads the result: the session only ever existed in
+        // server memory and the UI has already moved on.
+        void client
+          .createChatSession(endingSessionId, "web")
+          .purge()
+          .catch(() => undefined);
+      }
+
+      cognitoRef.current = next;
+      setCognito(next);
+      enterDraftChat(profileIdRef.current);
+    },
+    [enterDraftChat]
+  );
+
   const handleProfileSwitch = useCallback(
     (nextProfileId: string) => {
       if (
@@ -870,17 +913,29 @@ export function useChatPage() {
       if (!activeSession) {
         try {
           activeSession = await client.createSession("web", {
+            cognito: cognitoRef.current || undefined,
             model: sessionModel ?? undefined,
             profileId,
           });
-          localStorage.setItem(sessionStorageKey(profileId), activeSession.id);
+          // A cognito session id is never stored or put in the URL: either
+          // would survive the reload that is supposed to end the chat.
+          if (!cognitoRef.current) {
+            localStorage.setItem(
+              sessionStorageKey(profileId),
+              activeSession.id
+            );
+          }
           activeSessionIdRef.current = activeSession.id;
           setSessionChannel("web");
           setSession(activeSession);
-          syncChatUrl(profileId, activeSession.id);
-          void queryClient.invalidateQueries({
-            queryKey: queryKeys.sessions(profileId, "web"),
-          });
+          // Neither the URL nor the history list may learn about a cognito
+          // session: it is not in `sessions`, so there is nothing to refetch.
+          if (!cognitoRef.current) {
+            syncChatUrl(profileId, activeSession.id);
+            void queryClient.invalidateQueries({
+              queryKey: queryKeys.sessions(profileId, "web"),
+            });
+          }
         } catch (err) {
           setError(formatError(err));
           shouldDrainQueue = false;
@@ -950,10 +1005,16 @@ export function useChatPage() {
         if (message.includes("Session not found") && profileId) {
           try {
             const nextSession = await client.createSession("web", {
+              cognito: cognitoRef.current || undefined,
               model: sessionModel ?? undefined,
               profileId,
             });
-            localStorage.setItem(sessionStorageKey(profileId), nextSession.id);
+            if (!cognitoRef.current) {
+              localStorage.setItem(
+                sessionStorageKey(profileId),
+                nextSession.id
+              );
+            }
             activeSessionIdRef.current = nextSession.id;
             setSessionChannel("web");
             setSession(nextSession);
@@ -1105,14 +1166,19 @@ export function useChatPage() {
           initialMessages = plan.initialMessages;
         } else {
           retrySession = await client.createSession("web", {
+            cognito: cognitoRef.current || undefined,
             model: sessionModel ?? undefined,
             profileId,
           });
         }
 
-        localStorage.setItem(sessionStorageKey(profileId), retrySession.id);
         setSession(retrySession);
-        syncChatUrl(profileId, retrySession.id);
+        if (cognitoRef.current) {
+          activeSessionIdRef.current = retrySession.id;
+        } else {
+          localStorage.setItem(sessionStorageKey(profileId), retrySession.id);
+          syncChatUrl(profileId, retrySession.id);
+        }
 
         await sendMessage(text, [], {
           initialMessages,
@@ -1232,6 +1298,7 @@ export function useChatPage() {
     busy,
     canStop,
     chatStatus,
+    cognito,
     composerDisabled,
     composerDraftKey,
     composerEntry,
@@ -1239,6 +1306,7 @@ export function useChatPage() {
     currentModelSelection,
     error,
     handleBranchMessage,
+    handleCognitoChange,
     handleEditMessage,
     handleModelChange,
     handleProfileSwitch,

@@ -79,9 +79,8 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / TOKEN_ESTIMATE_RATIO);
 }
 
-// Gemini is the only provider whose mapper never replays the reasoning trace:
-// toGeminiAssistantParts sends content and toolCalls only, because replaying a
-// thought needs the thoughtSignature the parser drops. See #768.
+// Unsigned Gemini thinking is display-only. Signed parts are replayed and
+// counted through providerContent instead.
 export function providerReplaysThinking(provider: ProviderName): boolean {
   return provider !== "gemini";
 }
