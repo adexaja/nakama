@@ -24,7 +24,7 @@ import { Input } from "@nakama/ui/input";
 import { Spinner } from "@nakama/ui/spinner";
 import { Add01Icon, MoreHorizontalIcon } from "hugeicons-react";
 import { type MouseEvent, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "@/context/use-auth";
 import {
   formatPluginTrustLines,
@@ -486,6 +486,7 @@ function GoogleMeetInstallDialog({
   onClose(): void;
   expectedRevision?: number;
 }) {
+  const navigate = useNavigate();
   const { dependencies, install } = useInstallGoogleMeet(
     orgId,
     expectedRevision
@@ -519,7 +520,16 @@ function GoogleMeetInstallDialog({
             {formatError(error)}
           </p>
         )}
-        <GoogleMeetInstallFooter install={install} onClose={onClose} />
+        <GoogleMeetInstallFooter
+          install={install}
+          onClose={onClose}
+          onInstalled={() => {
+            if (expectedRevision === undefined) {
+              onClose();
+              navigate("/plugins/google-meet");
+            }
+          }}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -569,7 +579,11 @@ function GoogleMeetInstallProgress({
 function GoogleMeetInstallFooter({
   install,
   onClose,
-}: Pick<GoogleMeetInstallState, "install"> & { onClose(): void }) {
+  onInstalled,
+}: Pick<GoogleMeetInstallState, "install"> & {
+  onClose(): void;
+  onInstalled(): void;
+}) {
   const busy = install.isPending;
   let label = "Install plugin";
   if (busy) {
@@ -587,7 +601,10 @@ function GoogleMeetInstallFooter({
           Open Google Meet
         </Button>
       ) : (
-        <Button disabled={busy} onClick={() => install.mutate()}>
+        <Button
+          disabled={busy}
+          onClick={() => install.mutate(undefined, { onSuccess: onInstalled })}
+        >
           {label}
         </Button>
       )}

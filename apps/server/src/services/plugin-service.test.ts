@@ -104,7 +104,8 @@ describe("PluginService", () => {
         "../../../../packages/plugins"
       ),
       workerManager: {
-        async registerPluginWorkers(registration) {
+        async registerPluginWorkers(registration, start) {
+          expect(start).toBe(true);
           workers.push(...registration.workers.map((worker) => worker.key));
         },
         async unregisterPluginWorkers() {},

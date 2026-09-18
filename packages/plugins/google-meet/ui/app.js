@@ -181,7 +181,7 @@ function apply(ctx) {
     const [duration, setDuration] = React.useState(120);
     const [captureUrl, setCaptureUrl] = React.useState("");
     const [busy, setBusy] = React.useState(false);
-    const [settings, setSettings] = React.useState(false);
+    const [settings, setSettings] = React.useState(null);
     const [selected, setSelected] = React.useState(null);
     React.useEffect(() => {
       let alive = true;
@@ -351,7 +351,7 @@ function apply(ctx) {
       role: "alert"
     }, meeting.error)))) : /* @__PURE__ */ React.createElement("p", {
       className: "meet-empty"
-    }, group.title === "Meetings" ? "No meetings yet." : "No saved transcripts yet.")))) : /* @__PURE__ */ React.createElement("p", null, "Loading…"), settings && /* @__PURE__ */ React.createElement(Settings, {
+    }, group.title === "Meetings" ? "No meetings yet." : "No saved transcripts yet.")))) : /* @__PURE__ */ React.createElement("p", null, "Loading…"), (settings ?? (overview?.canConfigure && !overview.configured)) && /* @__PURE__ */ React.createElement(Settings, {
       close: () => setSettings(false)
     }));
   }
