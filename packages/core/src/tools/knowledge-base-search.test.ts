@@ -339,5 +339,43 @@ describe("knowledge_base_search tool", () => {
         match.text.includes("shared budget marker")
       )
     ).toBe(true);
+    // The profile scope had to drop a match to keep the organization slot.
+    expect(result.truncated).toBe(true);
+  });
+
+  test("reports truncation only when a match is actually dropped", async () => {
+    await setupKnowledgeBase({
+      profile: {
+        body: "limit marker one\nlimit marker two\nlimit marker three\n",
+        filename: "private.txt",
+        id: PRIVATE_DOCUMENT_ID,
+      },
+    });
+
+    const exact = await runKnowledgeBaseSearch(
+      { maxResults: 3, query: "limit marker" },
+      { orgId: ORG_ID, profileId: PROFILE_ID }
+    );
+    expect(exact.matchCount).toBe(3);
+    expect(exact.truncated).toBe(false);
+
+    const dropped = await runKnowledgeBaseSearch(
+      { maxResults: 2, query: "limit marker" },
+      { orgId: ORG_ID, profileId: PROFILE_ID }
+    );
+    expect(dropped.matchCount).toBe(2);
+    expect(dropped.truncated).toBe(true);
+  });
+
+  test("does not report truncation when both scopes land on the merged limit", async () => {
+    await setupTwoScopes();
+
+    const result = await runKnowledgeBaseSearch(
+      { maxResults: 2, query: "alpha" },
+      { orgId: ORG_ID, profileId: PROFILE_ID }
+    );
+
+    expect(result.matchCount).toBe(2);
+    expect(result.truncated).toBe(false);
   });
 });
