@@ -433,7 +433,10 @@ export class TerminalLayout {
       lines[inputStart + index] = visibleInput[index] ?? plainLine("");
     }
 
-    const cursorLine = visibleInput[visibleInput.length - 1] ?? plainLine("");
+    const cursorLine =
+      visibleInput[visibleInput.length - 2] ??
+      visibleInput[visibleInput.length - 1] ??
+      plainLine("");
     const cursorRow =
       viewportTop + Math.max(1, inputStart + visibleInput.length) - 1;
     const scrollBottom = pinned

@@ -2,8 +2,9 @@ import {
   plainLine,
   type StyledLine,
   serializeStyledLine,
-  styledLineWidth,
+  styledLineText,
 } from "./styled-text";
+import { visibleLength } from "./text-measure";
 
 export interface FrameModel {
   cursor: {
@@ -214,5 +215,8 @@ export function clampFrameCursor(
 
 export function cursorColFromLine(line: StyledLine, columns: number): number {
   const maxCol = Math.max(1, columns);
-  return Math.min(maxCol, Math.max(1, styledLineWidth(line) + 1));
+  return Math.min(
+    maxCol,
+    Math.max(1, visibleLength(styledLineText(line).trimEnd()) + 1)
+  );
 }

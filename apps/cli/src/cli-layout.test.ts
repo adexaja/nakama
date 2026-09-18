@@ -6,6 +6,7 @@ import {
 } from "./message-queue";
 import { plainLine, styledLine, styledLineText } from "./styled-text";
 import { TerminalLayout } from "./terminal-layout";
+import { buildComposerLines } from "./terminal-renderer";
 import { VirtualMessageList } from "./virtual-message-list";
 
 describe("formatPendingSummary", () => {
@@ -224,6 +225,37 @@ describe("TerminalLayout frame pipeline", () => {
     expect(firstOutput).toContain("\x1b[");
     expect(secondOutput).toContain("\x1b[");
     expect(secondOutput.length).toBeLessThan(firstOutput.length * 2);
+  });
+
+  test("keeps the native cursor beside the drawn prompt cursor", () => {
+    captureStdout();
+    setTerminalSize(80, 10);
+    const layout = new TerminalLayout(null);
+
+    Object.assign(layout as Record<string, unknown>, {
+      anchored: true,
+      enabled: true,
+    });
+
+    layout.setReservedRows(
+      3,
+      buildComposerLines(
+        {
+          composer: {
+            cursorVisible: true,
+            prefix: "> ",
+            selectedIndex: 0,
+            suggestions: [],
+            value: "",
+          },
+          pendingMessages: [],
+        },
+        80
+      )
+    );
+
+    expect(writes.join("")).toContain("\x1b[4;4H");
+    expect(writes.join("")).not.toContain("\x1b[4;80H");
   });
 
   test("serializes styled status line through frame serializer", () => {
