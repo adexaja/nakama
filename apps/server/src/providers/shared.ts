@@ -312,6 +312,10 @@ export function formatHttpErrorBody(
     return `${label} request failed (${status}).`;
   }
 
+  if (/^<!doctype\s+html|^<html[\s>]/i.test(trimmed)) {
+    return `${label} request failed (${status}): received an HTML error page.`;
+  }
+
   try {
     const parsed = JSON.parse(trimmed) as Record<string, unknown>;
     const nested = parsed.error;

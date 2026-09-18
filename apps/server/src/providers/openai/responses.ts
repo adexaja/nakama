@@ -15,6 +15,7 @@ import {
 } from "@nakama/core";
 import {
   buildTokenUsage,
+  formatHttpErrorBody,
   normalizeThinkingEffort,
   parseJsonRecord,
   readRecord,
@@ -69,7 +70,7 @@ export async function generateOpenAIResponsesChat(options: {
 
   if (!response.ok) {
     throw new Error(
-      `${label} request failed (${response.status}): ${await response.text()}`
+      formatHttpErrorBody(label, response.status, await response.text())
     );
   }
 
