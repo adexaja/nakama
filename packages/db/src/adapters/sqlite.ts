@@ -1031,14 +1031,14 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
   const getAttachmentStmt = db.prepare(
     "SELECT * FROM attachments WHERE id = ?"
   );
-  const deleteAttachmentStmt = db.prepare(
-    "DELETE FROM attachments WHERE id = ?"
-  );
   const listAttachmentsForSessionStmt = db.prepare(
     "SELECT * FROM attachments WHERE session_id = ?"
   );
   const listEphemeralAttachmentsStmt = db.prepare(
     "SELECT * FROM attachments WHERE ephemeral = 1"
+  );
+  const deleteAttachmentStmt = db.prepare(
+    "DELETE FROM attachments WHERE id = ?"
   );
   const listSessionSummariesStmt = db.prepare(`
     SELECT
