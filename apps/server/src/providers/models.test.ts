@@ -87,6 +87,24 @@ describe("resolveModel", () => {
     expect(getDefaultModel("gemini")).toBe("gemini-2.5-flash");
   });
 
+  test("exposes current Gemini limits and standard text prices without changing defaults", () => {
+    for (const [id, input, output] of [
+      ["gemini-2.5-flash", 0.3, 2.5],
+      ["gemini-2.5-pro", 1.25, 10],
+      ["gemini-3.8-flash", 0.75, 3.75],
+      ["gemini-3.1-pro-preview", 2, 12],
+    ] as const) {
+      expect(getModelById(id)).toMatchObject({
+        contextWindow: 1_048_576,
+        inputPerMillionUsd: input,
+        maxOutputTokens: 65_536,
+        outputPerMillionUsd: output,
+        provider: "gemini",
+      });
+    }
+    expect(getModelById("gemini-3.8-flash")?.default).not.toBe(true);
+  });
+
   test("resolves custom shortlist models for OpenAI", () => {
     const customModels = [{ default: true, id: "gpt-4o-mini" }];
     expect(resolveModel("openai", "gpt-4o-mini", customModels)).toBe(

@@ -123,23 +123,45 @@ const BASE_MODELS: ProviderModelOption[] = withVisionDefaults([
     provider: "openai",
     supportsThinking: false,
   },
+  // Gemini standard text prices: https://ai.google.dev/gemini-api/docs/pricing
   {
-    contextWindow: 1_000_000,
+    contextWindow: 1_048_576,
     default: true,
     id: "gemini-2.5-flash",
-    inputPerMillionUsd: 0.15,
-    maxOutputTokens: 8192,
+    inputPerMillionUsd: 0.3,
+    maxOutputTokens: 65_536,
     name: "Gemini 2.5 Flash",
-    outputPerMillionUsd: 0.6,
+    outputPerMillionUsd: 2.5,
     provider: "gemini",
   },
   {
-    contextWindow: 1_000_000,
+    contextWindow: 1_048_576,
     id: "gemini-2.5-pro",
+    // Base tier for prompts <= 200k tokens; longer prompts cost more.
     inputPerMillionUsd: 1.25,
-    maxOutputTokens: 8192,
+    maxOutputTokens: 65_536,
     name: "Gemini 2.5 Pro",
-    outputPerMillionUsd: 5,
+    outputPerMillionUsd: 10,
+    provider: "gemini",
+  },
+  {
+    contextWindow: 1_048_576,
+    id: "gemini-3.8-flash",
+    // Promotional prices through 2026-12-31; double on 2027-01-01.
+    inputPerMillionUsd: 0.75,
+    maxOutputTokens: 65_536,
+    name: "Gemini 3.8 Flash",
+    outputPerMillionUsd: 3.75,
+    provider: "gemini",
+  },
+  {
+    contextWindow: 1_048_576,
+    id: "gemini-3.1-pro-preview",
+    // Base tier for prompts <= 200k tokens; longer prompts cost more.
+    inputPerMillionUsd: 2,
+    maxOutputTokens: 65_536,
+    name: "Gemini 3.1 Pro (Preview)",
+    outputPerMillionUsd: 12,
     provider: "gemini",
   },
   {
