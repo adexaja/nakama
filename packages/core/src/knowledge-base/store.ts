@@ -40,6 +40,14 @@ interface KnowledgeBaseManifest {
   sharedDocumentIds?: string[];
 }
 
+export interface OrganizationKnowledgeBaseOptions {
+  /**
+   * Profile ids from the profile table. Callers that have a database pass them
+   * so a leftover directory with no profile row cannot block a delete.
+   */
+  knownProfileIds?: readonly string[];
+}
+
 export type KnowledgeBaseDuplicateMatch = "content_hash" | "name_size";
 
 export class KnowledgeBaseDuplicateError extends Error {
@@ -102,12 +110,15 @@ function findDuplicateDocument(
   return null;
 }
 
+function legacyKnowledgeBaseDir(orgId: string, profileId: string): string {
+  return join(getProfileSoulDir(orgId, profileId), "data", "knowledge-base");
+}
+
 async function migrateLegacyKnowledgeBaseDir(
   orgId: string,
   profileId: string
 ): Promise<void> {
-  const profileDir = getProfileSoulDir(orgId, profileId);
-  const legacyDir = join(profileDir, "data", "knowledge-base");
+  const legacyDir = legacyKnowledgeBaseDir(orgId, profileId);
   const currentDir = getKnowledgeBaseDir(orgId, profileId);
 
   if (!(await pathExists(legacyDir)) || (await pathExists(currentDir))) {
@@ -204,6 +215,18 @@ function sanitizeFilename(filename: string): string {
   return base.replace(/[^\w.\-() ]+/g, "_") || "document";
 }
 
+function normalizeSharedDocumentIds(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const ids = value.filter(
+    (entry): entry is string => typeof entry === "string" && entry.length > 0
+  );
+
+  return ids.length > 0 ? ids : undefined;
+}
+
 async function readManifestFrom(dir: string): Promise<KnowledgeBaseManifest> {
   const manifestPath = getKnowledgeBaseManifestPath(dir);
   const raw = await readTextOrNull(manifestPath);
@@ -219,13 +242,41 @@ async function readManifestFrom(dir: string): Promise<KnowledgeBaseManifest> {
       parsed !== null &&
       Array.isArray((parsed as KnowledgeBaseManifest).documents)
     ) {
-      return parsed as KnowledgeBaseManifest;
+      // A manifest written by an older build or edited by hand can carry
+      // `sharedDocumentIds` in any shape: normalized on read, a string would
+      // substring-match document ids and break `filter` on detach.
+      return {
+        documents: (parsed as KnowledgeBaseManifest).documents,
+        sharedDocumentIds: normalizeSharedDocumentIds(
+          (parsed as KnowledgeBaseManifest).sharedDocumentIds
+        ),
+      };
     }
   } catch {
     // fall through to empty manifest
   }
 
   return { documents: [] };
+}
+
+/**
+ * Read the references a profile holds without touching its layout. Asking
+ * whether a shared document is still in use must not write: the directory
+ * helpers rename the legacy layout and `rm -rf` its `extracted/` and `uploads/`
+ * folders, so a failed rename mid-loop would abort the delete on a half
+ * migrated tree.
+ */
+async function readProfileManifestForReference(
+  orgId: string,
+  profileId: string
+): Promise<KnowledgeBaseManifest> {
+  const dir = getKnowledgeBaseDir(orgId, profileId);
+
+  if (await pathExists(getKnowledgeBaseManifestPath(dir))) {
+    return await readManifestFrom(dir);
+  }
+
+  return await readManifestFrom(legacyKnowledgeBaseDir(orgId, profileId));
 }
 
 async function writeManifestTo(
@@ -278,11 +329,13 @@ export async function listOrganizationKnowledgeBaseDocuments(
  */
 async function guardSharedDocumentRemoval(
   orgId: string,
-  documentId: string
+  documentId: string,
+  knownProfileIds?: readonly string[]
 ): Promise<void> {
   const profileIds = await findProfilesReferencingSharedDocument(
     orgId,
-    documentId
+    documentId,
+    knownProfileIds
   );
   if (profileIds.length > 0) {
     throw new KnowledgeBaseDocumentInUseError(documentId, profileIds);
@@ -431,37 +484,51 @@ export async function uploadKnowledgeBaseDocument(
 export async function uploadOrganizationKnowledgeBaseDocument(
   orgId: string,
   attachment: DocumentAttachment,
-  onDuplicate: KnowledgeBaseDuplicateAction = "error"
+  onDuplicate: KnowledgeBaseDuplicateAction = "error",
+  options: OrganizationKnowledgeBaseOptions = {}
 ): Promise<UploadKnowledgeBaseDocumentResult> {
-  return uploadDocumentTo(
+  return await uploadDocumentTo(
     await orgKnowledgeBaseDir(orgId),
     attachment,
     onDuplicate,
-    (documentId) => guardSharedDocumentRemoval(orgId, documentId)
+    (documentId) =>
+      guardSharedDocumentRemoval(orgId, documentId, options.knownProfileIds)
   );
 }
 
+/**
+ * Profiles that still reference a shared document. `knownProfileIds` comes from
+ * the profile table so a leftover directory whose profile row is gone can never
+ * block the delete: the endpoint used to answer `409` with a `profileIds` entry
+ * that `listProfiles` does not return, leaving no way to detach it.
+ */
 export async function findProfilesReferencingSharedDocument(
   orgId: string,
-  documentId: string
+  documentId: string,
+  knownProfileIds?: readonly string[]
 ): Promise<string[]> {
+  const candidates = knownProfileIds
+    ? [...knownProfileIds]
+    : await listProfileIdsOnDisk(orgId);
+  const profileIds: string[] = [];
+  for (const profileId of candidates) {
+    const manifest = await readProfileManifestForReference(orgId, profileId);
+    if (manifest.sharedDocumentIds?.includes(documentId)) {
+      profileIds.push(profileId);
+    }
+  }
+  return profileIds.sort();
+}
+
+async function listProfileIdsOnDisk(orgId: string): Promise<string[]> {
   const profilesDir = join(getOrgConfigDir(orgId), "profiles");
   if (!(await pathExists(profilesDir))) {
     return [];
   }
   const entries = await readdir(profilesDir, { withFileTypes: true });
-  const profileIds: string[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-    const dir = await profileKnowledgeBaseDir(orgId, entry.name);
-    const manifest = await readManifestFrom(dir);
-    if (manifest.sharedDocumentIds?.includes(documentId)) {
-      profileIds.push(entry.name);
-    }
-  }
-  return profileIds.sort();
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
 }
 
 async function deleteDocumentFrom(
@@ -515,11 +582,12 @@ export async function deleteKnowledgeBaseDocument(
 
 export async function deleteOrganizationKnowledgeBaseDocument(
   orgId: string,
-  documentId: string
+  documentId: string,
+  options: OrganizationKnowledgeBaseOptions = {}
 ): Promise<boolean> {
   const dir = await orgKnowledgeBaseDir(orgId);
-  return deleteDocumentFrom(dir, documentId, (candidate) =>
-    guardSharedDocumentRemoval(orgId, candidate)
+  return await deleteDocumentFrom(dir, documentId, (candidate) =>
+    guardSharedDocumentRemoval(orgId, candidate, options.knownProfileIds)
   );
 }
 

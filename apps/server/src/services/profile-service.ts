@@ -922,6 +922,15 @@ export class ProfileService {
     return { deleted: true, documentId, profileId };
   }
 
+  /**
+   * Profile ids from the profile table, so the shared document guards ignore
+   * leftover directories whose profile row is already gone.
+   */
+  private async orgProfileIds(orgId: string): Promise<string[]> {
+    const profiles = await this.db.listProfilesForOrg(orgId);
+    return profiles.map((profile) => profile.id);
+  }
+
   async listOrganizationKnowledgeBase(
     orgId: string
   ): Promise<{ documents: KnowledgeBaseDocument[] }> {
@@ -943,7 +952,8 @@ export class ProfileService {
       const uploaded = await persistOrganizationKnowledgeBaseDocument(
         orgId,
         document,
-        onDuplicate
+        onDuplicate,
+        { knownProfileIds: await this.orgProfileIds(orgId) }
       );
       return {
         document: { ...uploaded.document, scope: "organization" },
@@ -978,7 +988,8 @@ export class ProfileService {
   ): Promise<DeleteOrganizationKnowledgeBaseResponse> {
     const deleted = await removeOrganizationKnowledgeBaseDocument(
       orgId,
-      documentId
+      documentId,
+      { knownProfileIds: await this.orgProfileIds(orgId) }
     );
 
     if (!deleted) {
