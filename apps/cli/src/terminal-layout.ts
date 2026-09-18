@@ -95,13 +95,17 @@ export class TerminalLayout {
   private inputLines: StyledLine[] = [plainLine("")];
   previousFrame: FrameModel | null = null;
   private readonly frameComponent = new FrameComponent();
+  private readonly tui = new TuiMainScreen(new ProcessTerminal());
+  private hasPainted = false;
   private historyOffset = 0;
   private followOutput = true;
   private debugOverlay = false;
   private contentWindowRows = 1;
   private resizeHandler: (() => void) | null = null;
 
-  constructor(private readonly terminalInput: TerminalInput | null = null) {}
+  constructor(private readonly terminalInput: TerminalInput | null = null) {
+    this.tui.addChild(this.frameComponent);
+  }
 
   apply(): boolean {
     if (!(process.stdout.isTTY && process.stdin.isTTY)) {
@@ -112,6 +116,7 @@ export class TerminalLayout {
     this.anchored = false;
     this.previousFrame = null;
     this.viewportTopRow = 1;
+    this.hasPainted = false;
 
     this.resizeHandler = () => {
       this.render();
@@ -174,6 +179,8 @@ export class TerminalLayout {
     this.inputLines = [plainLine("")];
     this.previousFrame = null;
     this.frameComponent.setLines([]);
+    this.tui.resetRenderState();
+    this.hasPainted = false;
   }
 
   isEnabled(): boolean {
@@ -473,11 +480,10 @@ export class TerminalLayout {
       }
     }
     this.frameComponent.setLines(renderedLines);
-    // ponytail: repaint the viewport from its absolute anchor; restore retained
-    // diff state once pi-tui supports anchored inline regions directly.
-    const tui = new TuiMainScreen(new ProcessTerminal());
-    tui.addChild(this.frameComponent);
-    tui.terminal.write(`\x1b[${viewportTop};1H`);
-    tui.renderNow();
+    if (!this.hasPainted) {
+      this.tui.terminal.write(`\x1b[${viewportTop};1H`);
+      this.hasPainted = true;
+    }
+    this.tui.renderNow();
   }
 }

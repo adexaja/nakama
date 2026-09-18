@@ -227,6 +227,7 @@ describe("TerminalLayout frame pipeline", () => {
     expect(firstOutput).not.toContain("\x1b[3J");
     expect(secondOutput).toContain("\x1b[");
     expect(secondOutput).not.toContain("\x1b[3J");
+    expect(secondOutput).not.toContain("\x1b[1;1H");
   });
 
   test("keeps the native cursor beside the drawn prompt cursor", () => {
