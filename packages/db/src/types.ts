@@ -126,18 +126,6 @@ export interface StoredSessionRecord {
   userId?: string | null;
 }
 
-export interface StoredSessionSummaryRecord {
-  channel: string;
-  createdAt: string;
-  id: string;
-  messageCount: number;
-  pinned: boolean;
-  preview: string | null;
-  profileId: string;
-  title: string | null;
-  updatedAt: string;
-}
-
 export interface StoredSessionMessageRecord {
   createdAt: string;
   id: string;
@@ -174,6 +162,7 @@ export interface StoredSessionSummaryRecord {
   id: string;
   messageCount: number;
   orgId?: string | null;
+  pinned: boolean;
   preview: string | null;
   profileId: string;
   title: string | null;
