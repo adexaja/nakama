@@ -1,11 +1,20 @@
 import { Button } from "@nakama/ui/button";
-import { ConfirmDialog } from "@nakama/ui/dialog";
+import {
+  ConfirmDialog,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@nakama/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@nakama/ui/dropdown-menu";
+import { Input } from "@nakama/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@nakama/ui/tooltip";
 import { cn } from "@nakama/ui/utils";
 import {
@@ -14,6 +23,7 @@ import {
   ArrowRight01Icon,
   MoreHorizontalIcon,
   PencilEdit02Icon,
+  PinIcon,
 } from "hugeicons-react";
 import type { ElementType } from "react";
 import { useState } from "react";
@@ -143,6 +153,11 @@ function RecentChats() {
     id: string;
     title: string;
   } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const { collapsed, toggle } = useLocalStorageFlag(
     SIDEBAR_RECENTS_COLLAPSED_KEY,
     getInitialRecentsCollapsed
@@ -217,6 +232,12 @@ function RecentChats() {
                   title={title}
                   to={href}
                 >
+                  {session.pinned ? (
+                    <PinIcon
+                      aria-label="Pinned"
+                      className="mr-1.5 inline-block size-3.5 shrink-0 text-muted-foreground"
+                    />
+                  ) : null}
                   <span className="truncate">{title}</span>
                 </Link>
                 <DropdownMenu>
@@ -235,14 +256,8 @@ function RecentChats() {
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem
                       onClick={() => {
-                        const nextTitle = window.prompt("Rename chat", title);
-                        if (nextTitle?.trim()) {
-                          void updateSession.mutateAsync({
-                            input: { title: nextTitle.trim() },
-                            profileId,
-                            sessionId: session.id,
-                          });
-                        }
+                        setRenameTarget({ id: session.id, title });
+                        setRenameValue(title);
                       }}
                     >
                       Rename
@@ -256,6 +271,7 @@ function RecentChats() {
                         })
                       }
                     >
+                      <PinIcon aria-hidden="true" className="size-4" />
                       {session.pinned ? "Unpin" : "Pin"}
                     </DropdownMenuItem>
                     <DropdownMenuItem
@@ -271,6 +287,58 @@ function RecentChats() {
           })}
         </div>
       )}
+      {renameTarget ? (
+        <Dialog
+          onOpenChange={(open) => {
+            if (!open) {
+              setRenameTarget(null);
+            }
+          }}
+          open
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Rename chat</DialogTitle>
+              <DialogDescription>
+                Choose a name that helps you find this chat later.
+              </DialogDescription>
+            </DialogHeader>
+            <form
+              onSubmit={async (event) => {
+                event.preventDefault();
+                const title = renameValue.trim();
+                if (!title) {
+                  return;
+                }
+                await updateSession.mutateAsync({
+                  input: { title },
+                  profileId,
+                  sessionId: renameTarget.id,
+                });
+                setRenameTarget(null);
+              }}
+            >
+              <Input
+                autoFocus
+                onChange={(event) => setRenameValue(event.target.value)}
+                value={renameValue}
+              />
+              <DialogFooter className="mt-4">
+                <Button
+                  onClick={() => setRenameTarget(null)}
+                  type="button"
+                  variant="outline"
+                >
+                  Cancel
+                </Button>
+                <Button disabled={!renameValue.trim()} type="submit">
+                  Save
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      ) : null}
       {deleteTarget ? (
         <ConfirmDialog
           confirmLabel="Delete"
