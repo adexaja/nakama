@@ -142,7 +142,7 @@ function WhatsAppLinkStatus({
 }) {
   if (showQr) {
     return (
-      <div className={cn("space-y-3", !compact && "px-4 py-4")}>
+      <div className={cn("space-y-3", !compact && "px-4 py-3")}>
         <div className="flex items-center gap-2">
           <QrCodeScanIcon aria-hidden className="size-4 text-primary" />
           <p className="font-medium text-foreground text-sm">Scan QR code</p>
@@ -168,7 +168,7 @@ function WhatsAppLinkStatus({
       <div
         className={cn(
           "flex items-center gap-2 text-muted-foreground text-sm",
-          !compact && "px-4 py-4"
+          !compact && "px-4 py-3"
         )}
       >
         <Spinner className="size-4" />
@@ -182,7 +182,7 @@ function WhatsAppLinkStatus({
       <div
         className={cn(
           "flex items-center gap-2 text-muted-foreground text-sm",
-          !compact && "px-4 py-4"
+          !compact && "px-4 py-3"
         )}
       >
         <Spinner className="size-4" />
@@ -196,7 +196,7 @@ function WhatsAppLinkStatus({
       <div
         className={cn(
           "flex items-center gap-2 text-muted-foreground text-sm",
-          !compact && "px-4 py-4"
+          !compact && "px-4 py-3"
         )}
       >
         <Spinner className="size-4" />
