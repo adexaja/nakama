@@ -2275,6 +2275,8 @@ export interface KnowledgeBaseDocument {
   filename: string;
   id: string;
   mediaType: string;
+  /** Absent in legacy profile responses; new responses may identify ownership. */
+  scope?: "organization" | "profile";
   sizeBytes: number;
   status: KnowledgeBaseDocumentStatus;
   uploadedAt: string;
@@ -2312,6 +2314,17 @@ export interface DeleteKnowledgeBaseResponse {
   deleted: boolean;
   documentId: string;
   profileId: string;
+}
+
+/** Organization documents are shared, so their responses carry no profile id. */
+export interface UploadOrganizationKnowledgeBaseResponse {
+  document: KnowledgeBaseDocument;
+  outcome: KnowledgeBaseUploadOutcome;
+}
+
+export interface DeleteOrganizationKnowledgeBaseResponse {
+  deleted: boolean;
+  documentId: string;
 }
 
 export interface UserContextStatusResponse {

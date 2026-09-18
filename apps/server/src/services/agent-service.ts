@@ -32,6 +32,7 @@ import type {
   CreateToolRequest,
   DeleteArtifactResponse,
   DeleteKnowledgeBaseResponse,
+  DeleteOrganizationKnowledgeBaseResponse,
   DeleteProviderResponse,
   DiscordSettingsResponse,
   DiscoverModelsRequest,
@@ -46,6 +47,7 @@ import type {
   InitSoulResponse,
   InitUserContextResponse,
   InstallSkillRequest,
+  KnowledgeBaseDocument,
   KnowledgeBaseDuplicateAction,
   ListArtifactsOptions,
   ListArtifactsResponse,
@@ -100,6 +102,7 @@ import type {
   UpdateWebSearchSettingsRequest,
   UpdateWhatsAppSettingsRequest,
   UploadKnowledgeBaseResponse,
+  UploadOrganizationKnowledgeBaseResponse,
   UserConfig,
   UserContextStatusResponse,
   VisionSettings,
@@ -3347,6 +3350,46 @@ export class AgentService {
     return this.profileService.readKnowledgeBaseDocument(
       orgId,
       profileId,
+      documentId,
+      options
+    );
+  }
+
+  async listOrganizationKnowledgeBase(
+    orgId: string
+  ): Promise<{ documents: KnowledgeBaseDocument[] }> {
+    return this.profileService.listOrganizationKnowledgeBase(orgId);
+  }
+
+  async uploadOrganizationKnowledgeBaseDocument(
+    orgId: string,
+    document: DocumentAttachment,
+    onDuplicate?: KnowledgeBaseDuplicateAction
+  ): Promise<UploadOrganizationKnowledgeBaseResponse> {
+    return this.profileService.uploadOrganizationKnowledgeBaseDocument(
+      orgId,
+      document,
+      onDuplicate
+    );
+  }
+
+  async deleteOrganizationKnowledgeBaseDocument(
+    orgId: string,
+    documentId: string
+  ): Promise<DeleteOrganizationKnowledgeBaseResponse> {
+    return this.profileService.deleteOrganizationKnowledgeBaseDocument(
+      orgId,
+      documentId
+    );
+  }
+
+  async readOrganizationKnowledgeBaseDocument(
+    orgId: string,
+    documentId: string,
+    options: { render?: "text" } = {}
+  ): Promise<{ bytes: Buffer; contentType: string; filename: string }> {
+    return this.profileService.readOrganizationKnowledgeBaseDocument(
+      orgId,
       documentId,
       options
     );
