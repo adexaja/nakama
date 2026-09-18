@@ -346,8 +346,8 @@ function RecentChats() {
       ) : null}
       {deleteTarget ? (
         <ConfirmDialog
-          confirmLabel="Delete"
-          description={`Delete "${deleteTarget.title}"? This cannot be undone.`}
+          confirmLabel="Delete permanently"
+          description={`Delete "${deleteTarget.title}" permanently? This cannot be undone.`}
           onClose={() => setDeleteTarget(null)}
           onConfirm={async () => {
             await deleteSession.mutateAsync(deleteTarget.id);
