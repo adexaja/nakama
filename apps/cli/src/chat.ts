@@ -49,6 +49,35 @@ const HELP_TEXT = `${formatSlashCommands()}\n\n@/path/to/image.png [message]   a
 /** Debounce bare ESC so alt-prefix / slow paste chunks do not abort. */
 const ESC_ABORT_DEBOUNCE_MS = 50;
 const MAX_PENDING_MESSAGES = 20;
+// ponytail: fixed preview cap; add interactive expansion if full tool history is needed.
+const MAX_TOOL_PREVIEW_LENGTH = 160;
+
+export function previewToolValue(value: unknown): string {
+  let text: string;
+
+  if (typeof value === "string") {
+    text = value.replace(/\s+/g, " ");
+  } else {
+    try {
+      text = JSON.stringify(value) ?? String(value);
+    } catch {
+      text = String(value);
+    }
+  }
+
+  return text.length > MAX_TOOL_PREVIEW_LENGTH
+    ? `${text.slice(0, MAX_TOOL_PREVIEW_LENGTH - 1)}…`
+    : text;
+}
+
+export function toolResultFailed(result: unknown): boolean {
+  if (!result || typeof result !== "object") {
+    return false;
+  }
+
+  const value = result as Record<string, unknown>;
+  return value.isError === true || value.error != null;
+}
 
 interface RunChatOptions {
   channel: AgentChannel;
@@ -259,14 +288,35 @@ async function runStickyChat(
         thinkingIndicator.start();
       },
       onToolEnd: (event) => {
+        renderer.setStatusLine(null);
         renderer.appendToolLine(
-          styledLine(` [tool: ${event.tool} done] `, { dim: true })
+          styledLine(
+            ` ${toolResultFailed(event.result) ? "✗" : "✓"} ${event.tool} ${previewToolValue(event.result)} `,
+            {
+              color: toolResultFailed(event.result) ? "red" : "green",
+              dim: true,
+            }
+          )
+        );
+      },
+      onToolInputDelta: (event) => {
+        renderer.setStatusLine(
+          styledLine(
+            `   ${event.tool} ${previewToolValue(event.accumulatedArguments ?? event.delta)}`,
+            { dim: true }
+          )
         );
       },
       onToolStart: (event) => {
         thinkingIndicator.stop();
         renderer.appendToolLine(
-          styledLine(` [tool: ${event.tool}] `, { dim: true })
+          styledLine(` ⚙ ${event.tool} ${previewToolValue(event.input)} `, {
+            color: "cyan",
+            dim: true,
+          })
+        );
+        renderer.setStatusLine(
+          styledLine(`   ${event.tool} arguments…`, { dim: true })
         );
       },
     };

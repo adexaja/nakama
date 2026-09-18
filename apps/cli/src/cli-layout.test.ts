@@ -490,6 +490,35 @@ describe("TerminalLayout frame pipeline", () => {
     }
   });
 
+  test("renders markdown while the assistant stream is still open", () => {
+    captureStdout();
+    setTerminalSize(40, 12);
+    const layout = new TerminalLayout(null);
+
+    Object.assign(layout as Record<string, unknown>, {
+      anchored: true,
+      anchorRow: 8,
+      enabled: true,
+      viewportTopRow: 8,
+    });
+
+    layout.setReservedRows(1, [plainLine("> ")]);
+    layout.beginMessage("assistant");
+    layout.writeScroll("This is **bold**.");
+
+    const frame = (layout as Record<string, unknown>).previousFrame as {
+      lines: Array<{
+        segments: Array<{ text: string; style?: { bold?: boolean } }>;
+      }>;
+    } | null;
+
+    expect(
+      frame?.lines.some((line) =>
+        line.segments.some((segment) => segment.style?.bold === true)
+      )
+    ).toBe(true);
+  });
+
   test("adds a blank row between submitted input and active stream", () => {
     captureStdout();
     setTerminalSize(20, 12);
@@ -596,9 +625,9 @@ describe("TerminalLayout frame pipeline", () => {
       "> hello             ",
       "                    ",
       "",
-      "  ",
+      "",
       " Morning! What's on ",
-      "  your mind today? ",
+      " your mind today? ",
       "",
       "> ",
     ]);

@@ -16,7 +16,9 @@ import {
   formatStatusLines,
   isEscInterruptKey,
   needsTrailingStreamNewline,
+  previewToolValue,
   runCleanupThenExit,
+  toolResultFailed,
 } from "./chat";
 
 describe("needsTrailingStreamNewline", () => {
@@ -87,6 +89,20 @@ describe("formatBusyDropLine", () => {
     expect(formatBusyDropLine(5)).toBe(
       "[busy] ignored input (5 while processing)"
     );
+  });
+});
+
+describe("tool rendering", () => {
+  test("previews tool values without flooding the terminal", () => {
+    expect(previewToolValue({ query: "hello" })).toBe('{"query":"hello"}');
+    expect(previewToolValue("line\none")).toBe("line one");
+    expect(previewToolValue("x".repeat(200))).toHaveLength(160);
+  });
+
+  test("detects failed tool results", () => {
+    expect(toolResultFailed({ isError: true })).toBe(true);
+    expect(toolResultFailed({ error: "failed" })).toBe(true);
+    expect(toolResultFailed({ content: "ok" })).toBe(false);
   });
 });
 

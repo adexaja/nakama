@@ -121,72 +121,96 @@ export function WhatsAppSettingsCardContent({
         </SettingsRow>
       ) : null}
 
-      <SettingsRow
-        className={paneItemClass}
-        description="Which agent answers on WhatsApp"
-        label="Reply as"
-      >
-        <Select
-          disabled={savePending || profiles.length === 0}
-          onValueChange={(value) => {
-            if (value) {
-              onProfileChange(String(value));
-            }
-          }}
-          value={profileId}
-        >
-          <SelectTrigger
-            className="w-[11rem] sm:w-[13rem]"
-            id="whatsapp-profile"
-          >
-            <SelectValue placeholder="Profile">
-              {profiles.find((profile) => profile.id === profileId)?.name}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent align="end">
-            {profiles.map((profile) => (
-              <SelectItem key={profile.id} value={profile.id}>
-                <span className="flex items-center gap-2">
-                  <ProfileAvatar profile={profile} size="sm" />
-                  <span>{profile.name}</span>
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </SettingsRow>
-
-      <SettingsRow
-        className={paneItemClass}
-        description="Off: anyone in the group can talk without tagging the bot"
-        label="Require @mention in groups"
-      >
-        <Switch
-          aria-label="Require @mention in groups"
-          checked={requireGroupMention}
-          disabled={savePending}
-          id="whatsapp-require-group-mention"
-          onCheckedChange={onRequireGroupMentionChange}
-        />
-      </SettingsRow>
-
       {configured ? (
-        <SettingsRow className={paneItemClass} label="Allowed numbers">
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <span className="text-muted-foreground text-xs">
-              {allowedPhoneSummary}
+        <details className={cn("group", paneItemClass)}>
+          <summary className="cursor-pointer list-none font-medium text-sm marker:hidden">
+            <span className="flex items-center justify-between gap-3">
+              Advanced settings
+              <span className="text-muted-foreground text-xs group-open:hidden">
+                Show
+              </span>
+              <span className="hidden text-muted-foreground text-xs group-open:inline">
+                Hide
+              </span>
             </span>
-            <Button
-              disabled={savePending}
-              onClick={onManageAllowedPhones}
-              size="sm"
-              type="button"
-              variant="outline"
+          </summary>
+          <div className="mt-3 divide-y divide-border rounded-lg border border-border">
+            <SettingsRow
+              description="Which agent answers on WhatsApp"
+              label="Reply as"
             >
-              Manage
-            </Button>
+              <Select
+                disabled={savePending || profiles.length === 0}
+                onValueChange={(value) => {
+                  if (value) {
+                    onProfileChange(String(value));
+                  }
+                }}
+                value={profileId}
+              >
+                <SelectTrigger
+                  className="w-[11rem] sm:w-[13rem]"
+                  id="whatsapp-profile"
+                >
+                  <SelectValue placeholder="Profile">
+                    {profiles.find((profile) => profile.id === profileId)?.name}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {profiles.map((profile) => (
+                    <SelectItem key={profile.id} value={profile.id}>
+                      <span className="flex items-center gap-2">
+                        <ProfileAvatar profile={profile} size="sm" />
+                        <span>{profile.name}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </SettingsRow>
+
+            <SettingsRow
+              description="Off: anyone in the group can talk without tagging the bot"
+              label="Require @mention in groups"
+            >
+              <Switch
+                aria-label="Require @mention in groups"
+                checked={requireGroupMention}
+                disabled={savePending}
+                id="whatsapp-require-group-mention"
+                onCheckedChange={onRequireGroupMentionChange}
+              />
+            </SettingsRow>
+
+            <SettingsRow label="Allowed numbers">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span className="text-muted-foreground text-xs">
+                  {allowedPhoneSummary}
+                </span>
+                <Button
+                  disabled={savePending}
+                  onClick={onManageAllowedPhones}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Manage
+                </Button>
+              </div>
+            </SettingsRow>
+
+            <SettingsRow
+              description={running ? "Running" : "Stopped"}
+              label="Bridge worker"
+            >
+              <WorkerActionBar
+                pm2Managed={worker?.process?.managed ?? false}
+                running={running}
+                workerName="whatsapp"
+              />
+            </SettingsRow>
           </div>
-        </SettingsRow>
+        </details>
       ) : null}
 
       {configured ? (
@@ -209,20 +233,6 @@ export function WhatsAppSettingsCardContent({
           showQr={showQr}
           showReconnect={showReconnect}
         />
-      ) : null}
-
-      {configured ? (
-        <SettingsRow
-          className={paneItemClass}
-          description={running ? "Running" : "Stopped"}
-          label="Bridge worker"
-        >
-          <WorkerActionBar
-            pm2Managed={worker?.process?.managed ?? false}
-            running={running}
-            workerName="whatsapp"
-          />
-        </SettingsRow>
       ) : null}
 
       <IntegrationSettingsFooter
