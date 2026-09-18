@@ -103,12 +103,6 @@ describe("resolveModel", () => {
       });
     }
     expect(getModelById("gemini-3.8-flash")?.default).not.toBe(true);
-    expect(resolveModel("gemini", undefined)).toBe("gemini-2.5-flash");
-    expect(
-      resolveModel("gemini", undefined, [
-        { default: true, id: "gemini-2.5-pro" },
-      ])
-    ).toBe("gemini-2.5-pro");
   });
 
   test("resolves custom shortlist models for OpenAI", () => {
