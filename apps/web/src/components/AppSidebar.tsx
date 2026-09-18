@@ -271,7 +271,6 @@ function RecentChats() {
                         })
                       }
                     >
-                      <PinIcon aria-hidden="true" className="size-4" />
                       {session.pinned ? "Unpin" : "Pin"}
                     </DropdownMenuItem>
                     <DropdownMenuItem
