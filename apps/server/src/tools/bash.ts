@@ -160,8 +160,13 @@ export async function runBash(
     throw new Error("command is required.");
   }
 
+  const codingAgentMode =
+    readOptionalBoolean(input, "codingAgent") === true ||
+    commandLooksLikeCursorAgent(command);
   const workspaceRoot = await resolveWorkspaceRoot(
-    options.workspaceRoot ?? getProfileSoulDir(orgId, profileId)
+    options.workspaceRoot ??
+      (codingAgentMode && context.codingWorkspaceRoot) ??
+      getProfileSoulDir(orgId, profileId)
   );
   const rawCwd = readString(input, "cwd");
   const cwd = rawCwd
@@ -174,9 +179,6 @@ export async function runBash(
     : workspaceRoot;
   const timeoutMs = readTimeout(readOptionalNumber(input, "timeoutMs"));
   const env = readStringRecord(readOptionalRecord(input, "env"));
-  const codingAgentMode =
-    readOptionalBoolean(input, "codingAgent") === true ||
-    commandLooksLikeCursorAgent(command);
 
   const backend = options.backend ?? resolveBashBackend();
 

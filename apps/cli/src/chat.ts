@@ -53,6 +53,7 @@ const MAX_PENDING_MESSAGES = 20;
 interface RunChatOptions {
   channel: AgentChannel;
   client: NakamaClient;
+  codingWorkspaceRoot?: string;
   offline?: boolean;
   profileId?: CliProfileOptions["profileId"];
   signal?: AbortSignal;
@@ -119,6 +120,7 @@ export async function runChat(options: RunChatOptions): Promise<void> {
   let currentProfileId = startup.profileId;
   let currentProfile = startup.profile;
   let session = await options.client.createSession(options.channel, {
+    codingWorkspaceRoot: options.codingWorkspaceRoot,
     profileId: currentProfileId,
   });
 

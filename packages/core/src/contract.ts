@@ -922,6 +922,7 @@ export interface ListChannelOrgMappingsResponse {
 
 export interface CreateSessionRequest {
   channel: AgentChannel;
+  codingWorkspaceRoot?: string;
   /**
    * A cognito session lives only in server memory: no `sessions` row, no
    * `session_messages`, no generated title, and no write-back into profile or
@@ -2549,6 +2550,8 @@ export interface ToolContext {
   channel?: AgentChannel;
   /** Browser origin for OAuth callbacks during this tool run. */
   clientOrigin?: string;
+  /** Local CLI workspace used only for coding-agent shell runs. */
+  codingWorkspaceRoot?: string;
   /** Emits concise live status lines while a sub-agent child loop runs (parent web UI). */
   emitSubAgentActivity?: (label: string) => void;
   /**

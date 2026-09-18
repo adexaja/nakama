@@ -359,6 +359,7 @@ interface CognitoSessionOptions {
 }
 
 export interface CreateSessionOptions {
+  codingWorkspaceRoot?: string;
   cognito?: boolean;
   excludeSuperBot?: boolean;
   isPlatformAdmin?: boolean;
@@ -1732,6 +1733,7 @@ export class AgentService {
       userId ?? null,
       options?.orgRole,
       options?.isPlatformAdmin,
+      options?.codingWorkspaceRoot,
       cognito ? {} : undefined
     );
 
@@ -1862,6 +1864,7 @@ export class AgentService {
       entry.record.userId ?? null,
       orgRole,
       isPlatformAdmin,
+      undefined,
       { initialHistory: [...entry.session.getHistory()] }
     );
 
@@ -3902,6 +3905,7 @@ export class AgentService {
     userId?: string | null,
     orgRole?: OrgRole | null,
     isPlatformAdmin?: boolean,
+    codingWorkspaceRoot?: string,
     cognito?: CognitoSessionOptions
   ): Promise<AgentChatSession> {
     await this.ensureVisionSettingsLoaded();
@@ -4123,7 +4127,11 @@ export class AgentService {
 
                   if (matched.some((skill) => skill.name === "coding-agent")) {
                     parts.push(
-                      await this.formatCodingDelegationContext(orgId, profileId)
+                      await this.formatCodingDelegationContext(
+                        orgId,
+                        profileId,
+                        codingWorkspaceRoot
+                      )
                     );
                   }
 
@@ -4147,6 +4155,7 @@ export class AgentService {
         assertCanStartLlmTurn: this.llmTurnQuotaCheckerFor(orgId),
         channel,
         ...this.memoryBackend.toolContext(orgId, profileId),
+        codingWorkspaceRoot,
         forbidMemoryWrites: cognito ? true : undefined,
         forbidProfileSkillMarkdownWrites: hasSkillManage,
         isPlatformAdmin: isPlatformAdmin || undefined,
@@ -4214,11 +4223,13 @@ export class AgentService {
 
   private async formatCodingDelegationContext(
     orgId: string,
-    profileId: string
+    profileId: string,
+    codingWorkspaceRoot?: string
   ): Promise<string> {
     const profile = await this.db.getProfile(profileId);
     const installed = await listInstalledCodingAgentHarnesses(this.db);
-    const workspaceRoot = getProfileSoulDir(orgId, profileId);
+    const workspaceRoot =
+      codingWorkspaceRoot ?? getProfileSoulDir(orgId, profileId);
     const probeContext = {
       profileModel: profile?.model ?? null,
       userConfig: this.userConfig,

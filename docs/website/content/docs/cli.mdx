@@ -11,6 +11,15 @@ From the repository root:
 bun run dev:cli
 ```
 
+When you run the CLI locally from a project directory, coding-agent work uses that directory automatically:
+
+```bash
+cd ~/projects/my-app
+bun run dev:cli
+```
+
+This requires the Nakama server to run on the same machine. The profile workspace still stores Nakama soul, memory, and skills.
+
 The CLI:
 
 1. Starts the Nakama server if it is not already running

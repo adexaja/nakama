@@ -125,6 +125,37 @@ describe("bash tool", () => {
     expect(result.timedOut).toBe(false);
   });
 
+  test("uses the coding workspace only for coding-agent commands", async () => {
+    workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "nakama-bash-"));
+    const codingWorkspaceRoot = await mkdtemp(
+      path.join(os.tmpdir(), "nakama-coding-workspace-")
+    );
+
+    const codingResult = await runBash(
+      { codingAgent: true, command: "pwd" },
+      {
+        codingWorkspaceRoot,
+        orgId: "org_test",
+        profileId: "profile_test",
+      }
+    );
+    const ordinaryResult = await runBash(
+      { command: "pwd" },
+      {
+        codingWorkspaceRoot,
+        orgId: "org_test",
+        profileId: "profile_test",
+      },
+      { workspaceRoot }
+    );
+
+    expect(codingResult.stdout.trim().split("\n")[0]).toBe(
+      await realpath(codingWorkspaceRoot)
+    );
+    expect(ordinaryResult.stdout.trim()).toBe(await realpath(workspaceRoot));
+    await rm(codingWorkspaceRoot, { force: true, recursive: true });
+  });
+
   test("supports cwd within the profile workspace", async () => {
     workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "nakama-bash-"));
     const nestedDir = path.join(workspaceRoot, "nested");

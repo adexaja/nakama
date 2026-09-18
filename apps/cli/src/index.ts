@@ -68,6 +68,17 @@ try {
   const { serverUrl, spawnedChild: child } = await ensureServerRunning();
   spawnedChild = child;
 
+  const serverHost = new URL(serverUrl).hostname;
+  if (
+    !(
+      serverHost === "localhost" ||
+      serverHost === "127.0.0.1" ||
+      serverHost === "::1"
+    )
+  ) {
+    throw new Error("Coding workspace support requires a local Nakama server.");
+  }
+
   const client = new NakamaClient({
     authToken: await loadLocalAuthToken("cli@nakama.internal"),
     baseUrl: serverUrl,
@@ -99,6 +110,7 @@ try {
   await runChat({
     channel: "cli",
     client,
+    codingWorkspaceRoot: process.cwd(),
     offline: !health.providerConfigured,
     profileId: cliProfile.profileId,
     signal: abortController.signal,
