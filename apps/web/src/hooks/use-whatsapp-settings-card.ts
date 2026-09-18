@@ -8,6 +8,7 @@ import {
   useWhatsAppSettings,
 } from "@/hooks/use-app-queries";
 import { useSystemStatusQuery } from "@/hooks/use-system-status";
+import { useStartWorker } from "@/hooks/use-worker-actions";
 import { formatError } from "@/lib/client";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -99,7 +100,7 @@ function hintForSavedSettings(
   if (configured) {
     return "Saved.";
   }
-  return "Enabled. Start the bridge and scan the QR code.";
+  return "WhatsApp enabled. Preparing the QR code.";
 }
 
 function resolveWhatsAppStatusCopy(input: {
@@ -186,6 +187,7 @@ export function useWhatsAppSettingsCard({
   const { data: status } = useSystemStatusQuery();
   const { data: profiles = [] } = useProfilesQuery();
   const saveMutation = useSaveWhatsAppSettings();
+  const startWorkerMutation = useStartWorker();
   const regenerateMutation = useRegenerateWhatsAppPairingCode();
   const reconnectMutation = useReconnectWhatsApp();
 
@@ -324,8 +326,22 @@ export function useWhatsAppSettingsCard({
           setFormError(formatError(error));
         },
         onSuccess: (saved) => {
-          setHint(hintForSavedSettings(saved, configured));
-          onSaveSuccess?.();
+          if (configured || running) {
+            setHint(hintForSavedSettings(saved, configured));
+            onSaveSuccess?.();
+            return;
+          }
+
+          setHint("Starting WhatsApp…");
+          startWorkerMutation.mutate("whatsapp", {
+            onError: (error) => {
+              setFormError(formatError(error));
+            },
+            onSuccess: () => {
+              setHint("WhatsApp is ready. Scan the QR code.");
+              onSaveSuccess?.();
+            },
+          });
         },
       }
     );
@@ -404,7 +420,7 @@ export function useWhatsAppSettingsCard({
   }
 
   return {
-    actionLabel: submitLabel ?? (configured ? "Save" : "Enable WhatsApp"),
+    actionLabel: submitLabel ?? (configured ? "Save" : "Connect WhatsApp"),
     allowedPhoneSummary: formatAllowedPhoneSummary(allowedPhones.length),
     allowedPhones,
     allowedPhonesOpen,
@@ -444,7 +460,7 @@ export function useWhatsAppSettingsCard({
     regeneratePending: regenerateMutation.isPending,
     requireGroupMention,
     running,
-    savePending: saveMutation.isPending,
+    savePending: saveMutation.isPending || startWorkerMutation.isPending,
     showQr: linking.showQr,
     showReconnect: linking.showReconnect,
     statusBadge,
