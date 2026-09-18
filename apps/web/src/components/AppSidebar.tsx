@@ -156,7 +156,6 @@ function RecentChats() {
     id: string;
     title: string;
   } | null>(null);
-  const [renameValue, setRenameValue] = useState("");
   const { collapsed, toggle } = useLocalStorageFlag(
     SIDEBAR_RECENTS_COLLAPSED_KEY,
     getInitialRecentsCollapsed
@@ -194,7 +193,6 @@ function RecentChats() {
             <DropdownMenuItem
               onClick={() => {
                 setRenameTarget({ id: session.id, title });
-                setRenameValue(title);
               }}
             >
               Rename
@@ -307,7 +305,7 @@ function RecentChats() {
             <form
               onSubmit={async (event) => {
                 event.preventDefault();
-                const title = renameValue.trim();
+                const title = renameTarget.title.trim();
                 if (!title) {
                   return;
                 }
@@ -321,8 +319,14 @@ function RecentChats() {
             >
               <Input
                 autoFocus
-                onChange={(event) => setRenameValue(event.target.value)}
-                value={renameValue}
+                onChange={(event) =>
+                  setRenameTarget((current) =>
+                    current
+                      ? { ...current, title: event.target.value }
+                      : current
+                  )
+                }
+                value={renameTarget.title}
               />
               <DialogFooter className="mt-4">
                 <Button
@@ -332,7 +336,7 @@ function RecentChats() {
                 >
                   Cancel
                 </Button>
-                <Button disabled={!renameValue.trim()} type="submit">
+                <Button disabled={!renameTarget.title.trim()} type="submit">
                   Save
                 </Button>
               </DialogFooter>
