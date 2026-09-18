@@ -56,6 +56,7 @@ import type {
   DataImportPreviewResponse,
   DeleteArtifactResponse,
   DeleteKnowledgeBaseResponse,
+  DeleteOrganizationKnowledgeBaseResponse,
   DeleteProviderResponse,
   DeleteRetainedPluginDataRequest,
   DiscordSettingsResponse,
@@ -224,6 +225,7 @@ import type {
   UpdateWorkflowRequest,
   UploadKnowledgeBaseRequest,
   UploadKnowledgeBaseResponse,
+  UploadOrganizationKnowledgeBaseResponse,
   UserContextStatusResponse,
   VisionSettings,
   VisionSettingsResponse,
@@ -1311,7 +1313,7 @@ export class NakamaClient {
     orgId: string,
     document: DocumentAttachment,
     onDuplicate?: KnowledgeBaseDuplicateAction
-  ): Promise<UploadKnowledgeBaseResponse> {
+  ): Promise<UploadOrganizationKnowledgeBaseResponse> {
     return this.request(
       `/v1/orgs/${encodeURIComponent(orgId)}/knowledge-base`,
       {
@@ -1327,7 +1329,7 @@ export class NakamaClient {
   async deleteOrganizationKnowledgeBaseDocument(
     orgId: string,
     documentId: string
-  ): Promise<DeleteKnowledgeBaseResponse> {
+  ): Promise<DeleteOrganizationKnowledgeBaseResponse> {
     return this.request(
       `/v1/orgs/${encodeURIComponent(orgId)}/knowledge-base/${encodeURIComponent(documentId)}`,
       { method: "DELETE" }
