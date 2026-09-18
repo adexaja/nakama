@@ -640,6 +640,7 @@ async function runStickyChat(
         enabled,
       });
       session = await options.client.createSession(options.channel, {
+        codingWorkspaceRoot: options.codingWorkspaceRoot,
         profileId: currentProfileId,
       });
       context.onSessionChange(session);
@@ -717,6 +718,7 @@ async function runStickyChat(
       );
       currentProfile = profileResponse.profile;
       session = await options.client.createSession(options.channel, {
+        codingWorkspaceRoot: options.codingWorkspaceRoot,
         profileId: currentProfileId,
       });
       context.onSessionChange(session);
@@ -769,6 +771,7 @@ async function runStickyChat(
       context.onProfileChange(currentProfileId, currentProfile);
       await saveCliProfileId(currentProfileId);
       session = await options.client.createSession(options.channel, {
+        codingWorkspaceRoot: options.codingWorkspaceRoot,
         profileId: currentProfileId,
       });
       context.onSessionChange(session);

@@ -2550,7 +2550,7 @@ export interface ToolContext {
   channel?: AgentChannel;
   /** Browser origin for OAuth callbacks during this tool run. */
   clientOrigin?: string;
-  /** Local CLI workspace used only for coding-agent shell runs. */
+  /** Local CLI launch directory for shell commands, including coding agents. */
   codingWorkspaceRoot?: string;
   /** Emits concise live status lines while a sub-agent child loop runs (parent web UI). */
   emitSubAgentActivity?: (label: string) => void;
