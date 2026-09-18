@@ -237,17 +237,13 @@ export class VirtualMessageList {
     const lines = this.wrapMessageText(
       text,
       width + VirtualMessageList.HORIZONTAL_PADDING * 2
-    ).map((line) =>
-      styledLine(this.surfaceLine(line, contentWidth), {
-        background: "surface",
-      })
-    );
+    ).map((line) => plainLine(this.surfaceLine(line, contentWidth)));
     // Submitted user messages intentionally keep a padded blank row above and
     // below the content to preserve the "bubble" treatment in the CLI.
     return [
-      styledLine(this.surfaceLine("", contentWidth), { background: "surface" }),
+      plainLine(this.surfaceLine("", contentWidth)),
       ...lines,
-      styledLine(this.surfaceLine("", contentWidth), { background: "surface" }),
+      plainLine(this.surfaceLine("", contentWidth)),
     ];
   }
 
