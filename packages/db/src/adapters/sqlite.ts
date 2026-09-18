@@ -4382,7 +4382,6 @@ function toSessionRecord(row: SessionRow): StoredSessionRecord {
     createdAt: row.created_at,
     id: row.id,
     model: row.model ?? null,
-    orgId: null,
     pinned: row.pinned === 1,
     profileId: row.profile_id,
     title: row.title ?? null,
