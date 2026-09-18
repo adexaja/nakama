@@ -203,7 +203,7 @@ describe("TerminalLayout frame pipeline", () => {
     });
   }
 
-  test("diff-renders only changed lines", async () => {
+  test("uses pi-tui synchronized paints without clearing scrollback", () => {
     captureStdout();
     setTerminalSize(80, 10);
     const layout = new TerminalLayout(null);
@@ -223,8 +223,10 @@ describe("TerminalLayout frame pipeline", () => {
     const secondOutput = writes.join("");
 
     expect(firstOutput).toContain("\x1b[");
+    expect(firstOutput).toContain("\x1b[?2026h");
+    expect(firstOutput).not.toContain("\x1b[3J");
     expect(secondOutput).toContain("\x1b[");
-    expect(secondOutput.length).toBeLessThan(firstOutput.length * 2);
+    expect(secondOutput).not.toContain("\x1b[3J");
   });
 
   test("keeps the native cursor beside the drawn prompt cursor", () => {
@@ -254,8 +256,10 @@ describe("TerminalLayout frame pipeline", () => {
       )
     );
 
-    expect(writes.join("")).toContain("\x1b[4;4H");
-    expect(writes.join("")).not.toContain("\x1b[4;80H");
+    // pi-tui positions the hardware cursor with a relative row move and an
+    // absolute column move; the column must remain beside the drawn cursor.
+    expect(writes.join("")).toContain("\x1b[4G");
+    expect(writes.join("")).not.toContain("\x1b[80G");
   });
 
   test("serializes styled status line through frame serializer", () => {

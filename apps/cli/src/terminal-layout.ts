@@ -1,21 +1,40 @@
 import {
+  type Component,
+  CURSOR_MARKER,
+  ProcessTerminal,
+  TuiMainScreen,
+} from "@earendil-works/pi-tui";
+import {
   normalizeStyledLine,
   plainLine,
   type StyledLine,
+  serializeStyledLine,
   styledLine,
   styledLineText,
 } from "./styled-text";
-import {
-  clampFrameCursor,
-  cursorColFromLine,
-  diffFrames,
-  type FrameModel,
-  serializeDiffOps,
-} from "./terminal-frame";
 import type { TerminalInput } from "./terminal-input";
 import { stripAnsi, wrapText } from "./text-measure";
 import type { MessageKind } from "./virtual-message-list";
 import { VirtualMessageList } from "./virtual-message-list";
+
+interface FrameModel {
+  lines: StyledLine[];
+  topRow: number;
+}
+
+class FrameComponent implements Component {
+  constructor(private lines: string[] = []) {}
+
+  render(): string[] {
+    return this.lines;
+  }
+
+  invalidate(): void {}
+
+  setLines(lines: string[]): void {
+    this.lines = lines;
+  }
+}
 
 export function getVisiblePinnedInputRows(
   inputRows: number,
@@ -74,7 +93,8 @@ export class TerminalLayout {
   private streamBuffer = "";
   private statusLine: StyledLine | null = null;
   private inputLines: StyledLine[] = [plainLine("")];
-  private previousFrame: FrameModel | null = null;
+  previousFrame: FrameModel | null = null;
+  private readonly frameComponent = new FrameComponent();
   private historyOffset = 0;
   private followOutput = true;
   private debugOverlay = false;
@@ -153,6 +173,7 @@ export class TerminalLayout {
     this.statusLine = null;
     this.inputLines = [plainLine("")];
     this.previousFrame = null;
+    this.frameComponent.setLines([]);
   }
 
   isEnabled(): boolean {
@@ -433,37 +454,30 @@ export class TerminalLayout {
       lines[inputStart + index] = visibleInput[index] ?? plainLine("");
     }
 
-    const cursorLine =
-      visibleInput[visibleInput.length - 2] ??
-      visibleInput[visibleInput.length - 1] ??
-      plainLine("");
-    const cursorRow =
-      viewportTop + Math.max(1, inputStart + visibleInput.length) - 1;
-    const scrollBottom = pinned
-      ? Math.max(viewportTop, rows - visibleInput.length - GAP_ROWS)
-      : rows;
-    const frame = clampFrameCursor(
-      {
-        cursor: {
-          col: cursorColFromLine(cursorLine, cols),
-          row: cursorRow,
-          visible: false,
-        },
-        lines,
-        scrollBottom,
-        scrollTop: viewportTop,
-        topRow: viewportTop,
-      },
-      rows,
-      cols
-    );
-    const operations = diffFrames(this.previousFrame, frame);
-    const output = serializeDiffOps(operations);
-
-    if (output) {
-      process.stdout.write(output);
-    }
-
+    const frame = {
+      lines,
+      topRow: viewportTop,
+    };
     this.previousFrame = frame;
+    const renderedLines = lines.map(serializeStyledLine);
+    const cursorLine = inputStart + visibleInput.length - 2;
+    if (cursorLine >= 0 && cursorLine < renderedLines.length) {
+      const cursorText = styledLineText(lines[cursorLine]).trimEnd();
+      const cursorTextStart = renderedLines[cursorLine]?.indexOf(cursorText);
+      if (cursorTextStart !== undefined && cursorTextStart >= 0) {
+        const cursorEnd = cursorTextStart + cursorText.length;
+        renderedLines[cursorLine] =
+          renderedLines[cursorLine].slice(0, cursorEnd) +
+          CURSOR_MARKER +
+          renderedLines[cursorLine].slice(cursorEnd);
+      }
+    }
+    this.frameComponent.setLines(renderedLines);
+    // ponytail: repaint the viewport from its absolute anchor; restore retained
+    // diff state once pi-tui supports anchored inline regions directly.
+    const tui = new TuiMainScreen(new ProcessTerminal());
+    tui.addChild(this.frameComponent);
+    tui.terminal.write(`\x1b[${viewportTop};1H`);
+    tui.renderNow();
   }
 }
