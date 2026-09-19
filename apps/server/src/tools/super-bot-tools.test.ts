@@ -94,66 +94,86 @@ describe("super bot create_tool", () => {
     expect(error?.message).toBe(TOOL_CREATION_CONFIRMATION_MESSAGE);
   });
 
-  test("defaults agent-authored tools to javascript when handlerType is omitted", async () => {
-    tempConfigDir = await mkdtemp(path.join(os.tmpdir(), "nakama-super-tool-"));
-    process.env.NAKAMA_CONFIG_DIR = tempConfigDir;
-    const toolsDir = path.join(tempConfigDir, "tools");
-    await mkdir(toolsDir, { recursive: true });
+  test.each([false, true])(
+    "defaults to javascript and returns credential setup when required: %s",
+    async (requiresApiKey) => {
+      tempConfigDir = await mkdtemp(
+        path.join(os.tmpdir(), "nakama-super-tool-")
+      );
+      process.env.NAKAMA_CONFIG_DIR = tempConfigDir;
+      const toolsDir = path.join(tempConfigDir, "tools");
+      await mkdir(toolsDir, { recursive: true });
 
-    await writeFile(
-      path.join(toolsDir, "echo.js"),
-      `export async function run(input) {
+      await writeFile(
+        path.join(toolsDir, "echo.js"),
+        `export async function run(input) {
   return input;
 }
 `,
-      "utf8"
-    );
+        "utf8"
+      );
 
-    const capturedRequests: CreateToolRequest[] = [];
+      const capturedRequests: CreateToolRequest[] = [];
 
-    const createTool = getCreateToolTool({
-      async createTool(request: CreateToolRequest): Promise<ToolDetail> {
-        capturedRequests.push(request);
+      const createTool = getCreateToolTool({
+        async createTool(request: CreateToolRequest): Promise<ToolDetail> {
+          capturedRequests.push(request);
 
-        return {
+          return {
+            createdAt: "2026-01-01T00:00:00.000Z",
+            description: request.description,
+            handlerConfig: request.handlerConfig ?? {},
+            handlerType: request.handlerType ?? "javascript",
+            id: "tool_echo",
+            name: request.name,
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          };
+        },
+      });
+
+      const result = await createTool.run(
+        {
+          description: "Echo input",
+          handlerConfig: {
+            modulePath: "echo.js",
+            ...(requiresApiKey ? { requiresApiKey } : {}),
+          },
+          name: "echo",
+        },
+        { orgId: ORG_ID, sessionId: SESSION_ID }
+      );
+
+      expect(capturedRequests[0]?.name).toBe("echo");
+      expect(capturedRequests[0]?.description).toBe("Echo input");
+      expect(capturedRequests[0]?.handlerType).toBe("javascript");
+      expect(capturedRequests[0]?.handlerConfig).toEqual({
+        modulePath: "echo.js",
+        ...(requiresApiKey ? { requiresApiKey } : {}),
+      });
+      expect(result).toEqual({
+        ...(requiresApiKey
+          ? {
+              orgId: ORG_ID,
+              toolId: "tool_echo",
+              toolName: "echo",
+              type: "tool_credentials_required",
+            }
+          : {}),
+        tool: {
           createdAt: "2026-01-01T00:00:00.000Z",
-          description: request.description,
-          handlerConfig: request.handlerConfig ?? {},
-          handlerType: request.handlerType ?? "javascript",
+          description: "Echo input",
+          handlerConfig: {
+            modulePath: "echo.js",
+            ...(requiresApiKey ? { requiresApiKey } : {}),
+          },
+          handlerType: "javascript",
           id: "tool_echo",
-          name: request.name,
+          name: "echo",
           updatedAt: "2026-01-01T00:00:00.000Z",
-        };
-      },
-    });
-
-    const result = await createTool.run(
-      {
-        description: "Echo input",
-        handlerConfig: { modulePath: "echo.js" },
-        name: "echo",
-      },
-      { sessionId: SESSION_ID }
-    );
-
-    expect(capturedRequests[0]?.name).toBe("echo");
-    expect(capturedRequests[0]?.description).toBe("Echo input");
-    expect(capturedRequests[0]?.handlerType).toBe("javascript");
-    expect(capturedRequests[0]?.handlerConfig).toEqual({
-      modulePath: "echo.js",
-    });
-    expect(result).toEqual({
-      tool: {
-        createdAt: "2026-01-01T00:00:00.000Z",
-        description: "Echo input",
-        handlerConfig: { modulePath: "echo.js" },
-        handlerType: "javascript",
-        id: "tool_echo",
-        name: "echo",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      },
-    });
-  });
+        },
+      });
+    }
+  );
 
   test("registers python tools when handlerType is python", async () => {
     tempConfigDir = await mkdtemp(path.join(os.tmpdir(), "nakama-super-tool-"));

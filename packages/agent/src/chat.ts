@@ -100,7 +100,7 @@ export interface AgentChatSession {
   getContextUsage(): ChatContextUsage | null;
   getHistory(): readonly ChatMessage[];
   getHistoryRevision(): number;
-  send(input: SendMessageArg): Promise<string>;
+  send(input: SendMessageArg, options?: SendStreamOptions): Promise<string>;
   sendStream(
     input: SendMessageArg,
     handlers: StreamHandlers,
@@ -109,6 +109,8 @@ export interface AgentChatSession {
 }
 
 export interface SendStreamOptions {
+  /** Persist the accepted user message before any provider call. */
+  onUserMessage?: () => Promise<void>;
   /** Cancels the turn: stops the tool loop and asks running tools to abort. */
   signal?: AbortSignal;
 }
@@ -364,7 +366,7 @@ export function createAgentChatSession(
     getHistoryRevision() {
       return historyRevision;
     },
-    async send(input) {
+    async send(input, sendOptions) {
       activeTools = createTurnTools(tools);
       return sendMessage(
         dependencies,
@@ -376,10 +378,12 @@ export function createAgentChatSession(
         {
           enableToolLoop,
           onContextUsage: rememberContextUsage,
+          onUserMessage: sendOptions?.onUserMessage,
           preprocessUserContent: options.preprocessUserContent,
           rehydrateMessagesForProvider: options.rehydrateMessagesForProvider,
           resolvePromptContext: options.resolvePromptContext,
           runCompaction,
+          signal: sendOptions?.signal,
           toolContext,
         }
       );
@@ -397,6 +401,7 @@ export function createAgentChatSession(
           enableToolLoop,
           handlers,
           onContextUsage: rememberContextUsage,
+          onUserMessage: streamOptions?.onUserMessage,
           preprocessUserContent: options.preprocessUserContent,
           rehydrateMessagesForProvider: options.rehydrateMessagesForProvider,
           resolvePromptContext: options.resolvePromptContext,
@@ -423,6 +428,7 @@ async function sendMessage(
   options: {
     enableToolLoop: boolean;
     handlers?: StreamHandlers;
+    onUserMessage?: () => Promise<void>;
     toolContext?: ToolContext;
     runCompaction?: (force: boolean) => Promise<CompactionResponse>;
     onContextUsage?: (
@@ -453,6 +459,7 @@ async function sendMessage(
 
   const userMessage = getUserMessageText(userContent);
   history.push({ content: userContent, role: "user" });
+  await options.onUserMessage?.();
   const multimodalTurn =
     messageContentHasImages(userContent) ||
     messageContentHasDocuments(userContent) ||
@@ -543,7 +550,37 @@ async function sendMessage(
 
     return reply;
   } catch (error) {
-    rollbackFailedSend(history);
+    if (options.signal?.aborted) {
+      // Every tool call needs a result before the next user turn, including
+      // calls interrupted by Stop or never started in the cancelled batch.
+      const assistantIndex = history.findLastIndex(
+        (message) => message.role === "assistant"
+      );
+      const assistant = history[assistantIndex];
+      const completed = new Set(
+        history
+          .slice(assistantIndex + 1)
+          .flatMap((message) =>
+            message.role === "tool" ? [message.toolCallId] : []
+          )
+      );
+      if (assistant?.role === "assistant") {
+        for (const call of assistant.toolCalls ?? []) {
+          if (!completed.has(call.id)) {
+            history.push({
+              content: JSON.stringify({
+                error: "Turn cancelled before a result was received.",
+              }),
+              name: call.name,
+              role: "tool",
+              toolCallId: call.id,
+            });
+          }
+        }
+      }
+    } else {
+      rollbackFailedSend(history);
+    }
     throw error;
   }
 }
@@ -560,10 +597,6 @@ function rollbackFailedSend(history: ChatMessage[]): void {
     if (last?.role === "assistant" && (last.toolCalls?.length ?? 0) > 0) {
       history.pop();
       continue;
-    }
-
-    if (last?.role === "user") {
-      history.pop();
     }
 
     break;
@@ -654,8 +687,7 @@ async function runConversation(
 
     // Backstop for providers that ignore the signal. The in-flight request is
     // aborted through GenerateChatInput.signal; this only catches the case where
-    // it returned anyway, so a cancelled turn leaves no half-written assistant
-    // message and never starts another tool batch.
+    // it returned anyway, so a cancelled turn never starts another tool batch.
     signal?.throwIfAborted();
 
     if (result.usage) {
@@ -744,7 +776,7 @@ async function executeToolCalls(
   };
 
   if (canRunToolCallsInParallel(tools, toolCalls)) {
-    const results = await Promise.all(
+    const results = await Promise.allSettled(
       toolCalls.map(async (call) => {
         const toolStartedAt = Date.now();
         handlers?.onToolStart?.({
@@ -770,27 +802,32 @@ async function executeToolCalls(
       })
     );
 
-    const resultsByCallId = new Map(
-      results.map((entry) => [entry.call.id, entry])
-    );
-
-    for (const call of toolCalls) {
-      const entry = resultsByCallId.get(call.id)!;
+    for (const result of results) {
+      if (result.status === "rejected") {
+        continue;
+      }
+      const entry = result.value;
       history.push({
         content: JSON.stringify(entry.result),
         ...(entry.attachments ? { attachments: entry.attachments } : {}),
-        name: call.name,
+        name: entry.call.name,
         role: "tool",
-        toolCallId: call.id,
+        toolCallId: entry.call.id,
         toolCompletedAt: entry.toolCompletedAt,
         toolStartedAt: entry.toolStartedAt,
       });
+    }
+
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") {
+      throw failed.reason;
     }
 
     return;
   }
 
   for (const call of toolCalls) {
+    toolContext.signal?.throwIfAborted();
     const toolStartedAt = Date.now();
     handlers?.onToolStart?.({
       input: call.arguments,
@@ -920,6 +957,8 @@ async function generateReply(
   };
 
   if (mode === "stream" && handlers) {
+    let content = "";
+    let thinking = "";
     let thinkingStartedAt: number | undefined;
     let thinkingDurationMs: number | undefined;
     const finishThinking = () => {
@@ -930,36 +969,61 @@ async function generateReply(
         thinkingStartedAt = undefined;
       }
     };
-    const result = await provider.streamChat(input, {
-      onChunk: (delta) => {
-        if (delta) {
+    try {
+      const result = await provider.streamChat(input, {
+        onChunk: (delta) => {
+          if (signal?.aborted) {
+            return;
+          }
+          content += delta;
+          if (delta) {
+            finishThinking();
+          }
+          handlers.onChunk(delta);
+        },
+        onThinking: (delta) => {
+          if (signal?.aborted) {
+            return;
+          }
+          thinking += delta;
+          if (delta) {
+            thinkingStartedAt ??= Date.now();
+          }
+          handlers.onThinking?.(delta);
+        },
+        onToolEnd: handlers.onToolEnd,
+        onToolInputDelta: (event) => {
           finishThinking();
-        }
-        handlers.onChunk(delta);
-      },
-      onThinking: (delta) => {
-        if (delta) {
-          thinkingStartedAt ??= Date.now();
-        }
-        handlers.onThinking?.(delta);
-      },
-      onToolEnd: handlers.onToolEnd,
-      onToolInputDelta: (event) => {
+          handlers.onToolInputDelta?.(event);
+        },
+        onToolStart: (event) => {
+          finishThinking();
+          handlers.onToolStart?.(event);
+        },
+      });
+      signal?.throwIfAborted();
+      finishThinking();
+      return thinkingDurationMs === undefined
+        ? result
+        : {
+            ...result,
+            assistantMessage: {
+              ...result.assistantMessage,
+              thinkingDurationMs,
+            },
+          };
+    } catch (error) {
+      if (signal?.aborted && (content || thinking)) {
         finishThinking();
-        handlers.onToolInputDelta?.(event);
-      },
-      onToolStart: (event) => {
-        finishThinking();
-        handlers.onToolStart?.(event);
-      },
-    });
-    finishThinking();
-    return thinkingDurationMs === undefined
-      ? result
-      : {
-          ...result,
-          assistantMessage: { ...result.assistantMessage, thinkingDurationMs },
-        };
+        history.push({
+          content,
+          role: "assistant",
+          ...(thinking ? { thinking } : {}),
+          ...(thinkingDurationMs === undefined ? {} : { thinkingDurationMs }),
+        });
+      }
+      throw error;
+    }
   }
 
   return provider.generateChat(input);

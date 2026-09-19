@@ -296,7 +296,7 @@ export function createSuperBotTools(
           handlerConfig: {
             additionalProperties: true,
             description:
-              'Handler config: { "modulePath": "my-tool.js" } or { "modulePath": "my-tool.py" } relative to ~/.nakama/tools/. The file must already exist. JS modules export run(input, context) plus optional parameters. Python modules define def run(input, context) and a __main__ stdin/stdout JSON harness.',
+              'Handler config: { "modulePath": "my-tool.js", "requiresApiKey": true } or { "modulePath": "my-tool.py" } relative to ~/.nakama/tools/. The file must already exist. JS modules export run(input, context) plus optional parameters. Python modules define def run(input, context) and a __main__ stdin/stdout JSON harness. For tools needing an API key, set requiresApiKey: true and read NAKAMA_TOOL_API_KEY from the environment at execution time. Never request keys in chat, put them in tool parameters/source, or return/log them. The web chat shows a Configure card; tell the user to save the key there, then ask them to retry the tool.',
             type: "object",
           },
           handlerType: {
@@ -350,6 +350,18 @@ export function createSuperBotTools(
 
         sessionState.markToolCreated(context.sessionId, tool.id);
 
+        if (
+          (tool.handlerConfig as Record<string, unknown>)?.requiresApiKey ===
+          true
+        ) {
+          return {
+            orgId: requireOrgId(context),
+            tool,
+            toolId: tool.id,
+            toolName: tool.name,
+            type: "tool_credentials_required",
+          };
+        }
         return { tool };
       },
     },

@@ -1189,7 +1189,7 @@ function readToolHandlerType(handlerType: string | undefined): CustomToolType {
 function readCustomToolHandlerConfig(
   handlerType: CustomToolType,
   handlerConfig: unknown
-): { modulePath: string; parameters?: JsonSchema } {
+): { modulePath: string; parameters?: JsonSchema; requiresApiKey?: boolean } {
   const { extension } = CUSTOM_TOOL_HANDLERS[handlerType];
 
   if (typeof handlerConfig !== "object" || handlerConfig === null) {
@@ -1211,6 +1211,12 @@ function readCustomToolHandlerConfig(
   }
 
   const parameters = config.parameters;
+  if (
+    config.requiresApiKey !== undefined &&
+    typeof config.requiresApiKey !== "boolean"
+  ) {
+    throw new Error("handlerConfig.requiresApiKey must be a boolean.");
+  }
 
   if (
     parameters !== undefined &&
@@ -1225,6 +1231,7 @@ function readCustomToolHandlerConfig(
 
   return {
     modulePath: modulePath.trim(),
+    ...(config.requiresApiKey === true ? { requiresApiKey: true } : {}),
     ...(parameters === undefined ? {} : { parameters }),
   };
 }

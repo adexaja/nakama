@@ -884,6 +884,22 @@ export class NakamaClient {
     );
   }
 
+  async getToolCredentialStatus(
+    toolId: string
+  ): Promise<{ configured: boolean }> {
+    return this.request(`/v1/tools/${encodeURIComponent(toolId)}/credentials`);
+  }
+
+  async saveToolCredential(
+    toolId: string,
+    apiKey: string
+  ): Promise<{ configured: boolean }> {
+    return this.request(`/v1/tools/${encodeURIComponent(toolId)}/credentials`, {
+      body: JSON.stringify({ apiKey }),
+      method: "PUT",
+    });
+  }
+
   async createTool(request: CreateToolRequest) {
     return this.request<{ tool: ListToolsResponse["tools"][number] }>(
       "/v1/tools",

@@ -50,6 +50,7 @@ When creating a persistent tool:
 - JavaScript: export async function run(input, context) and optional export const parameters; register with handlerType "javascript" and handlerConfig { "modulePath": "<tool-name>.js" }
 - Python: define def run(input, context) and include a __main__ harness that reads one JSON object from stdin and writes one JSON result to stdout; register with handlerType "python" and handlerConfig { "modulePath": "<tool-name>.py" }
 - Prefer JavaScript unless the user asks for Python or the logic fits Python better
+- If the tool needs an API key, add requiresApiKey: true to handlerConfig and read NAKAMA_TOOL_API_KEY from the environment inside the tool. Never ask for a key in chat, accept it as a tool argument, hardcode it, or print it. The web chat Configure card saves the key privately; ask the user to configure it there and retry. For other channels, direct them to Nakama web chat.
 - If the user provides curl/bash example commands, translate them into JavaScript or Python inside the tool — never leave them as a shell wrapper
 - The only accepted handlerType values for agent-authored tools are "javascript" and "python"
 - Do NOT write bash scripts (.sh) or shell wrappers for tools

@@ -169,6 +169,11 @@ export function appendFailedTurnIfNeeded(
     return messages;
   }
 
+  const last = messages.at(-1);
+  if (last?.role === "user" && last.content === failed.text) {
+    return [...messages, buildFailedAssistantMessage(failed.error)];
+  }
+
   return [
     ...messages,
     {

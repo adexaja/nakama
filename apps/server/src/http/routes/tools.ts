@@ -13,6 +13,10 @@ import {
   type ToolResponse,
   type ToolSourceResponse,
 } from "@nakama/core";
+import {
+  loadToolApiKey,
+  saveToolApiKey,
+} from "../../services/custom-tool-shared";
 import type { ServerOptions } from "../context";
 import {
   requireActiveOrgIdFromContext,
@@ -317,6 +321,79 @@ export function registerToolRoutes(app: HonoApp, options: ServerOptions): void {
     requirePlatformAdminFromContext(c);
     const body = await readJson<CreateToolRequest>(c.req.raw);
     return json(await agent.createTool(body), 201);
+  });
+
+  const credentialStatusSchema = z.object({ configured: z.boolean() });
+  const credentialInputSchema = z
+    .object({ apiKey: z.string().min(1).max(8192) })
+    .strict();
+  for (const method of ["get", "put"] as const) {
+    app.openAPIRegistry.registerPath(
+      createRoute({
+        method,
+        operationId:
+          method === "get" ? "getToolCredentialStatus" : "saveToolCredential",
+        path: "/v1/tools/{toolId}/credentials",
+        request: {
+          params: toolIdParam,
+          ...(method === "put"
+            ? {
+                body: {
+                  required: true,
+                  content: {
+                    "application/json": { schema: credentialInputSchema },
+                  },
+                },
+              }
+            : {}),
+        },
+        responses: {
+          200: {
+            description: "Credential status (never returns the key)",
+            content: { "application/json": { schema: credentialStatusSchema } },
+          },
+        },
+        tags: ["Tools"],
+      })
+    );
+  }
+
+  async function requireCredentialTool(orgId: string, toolId: string) {
+    const { tools } = await agent.listTools(orgId);
+    const tool = tools.find((entry) => entry.id === toolId);
+    if (!tool) {
+      throw new NakamaApiError("Tool not found.", 404);
+    }
+    if (
+      !(tool.handlerType === "javascript" || tool.handlerType === "python") ||
+      (tool.handlerConfig as Record<string, unknown> | null)?.requiresApiKey !==
+        true
+    ) {
+      throw new NakamaApiError("This tool does not require an API key.", 400);
+    }
+  }
+
+  app.get("/v1/tools/:toolId/credentials", async (c) => {
+    requireOrgAdminOrPlatformAdminFromContext(c);
+    const orgId = requireActiveOrgIdFromContext(c);
+    const toolId = c.req.param("toolId");
+    await requireCredentialTool(orgId, toolId);
+    return json({ configured: Boolean(await loadToolApiKey(orgId, toolId)) });
+  });
+
+  app.put("/v1/tools/:toolId/credentials", async (c) => {
+    requireOrgAdminOrPlatformAdminFromContext(c);
+    const orgId = requireActiveOrgIdFromContext(c);
+    const toolId = c.req.param("toolId");
+    await requireCredentialTool(orgId, toolId);
+    const body = credentialInputSchema.safeParse(
+      await readJson<unknown>(c.req.raw)
+    );
+    if (!body.success) {
+      throw new NakamaApiError("Enter a valid API key.", 400);
+    }
+    await saveToolApiKey(orgId, toolId, body.data.apiKey);
+    return json({ configured: true });
   });
 
   app.get("/v1/tools/:toolId/source", async (c) => {
