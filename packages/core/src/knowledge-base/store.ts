@@ -40,14 +40,6 @@ interface KnowledgeBaseManifest {
   sharedDocumentIds?: string[];
 }
 
-export interface OrganizationKnowledgeBaseOptions {
-  /**
-   * Profile ids from the profile table. Callers that have a database pass them
-   * so a leftover directory with no profile row cannot block a delete.
-   */
-  knownProfileIds?: readonly string[];
-}
-
 export type KnowledgeBaseDuplicateMatch = "content_hash" | "name_size";
 
 export class KnowledgeBaseDuplicateError extends Error {
@@ -215,18 +207,6 @@ function sanitizeFilename(filename: string): string {
   return base.replace(/[^\w.\-() ]+/g, "_") || "document";
 }
 
-function normalizeSharedDocumentIds(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-
-  const ids = value.filter(
-    (entry): entry is string => typeof entry === "string" && entry.length > 0
-  );
-
-  return ids.length > 0 ? ids : undefined;
-}
-
 async function readManifestFrom(dir: string): Promise<KnowledgeBaseManifest> {
   const manifestPath = getKnowledgeBaseManifestPath(dir);
   const raw = await readTextOrNull(manifestPath);
@@ -245,11 +225,20 @@ async function readManifestFrom(dir: string): Promise<KnowledgeBaseManifest> {
       // A manifest written by an older build or edited by hand can carry
       // `sharedDocumentIds` in any shape: normalized on read, a string would
       // substring-match document ids and break `filter` on detach.
+      const rawShared = (parsed as KnowledgeBaseManifest).sharedDocumentIds;
+      const sharedDocumentIds = Array.isArray(rawShared)
+        ? rawShared.filter(
+            (entry): entry is string =>
+              typeof entry === "string" && entry.length > 0
+          )
+        : undefined;
+
       return {
         documents: (parsed as KnowledgeBaseManifest).documents,
-        sharedDocumentIds: normalizeSharedDocumentIds(
-          (parsed as KnowledgeBaseManifest).sharedDocumentIds
-        ),
+        sharedDocumentIds:
+          sharedDocumentIds && sharedDocumentIds.length > 0
+            ? sharedDocumentIds
+            : undefined,
       };
     }
   } catch {
@@ -485,14 +474,14 @@ export async function uploadOrganizationKnowledgeBaseDocument(
   orgId: string,
   attachment: DocumentAttachment,
   onDuplicate: KnowledgeBaseDuplicateAction = "error",
-  options: OrganizationKnowledgeBaseOptions = {}
+  knownProfileIds?: readonly string[]
 ): Promise<UploadKnowledgeBaseDocumentResult> {
   return await uploadDocumentTo(
     await orgKnowledgeBaseDir(orgId),
     attachment,
     onDuplicate,
     (documentId) =>
-      guardSharedDocumentRemoval(orgId, documentId, options.knownProfileIds)
+      guardSharedDocumentRemoval(orgId, documentId, knownProfileIds)
   );
 }
 
@@ -583,11 +572,11 @@ export async function deleteKnowledgeBaseDocument(
 export async function deleteOrganizationKnowledgeBaseDocument(
   orgId: string,
   documentId: string,
-  options: OrganizationKnowledgeBaseOptions = {}
+  knownProfileIds?: readonly string[]
 ): Promise<boolean> {
   const dir = await orgKnowledgeBaseDir(orgId);
   return await deleteDocumentFrom(dir, documentId, (candidate) =>
-    guardSharedDocumentRemoval(orgId, candidate, options.knownProfileIds)
+    guardSharedDocumentRemoval(orgId, candidate, knownProfileIds)
   );
 }
 

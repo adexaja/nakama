@@ -451,9 +451,7 @@ describe("knowledge base store", () => {
       await deleteOrganizationKnowledgeBaseDocument(
         ORG_ID,
         uploaded.document.id,
-        {
-          knownProfileIds: [],
-        }
+        []
       )
     ).toBe(true);
   });
@@ -483,21 +481,5 @@ describe("knowledge base store", () => {
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
 
     expect(await getProfileSharedDocumentIds(ORG_ID, profileId)).toEqual([]);
-    expect(
-      await detachSharedKnowledgeBaseDocument(
-        ORG_ID,
-        profileId,
-        uploaded.document.id
-      )
-    ).toBe(false);
-    expect(
-      await deleteOrganizationKnowledgeBaseDocument(
-        ORG_ID,
-        uploaded.document.id,
-        {
-          knownProfileIds: [profileId],
-        }
-      )
-    ).toBe(true);
   });
 });

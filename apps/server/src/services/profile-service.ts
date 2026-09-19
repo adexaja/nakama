@@ -953,7 +953,7 @@ export class ProfileService {
         orgId,
         document,
         onDuplicate,
-        { knownProfileIds: await this.orgProfileIds(orgId) }
+        await this.orgProfileIds(orgId)
       );
       return {
         document: { ...uploaded.document, scope: "organization" },
@@ -989,7 +989,7 @@ export class ProfileService {
     const deleted = await removeOrganizationKnowledgeBaseDocument(
       orgId,
       documentId,
-      { knownProfileIds: await this.orgProfileIds(orgId) }
+      await this.orgProfileIds(orgId)
     );
 
     if (!deleted) {
