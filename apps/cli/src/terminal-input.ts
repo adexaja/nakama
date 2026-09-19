@@ -1,4 +1,4 @@
-import { ProcessTerminal } from "@earendil-works/pi-tui";
+import { isKeyRelease, ProcessTerminal } from "@earendil-works/pi-tui";
 
 const CURSOR_POSITION_REPORT = /^\x1b\[(\d+);(\d+)R$/;
 const CURSOR_POSITION_REPORT_GLOBAL = /\x1b\[(\d+);(\d+)R/g;
@@ -77,7 +77,7 @@ export function isIncompleteEscapeSequence(pending: string): boolean {
     return true;
   }
 
-  if (/^\x1b\[[0-9;]*$/.test(pending)) {
+  if (/^\x1b\[[0-9;:]*$/.test(pending)) {
     return true;
   }
 
@@ -114,7 +114,7 @@ export function consumeTerminalInput(buffer: string): {
 
     if (pending.startsWith("\x1b")) {
       const match = pending.match(
-        /^\x1b(?:\r|\[[0-9;]*[A-Za-z~]|\[<\d+;\d+;\d+[mM]|\][^\x07]*(?:\x07|\x1b\\)|[OPINOZ=><^]|\([AB012])/
+        /^\x1b(?:\r|\[[0-9;:]*[A-Za-z~]|\[<\d+;\d+;\d+[mM]|\][^\x07]*(?:\x07|\x1b\\)|[OPINOZ=><^]|\([AB012])/
       );
 
       if (!match) {
@@ -132,7 +132,7 @@ export function consumeTerminalInput(buffer: string): {
 
       if (isMouseEventReport(sequence)) {
         events.push(sequence);
-      } else if (!isTerminalResponse(sequence)) {
+      } else if (!(isTerminalResponse(sequence) || isKeyRelease(sequence))) {
         events.push(sequence);
       }
 
