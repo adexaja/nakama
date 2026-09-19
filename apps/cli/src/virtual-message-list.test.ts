@@ -2,6 +2,17 @@ import { expect, test } from "bun:test";
 import { styledLineText } from "./styled-text";
 import { VirtualMessageList } from "./virtual-message-list";
 
+test("consecutive tools use one row each without blank gaps", () => {
+  const list = new VirtualMessageList();
+  for (const text of ["✓ read_file src/chat.ts", "✓ bash bun test"]) {
+    list.beginMessage("tool");
+    list.appendLine(text);
+    list.sealMessage();
+  }
+  expect(list.totalLines(80)).toBe(2);
+  expect(list.messageLines(1, 80)).toEqual([" ✓ bash bun test "]);
+});
+
 test("retains only the latest 1000 implicit messages after cached renders", () => {
   const list = new VirtualMessageList();
   for (let i = 0; i < 1100; i++) {

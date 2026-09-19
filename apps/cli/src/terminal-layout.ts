@@ -161,6 +161,23 @@ export class TerminalLayout {
     return this.enabled;
   }
 
+  clear(): void {
+    this.messages.clear();
+    this.streamBuffer = "";
+    this.statusLine = null;
+    this.historyOffset = 0;
+    this.followOutput = true;
+    this.anchorRow = 1;
+    this.viewportTopRow = 1;
+    this.previousFrame = null;
+    this.tui.resetRenderState();
+    this.hasPainted = false;
+    if (this.enabled) {
+      process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
+    }
+    this.render();
+  }
+
   setDebugOverlay(enabled: boolean): void {
     this.debugOverlay = enabled;
     this.render();

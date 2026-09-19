@@ -141,6 +141,15 @@ describe("status command", () => {
       label: "/status",
     });
   });
+
+  test("fuzzy matches slash commands", () => {
+    expect(
+      resolveSuggestions({ input: "/stts" }).map(
+        (suggestion) => suggestion.label
+      )
+    ).toContain("/status");
+    expect(resolveSuggestions({ input: "/-_" })).toEqual([]);
+  });
 });
 
 describe("model command", () => {

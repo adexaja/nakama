@@ -14,6 +14,7 @@ import {
   formatErrorLines,
   formatSoulStatusLines,
   formatStatusLines,
+  formatToolCall,
   isEscInterruptKey,
   needsTrailingStreamNewline,
   previewToolValue,
@@ -93,6 +94,28 @@ describe("formatBusyDropLine", () => {
 });
 
 describe("tool rendering", () => {
+  test("shows a compact summary without raw arguments and fits the terminal", () => {
+    const input = { command: "bun test\n--coverage", secret: "hidden" };
+    expect(formatToolCall("bash", input, "done", 400, 80)).toBe(
+      "✓ bash bun test --coverage  0.4s"
+    );
+    expect(
+      formatToolCall(
+        "read_file",
+        { path: "src/chat.ts" },
+        "running",
+        undefined,
+        80
+      )
+    ).toBe("⠋ read_file src/chat.ts");
+    expect(
+      formatToolCall("bash", input, "error", 400, 20).length
+    ).toBeLessThanOrEqual(18);
+    expect(
+      formatToolCall("custom", { secret: "hidden" }, "done", undefined, 80)
+    ).toBe("✓ custom");
+  });
+
   test("previews tool values without flooding the terminal", () => {
     expect(previewToolValue({ query: "hello" })).toBe('{"query":"hello"}');
     expect(previewToolValue("line\none")).toBe("line one");
