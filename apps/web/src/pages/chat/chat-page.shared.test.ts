@@ -68,6 +68,17 @@ describe("markStreamingTurnFailed", () => {
 });
 
 describe("appendFailedTurnIfNeeded", () => {
+  test("reuses the saved user message after a failed turn", () => {
+    const saved = user("retry me", { historyIndex: 0 });
+    const next = appendFailedTurnIfNeeded([saved], {
+      error: "429",
+      text: "retry me",
+    });
+    expect(next).toHaveLength(2);
+    expect(next[0]).toBe(saved);
+    expect(next[1]).toMatchObject({ failed: true, role: "assistant" });
+  });
+
   test("appends stored user + failed assistant after reload", () => {
     const next = appendFailedTurnIfNeeded(
       [user("earlier", { historyIndex: 0 })],

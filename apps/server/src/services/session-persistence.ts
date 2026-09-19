@@ -188,14 +188,16 @@ export function wrapPersistedSession(
   let lastPersistedLength = session.getHistory().length;
 
   async function persistHistory() {
-    await persistSessionHistory(
-      db,
-      sessionId,
-      session,
-      lastPersistedLength,
-      lastPersistedRevision,
-      lastPersistedRevision
-    );
+    if (session.getHistoryRevision() > lastPersistedRevision) {
+      await replaceSessionHistory(db, sessionId, session.getHistory());
+    } else {
+      await persistHistoryDelta(
+        db,
+        sessionId,
+        session.getHistory(),
+        lastPersistedLength
+      );
+    }
     lastPersistedRevision = session.getHistoryRevision();
     lastPersistedLength = session.getHistory().length;
   }
@@ -275,27 +277,6 @@ export async function replaceSessionHistory(
   }));
 
   await db.replaceMessagesForSession(sessionId, messages);
-}
-
-async function persistSessionHistory(
-  db: DatabaseAdapter,
-  sessionId: string,
-  session: AgentChatSession,
-  previousLength: number,
-  revisionBefore: number,
-  lastPersistedRevision: number
-): Promise<void> {
-  const history = session.getHistory();
-
-  if (
-    session.getHistoryRevision() > revisionBefore ||
-    session.getHistoryRevision() > lastPersistedRevision
-  ) {
-    await replaceSessionHistory(db, sessionId, history);
-    return;
-  }
-
-  await persistHistoryDelta(db, sessionId, history, previousLength);
 }
 
 async function persistHistoryDelta(

@@ -565,7 +565,7 @@ describe("agent chat tool loop", () => {
     await expect(session.send("say hi")).rejects.toThrow(
       "Unexpected provider call 2"
     );
-    expect(session.getHistory()).toEqual([]);
+    expect(session.getHistory()).toEqual([{ content: "say hi", role: "user" }]);
   });
 
   test("appends resolvePromptContext to the system prompt each turn", async () => {
