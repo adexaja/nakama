@@ -8,6 +8,7 @@ import {
   loadDiscordConfigFile,
   loadTelegramConfigFile,
   loadWhatsAppConfigFile,
+  type ProfileResponse,
   type ToolContext,
   type ToolDefinition,
 } from "@nakama/core";
@@ -21,6 +22,7 @@ import { createMinimalHonoApp } from "../http/test-app-helpers";
 import { setupFreshInstallSession } from "../http/test-session-helpers";
 import { setupTestConfigDir } from "../test-config-dir";
 import { AgentService } from "./agent-service";
+import { resolveDefaultModelForInstance } from "./provider-instance-helpers";
 import { sessionTurnRegistry } from "./session-turn-registry";
 
 const TEST_ORG_ID = "org_test";
@@ -43,6 +45,67 @@ function createDefaultProfile(): StoredProfileRecord {
     updatedAt: now,
   };
 }
+
+describe("Super Bot provider inheritance", () => {
+  setupTestConfigDir("nakama-inherited-provider-");
+
+  test.each(["server default", "profile", "session"] as const)(
+    "persists the resolved %s selection on the new profile",
+    async (source) => {
+      const db = createInMemoryDatabaseAdapter();
+      const profile = {
+        ...createDefaultProfile(),
+        isSuper: true,
+        model: source === "server default" ? null : "openai-1::gpt-4.1",
+      };
+      await db.upsertProfile(profile);
+      await db.upsertSession({
+        agentQuestionnaire: null,
+        agentTodos: [],
+        channel: "web",
+        createdAt: profile.createdAt,
+        id: "super-session",
+        model: source === "session" ? "openai-2::gpt-4.1-mini" : null,
+        profileId: profile.id,
+        title: null,
+      });
+      const provider = {
+        apiKey: "test-key",
+        createdAt: profile.createdAt,
+        id: "openai-1",
+        label: "OpenAI",
+        type: "openai" as const,
+      };
+      const service = new AgentService(
+        {
+          defaultProviderId: provider.id,
+          providers: [provider, { ...provider, id: "openai-2" }],
+        },
+        null,
+        db
+      );
+      const tool = (
+        service as unknown as { superBotTools: ToolDefinition[] }
+      ).superBotTools.find((entry) => entry.name === "create_profile");
+      expect(tool).toBeDefined();
+      const result = (await tool!.run(
+        { name: "New Agent" },
+        {
+          orgId: ORG_ID,
+          profileId: profile.id,
+          sessionId: "super-session",
+        }
+      )) as ProfileResponse;
+      const expected =
+        source === "session"
+          ? "openai-2::gpt-4.1-mini"
+          : (profile.model ??
+            `${provider.id}::${resolveDefaultModelForInstance(provider)}`);
+      expect(result.profile.model).toBe(expected);
+      expect((await db.getProfile(result.profile.id))?.model).toBe(expected);
+    }
+  );
+});
 
 describe("AgentService sub-agent roles", () => {
   setupTestConfigDir("nakama-sub-agent-role-");

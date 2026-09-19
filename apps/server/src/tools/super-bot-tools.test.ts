@@ -521,6 +521,71 @@ describe("super bot assign_tool_to_profile", () => {
 });
 
 describe("super bot create_profile", () => {
+  test.each([
+    [
+      "inherits provider and model",
+      "provider-a::model-a",
+      undefined,
+      "provider-a::model-a",
+    ],
+    ["inherits server default", null, undefined, null],
+    [
+      "preserves model override",
+      "provider-a::model-a",
+      "provider-b::model-b",
+      "provider-b::model-b",
+    ],
+    ["preserves explicit server default", "provider-a::model-a", null, null],
+  ])("%s", async (_label, sourceModel, override, expected) => {
+    const source: ProfileResponse = {
+      profile: {
+        createdAt: "2026-01-01T00:00:00.000Z",
+        hasAvatar: false,
+        id: "super-bot",
+        isSuper: true,
+        mcpServerCount: 0,
+        mcpServers: [],
+        model: sourceModel,
+        name: "Super Bot",
+        skills: [],
+        soulActive: true,
+        systemPrompt: "",
+        toolCount: 0,
+        tools: [],
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    };
+    let lookups = 0;
+    const createProfile = getCreateProfileTool({
+      async createProfile(orgId, request) {
+        expect(orgId).toBe(ORG_ID);
+        expect(request.model).toBe(expected);
+        return {
+          profile: {
+            ...source.profile,
+            id: "new-bot",
+            model: request.model ?? null,
+          },
+        };
+      },
+      async getProfile(orgId, profileId) {
+        expect(orgId).toBe(ORG_ID);
+        expect(profileId).toBe("super-bot");
+        lookups++;
+        return source;
+      },
+    });
+
+    await createProfile.run(
+      {
+        name: "New Bot",
+        ...(override === undefined ? {} : { model: override }),
+      },
+      { orgId: ORG_ID, profileId: "super-bot", sessionId: SESSION_ID }
+    );
+    expect(lookups).toBe(override === undefined ? 1 : 0);
+  });
+
   test("creates a profile on the first turn", async () => {
     const sessionState = new SuperBotSessionState();
     sessionState.beginTurn(SESSION_ID);
@@ -984,7 +1049,8 @@ function getCreateToolTool(
 }
 
 function getCreateProfileTool(
-  profileService: Pick<ProfileService, "createProfile">,
+  profileService: Pick<ProfileService, "createProfile"> &
+    Partial<Pick<ProfileService, "getProfile">>,
   sessionState?: SuperBotSessionState
 ) {
   const state = sessionState ?? new SuperBotSessionState();
