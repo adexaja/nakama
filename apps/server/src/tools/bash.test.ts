@@ -12,7 +12,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { PathGuardError } from "@nakama/core";
+import { getProfileSoulDir, PathGuardError } from "@nakama/core";
 import { runBash } from "./bash";
 
 async function waitForPositivePid(pidPath: string): Promise<number> {
@@ -123,6 +123,96 @@ describe("bash tool", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe(await realpath(workspaceRoot));
     expect(result.timedOut).toBe(false);
+  });
+
+  test("ordinary commands resolve the profile workspace without an override", async () => {
+    workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "nakama-bash-"));
+    const previousConfigDir = process.env.NAKAMA_CONFIG_DIR;
+    process.env.NAKAMA_CONFIG_DIR = workspaceRoot;
+
+    try {
+      const profileWorkspace = getProfileSoulDir("org_test", "profile_test");
+      await mkdir(profileWorkspace, { recursive: true });
+
+      for (const codingWorkspaceRoot of [undefined, workspaceRoot]) {
+        for (const cwd of [undefined, ".", profileWorkspace]) {
+          const result = await runBash(
+            { command: "pwd", cwd },
+            {
+              codingWorkspaceRoot,
+              orgId: "org_test",
+              profileId: "profile_test",
+            },
+            { backend: "host" }
+          );
+          expect(result.exitCode).toBe(0);
+          expect(result.stdout.trim()).toBe(await realpath(profileWorkspace));
+        }
+      }
+    } finally {
+      if (previousConfigDir === undefined) {
+        delete process.env.NAKAMA_CONFIG_DIR;
+      } else {
+        process.env.NAKAMA_CONFIG_DIR = previousConfigDir;
+      }
+    }
+  });
+
+  test("CLI commands use the launch directory without coding-agent mode", async () => {
+    workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "nakama-bash-"));
+    const context = {
+      channel: "cli" as const,
+      codingWorkspaceRoot: workspaceRoot,
+      orgId: "org_test",
+      profileId: "profile_test",
+    };
+    const nestedDir = path.join(workspaceRoot, "nested");
+    await mkdir(nestedDir);
+
+    for (const cwd of [undefined, ".", workspaceRoot, "nested"]) {
+      const result = await runBash({ command: "pwd", cwd }, context, {
+        backend: "host",
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe(
+        await realpath(cwd === "nested" ? nestedDir : workspaceRoot)
+      );
+    }
+
+    await expect(
+      runBash({ command: "pwd", cwd: ".." }, context, { backend: "host" })
+    ).rejects.toBeInstanceOf(PathGuardError);
+  });
+
+  test("coding-agent workspace selection respects explicit overrides", async () => {
+    workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "nakama-bash-"));
+    const codingWorkspaceRoot = await mkdtemp(
+      path.join(os.tmpdir(), "nakama-coding-workspace-")
+    );
+
+    const codingResult = await runBash(
+      { codingAgent: true, command: "pwd" },
+      {
+        codingWorkspaceRoot,
+        orgId: "org_test",
+        profileId: "profile_test",
+      }
+    );
+    const ordinaryResult = await runBash(
+      { command: "pwd" },
+      {
+        codingWorkspaceRoot,
+        orgId: "org_test",
+        profileId: "profile_test",
+      },
+      { workspaceRoot }
+    );
+
+    expect(codingResult.stdout.trim().split("\n")[0]).toBe(
+      await realpath(codingWorkspaceRoot)
+    );
+    expect(ordinaryResult.stdout.trim()).toBe(await realpath(workspaceRoot));
+    await rm(codingWorkspaceRoot, { force: true, recursive: true });
   });
 
   test("supports cwd within the profile workspace", async () => {

@@ -116,6 +116,7 @@ export class TerminalLayout {
   }
 
   beginMessage(kind: MessageKind): void {
+    this.flushStreamBuffer();
     this.messages.beginMessage(kind);
   }
 
@@ -307,7 +308,9 @@ export class TerminalLayout {
       return;
     }
 
+    this.messages.beginMessage("assistant");
     this.messages.appendLine(this.streamBuffer);
+    this.messages.sealMessage();
     this.streamBuffer = "";
   }
 

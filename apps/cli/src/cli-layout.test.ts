@@ -6,7 +6,7 @@ import {
 } from "./message-queue";
 import { plainLine, styledLine, styledLineText } from "./styled-text";
 import { TerminalLayout } from "./terminal-layout";
-import { buildComposerLines } from "./terminal-renderer";
+import { buildComposerLines, TerminalRenderer } from "./terminal-renderer";
 import { VirtualMessageList } from "./virtual-message-list";
 
 describe("formatPendingSummary", () => {
@@ -487,6 +487,44 @@ describe("TerminalLayout frame pipeline", () => {
     for (const line of transcriptLines) {
       expect(line.startsWith(" ")).toBe(true);
       expect(line.endsWith(" ")).toBe(true);
+    }
+  });
+
+  test("preserves markdown after streaming across user and tool messages", () => {
+    captureStdout();
+    setTerminalSize(80, 30);
+    const layout = new TerminalLayout(null);
+    Object.assign(layout, {
+      anchored: true,
+      anchorRow: 1,
+      enabled: true,
+      viewportTopRow: 1,
+    });
+    const renderer = new TerminalRenderer(null, layout);
+    renderer.beginStream();
+    renderer.appendUserMessage("question");
+    renderer.appendStreamChunk("**Before**");
+    renderer.appendToolLine("tool result");
+    renderer.appendStreamChunk("**After**");
+    renderer.endStream();
+
+    const messages = (layout as unknown as { messages: VirtualMessageList })
+      .messages;
+    const lines = messages.getLines(0, messages.totalLines(80), 80);
+    expect(lines.map(styledLineText).filter((line) => line.trim())).toEqual([
+      "> question".padEnd(80),
+      " Before ",
+      " tool result ",
+      " After ",
+    ]);
+    for (const text of ["Before", "After"]) {
+      expect(
+        lines.some((line) =>
+          line.segments.some(
+            (segment) => segment.text === text && segment.style?.bold
+          )
+        )
+      ).toBe(true);
     }
   });
 

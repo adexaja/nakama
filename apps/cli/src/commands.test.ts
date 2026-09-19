@@ -142,3 +142,24 @@ describe("status command", () => {
     });
   });
 });
+
+describe("model command", () => {
+  test("uses one command for model selection", () => {
+    expect(formatSlashCommands()).toContain("/model");
+    expect(formatSlashCommands()).not.toContain("/models");
+  });
+
+  test("opens before enter selects a model", () => {
+    const closed = resolveSuggestions({
+      input: "/model",
+      models: modelsCache.models,
+    });
+    const open = resolveSuggestions({
+      input: "/model ",
+      models: modelsCache.models,
+    });
+
+    expect(closed[0]?.submitOnEnter).toBeUndefined();
+    expect(open[0]?.submitOnEnter).toBe(true);
+  });
+});

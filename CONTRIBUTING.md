@@ -26,7 +26,7 @@ Run the pieces you need:
 ```bash
 bun run dev:server   # API
 bun run dev:web      # web dashboard (starts the server if needed)
-bun run dev:cli      # terminal client
+bun run cli          # terminal client
 ```
 
 - Local Bun web dashboard: http://localhost:3003

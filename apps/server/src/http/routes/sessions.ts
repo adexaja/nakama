@@ -63,6 +63,7 @@ export function registerSessionRoutes(
     .object({
       channel: agentChannelSchema,
       cognito: z.boolean().optional(),
+      codingWorkspaceRoot: z.string().optional(),
       model: z.string().trim().min(1).optional(),
       profileId: z.string().optional(),
     })
@@ -497,6 +498,15 @@ export function registerSessionRoutes(
     }
     const body: CreateSessionRequest = parsedBody.data;
     const channel = parseChannel(body.channel);
+    if (
+      body.codingWorkspaceRoot !== undefined &&
+      (channel !== "cli" || auth.mode !== "local-token")
+    ) {
+      return errorResponse(
+        "Coding workspace is only available to the local CLI.",
+        400
+      );
+    }
     const sessionId = await agent.createSession(
       orgId,
       channel,
@@ -504,6 +514,7 @@ export function registerSessionRoutes(
       auth.user.id,
       {
         cognito: body.cognito,
+        codingWorkspaceRoot: body.codingWorkspaceRoot,
         excludeSuperBot: auth.mode === "local-token" && channel !== "cli",
         isPlatformAdmin: auth.isPlatformAdmin,
         model: body.model,

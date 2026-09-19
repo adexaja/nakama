@@ -131,6 +131,7 @@ export interface PromptSuggestion {
   description: string;
   insertValue: string;
   label: string;
+  submitOnEnter?: boolean;
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
@@ -143,8 +144,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { description: "distill a reusable skill from sources", name: "/learn" },
   { description: "show or initialize profile soul files", name: "/soul" },
   { description: "show or initialize USER.md", name: "/user" },
-  { description: "choose a model", name: "/models" },
-  { description: "show or switch model", name: "/model" },
+  { description: "choose a model", name: "/model" },
   { description: "show or change extended thinking", name: "/thinking" },
   { description: "toggle layout debug overlay", name: "/debug" },
   { description: "show or switch bot profile", name: "/profile" },
@@ -248,6 +248,7 @@ export function resolveSuggestions(
           description: `${model.name} [${model.providerLabel ?? model.provider}]${markers ? ` (${markers})` : ""}`,
           insertValue: `/model ${formatModelCommandArg(model)}`,
           label: model.id,
+          submitOnEnter: modelMatch[1] === undefined ? undefined : true,
         };
       });
   }

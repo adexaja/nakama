@@ -91,7 +91,7 @@ export function resetBashSandboxManagerForTests(): void {
 }
 
 const BASH_TOOL_DESCRIPTION_BASE =
-  "Run a one-off shell command starting in the active profile workspace and return stdout, stderr, and exit code. Do not use this to create persistent tools, tool files, shell wrappers, or .sh scripts. If the user wants a reusable tool, translate shell examples into JavaScript instead.";
+  "Run a one-off shell command and return stdout, stderr, and exit code. In local CLI sessions, commands start in the directory where the CLI was launched; otherwise they start in the active profile workspace. Do not use this to create persistent tools, tool files, shell wrappers, or .sh scripts. If the user wants a reusable tool, translate shell examples into JavaScript instead.";
 
 function bashToolDescription(): string {
   try {
@@ -118,7 +118,7 @@ export const bashTool: ToolDefinition<BashInput, BashOutput> = {
       command: { description: "Shell command to run.", type: "string" },
       cwd: {
         description:
-          "Optional working directory within the profile workspace. Defaults to the profile workspace root.",
+          "Optional working directory within the active shell workspace. Defaults to the CLI launch directory in local CLI sessions, or the profile workspace otherwise.",
         type: "string",
       },
       env: {
@@ -160,8 +160,17 @@ export async function runBash(
     throw new Error("command is required.");
   }
 
+  const codingAgentMode =
+    readOptionalBoolean(input, "codingAgent") === true ||
+    commandLooksLikeCursorAgent(command);
+  const codingWorkspace =
+    context.channel === "cli" || codingAgentMode
+      ? context.codingWorkspaceRoot
+      : undefined;
   const workspaceRoot = await resolveWorkspaceRoot(
-    options.workspaceRoot ?? getProfileSoulDir(orgId, profileId)
+    options.workspaceRoot ??
+      codingWorkspace ??
+      getProfileSoulDir(orgId, profileId)
   );
   const rawCwd = readString(input, "cwd");
   const cwd = rawCwd
@@ -174,9 +183,6 @@ export async function runBash(
     : workspaceRoot;
   const timeoutMs = readTimeout(readOptionalNumber(input, "timeoutMs"));
   const env = readStringRecord(readOptionalRecord(input, "env"));
-  const codingAgentMode =
-    readOptionalBoolean(input, "codingAgent") === true ||
-    commandLooksLikeCursorAgent(command);
 
   const backend = options.backend ?? resolveBashBackend();
 

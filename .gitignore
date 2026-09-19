@@ -28,6 +28,7 @@ apps/data/*
 .cursor/
 docs/plans/*
 docs/brainstorms/*
+docs/ideation/
 .worktrees/
 outputs/
 .commandcode

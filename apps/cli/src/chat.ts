@@ -82,6 +82,7 @@ export function toolResultFailed(result: unknown): boolean {
 interface RunChatOptions {
   channel: AgentChannel;
   client: NakamaClient;
+  codingWorkspaceRoot?: string;
   offline?: boolean;
   profileId?: CliProfileOptions["profileId"];
   signal?: AbortSignal;
@@ -148,6 +149,7 @@ export async function runChat(options: RunChatOptions): Promise<void> {
   let currentProfileId = startup.profileId;
   let currentProfile = startup.profile;
   let session = await options.client.createSession(options.channel, {
+    codingWorkspaceRoot: options.codingWorkspaceRoot,
     profileId: currentProfileId,
   });
 
@@ -165,7 +167,7 @@ export async function runChat(options: RunChatOptions): Promise<void> {
     console.log("");
   } else {
     try {
-      await printCurrentModel(options.client);
+      await printCurrentModel(options.client, printLine, currentProfile);
     } catch (error) {
       printError(error);
       console.log(
@@ -541,23 +543,6 @@ async function runStickyChat(
       return "handled";
     }
 
-    if (line === "/models") {
-      if (isStreaming) {
-        writeOutput("Wait for the current response to finish.");
-        return "handled";
-      }
-
-      await refreshModelsCache();
-
-      if (!modelsCache?.models.length) {
-        writeOutput("No models available.");
-        return "handled";
-      }
-
-      prompt?.prefill("/model ");
-      return "handled";
-    }
-
     if (line === "/thinking" || line.startsWith("/thinking ")) {
       return handleThinkingCommand(line);
     }
@@ -638,6 +623,7 @@ async function runStickyChat(
         enabled,
       });
       session = await options.client.createSession(options.channel, {
+        codingWorkspaceRoot: options.codingWorkspaceRoot,
         profileId: currentProfileId,
       });
       context.onSessionChange(session);
@@ -676,18 +662,20 @@ async function runStickyChat(
   async function handleModelCommand(line: string): Promise<"handled"> {
     const modelArg = line.slice("/model".length).trim();
 
-    if (!modelArg) {
-      await printCurrentModel(
-        options.client,
-        writeOutput,
-        currentProfile,
-        modelsCache
-      );
+    if (isStreaming) {
+      writeOutput("Wait for the current response to finish.");
       return "handled";
     }
 
-    if (isStreaming) {
-      writeOutput("Wait for the current response to finish.");
+    if (!modelArg) {
+      await refreshModelsCache();
+
+      if (!modelsCache?.models.length) {
+        writeOutput("No models available.");
+        return "handled";
+      }
+
+      prompt?.prefill("/model ");
       return "handled";
     }
 
@@ -702,24 +690,20 @@ async function runStickyChat(
 
       if (target === "ambiguous") {
         writeOutput(
-          `Ambiguous model: ${modelArg}. Use /model <provider-id>::<model-id> (see /models).`
+          `Ambiguous model: ${modelArg}. Choose a provider-specific model from /model.`
         );
         return "handled";
       }
 
-      const profileResponse = await options.client.updateProfile(
-        currentProfileId,
-        {
-          model: `${target.providerId}::${target.modelId}`,
-        }
-      );
-      currentProfile = profileResponse.profile;
+      const model = `${target.providerId}::${target.modelId}`;
       session = await options.client.createSession(options.channel, {
+        codingWorkspaceRoot: options.codingWorkspaceRoot,
+        model,
         profileId: currentProfileId,
       });
+      currentProfile = { ...currentProfile, model };
       context.onSessionChange(session);
       lastUserMessage = null;
-      await refreshModelsCache();
       writeOutput(`Model switched to ${target.modelId}. Chat history reset.`);
     } catch (error) {
       writeError(error);
@@ -767,6 +751,7 @@ async function runStickyChat(
       context.onProfileChange(currentProfileId, currentProfile);
       await saveCliProfileId(currentProfileId);
       session = await options.client.createSession(options.channel, {
+        codingWorkspaceRoot: options.codingWorkspaceRoot,
         profileId: currentProfileId,
       });
       context.onSessionChange(session);
@@ -1151,13 +1136,11 @@ async function runBlockingChat(context: ChatContext): Promise<void> {
 async function printCurrentModel(
   client: NakamaClient,
   write: (text: string) => void = printLine,
-  profile: ProfileSummary | null = null,
+  profile: ProfileSummary,
   cachedModels: ModelsResponse | null = null
 ): Promise<void> {
   const models = cachedModels ?? (await client.getModels());
-  const active = profile
-    ? effectiveModelState(profile, models)
-    : { modelId: null, providerId: models.currentProviderId };
+  const active = effectiveModelState(profile, models);
 
   if (!(models.provider && active.modelId)) {
     write("No model configured.");

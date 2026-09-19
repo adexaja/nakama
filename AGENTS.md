@@ -12,7 +12,7 @@ Agent platform built to work with your team — not replace them. Multi-tenant m
 ## Dev
 
 - Bun 1.3+: `bun install`, `bun run`, `bun test`
-- Servers: `bun run dev:server` | `dev:web` | `dev:cli`
+- Servers: `bun run dev:server` | `dev:web` | `cli`
 - Layout: `apps/{server,web,cli}`, channel workers in `apps/platform/{telegram,whatsapp,discord,automation}`
 - Tests: assert behavior (status, data, side effects), not prompt/description/error copy
 - React UI: one self-explanatory heading/label; no subtitles or helper copy unless the user asks or misunderstanding would cause errors
