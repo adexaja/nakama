@@ -61,6 +61,20 @@ describe("consumeTerminalInput", () => {
     expect(consumeTerminalInput("\x1b[12").pending).toBe("\x1b[12");
   });
 
+  test("keeps legacy shift+enter together", () => {
+    expect(consumeTerminalInput("\x1b\r")).toEqual({
+      events: ["\x1b\r"],
+      pending: "",
+    });
+  });
+
+  test("keeps modifyOtherKeys shift+enter together", () => {
+    expect(consumeTerminalInput("\x1b[27;2;13~")).toEqual({
+      events: ["\x1b[27;2;13~"],
+      pending: "",
+    });
+  });
+
   test("recovers from malformed ESC instead of leaking pending", () => {
     const consumed = consumeTerminalInput("\x1bxmore");
 

@@ -148,6 +148,37 @@ describe("PersistentPrompt", () => {
     expect(submitted).toEqual([{ text: "/soul" }]);
   });
 
+  test("shift+enter adds a new input line without submitting", () => {
+    stdoutWriteSpy = spyOn(process.stdout, "write").mockImplementation(
+      () => true
+    );
+    const renderer = new FakeRenderer();
+    const terminalInput = new FakeTerminalInput();
+    const submitted: PromptLineResult[] = [];
+    const prompt = new PersistentPrompt({
+      onCancel: () => {},
+      onSubmit: (result) => submitted.push(result),
+      renderer,
+      terminalInput: terminalInput as unknown as TerminalInput,
+    });
+
+    prompts.push(prompt);
+    prompt.start();
+    prompt.prefill("first line");
+    terminalInput.emit("\n");
+
+    expect(renderer.state?.value).toBe("first line\n");
+    expect(submitted).toEqual([]);
+
+    terminalInput.emit("\x1b[13;2u");
+    expect(renderer.state?.value).toBe("first line\n\n");
+    expect(submitted).toEqual([]);
+
+    terminalInput.emit("\x1b[27;2;13~");
+    expect(renderer.state?.value).toBe("first line\n\n\n");
+    expect(submitted).toEqual([]);
+  });
+
   test("drops bracketed paste when the buffer exceeds the byte cap", () => {
     stdoutWriteSpy = spyOn(process.stdout, "write").mockImplementation(
       () => true
