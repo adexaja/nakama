@@ -187,11 +187,18 @@ export function ChatPageContent(state: ChatPageState) {
                   : null
               }
               onBranchMessage={(message) => void handleBranchMessage(message)}
+              onContinueToolSetup={async (setupId) => {
+                await sendMessage(
+                  `Build the approved tool setup ${setupId}. Use this setupId with create_tool to connect the saved credentials and selected agent.`,
+                  []
+                );
+              }}
               onEditMessage={(message, text) =>
                 void handleEditMessage(message, text)
               }
               onRetryMessage={(message) => void handleTryAgainMessage(message)}
               profileId={profileId}
+              sessionId={session?.id}
               showThinking={showThinking}
               showUsage={showUsage}
               streamActive={busy}

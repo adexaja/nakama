@@ -116,9 +116,11 @@ interface ChatMessageListProps {
   messages: ChatListItem[];
   modelLabel?: string | null;
   onBranchMessage?: (message: ChatListItem) => void;
+  onContinueToolSetup?: (setupId: string) => Promise<void>;
   onEditMessage?: (message: ChatListItem, text: string) => void;
   onRetryMessage?: (message: ChatListItem) => void;
   profileId?: string | null;
+  sessionId?: string;
   showThinking?: boolean;
   /** Show tokens and estimated cost under each completed assistant turn. */
   showUsage?: boolean;
@@ -133,6 +135,8 @@ export function ChatMessageList(props: ChatMessageListProps) {
 }
 
 function ChatMessageListSession({
+  sessionId,
+  onContinueToolSetup,
   messages,
   profileId,
   showThinking = true,
@@ -279,8 +283,10 @@ function ChatMessageListSession({
             messages={turn.messages}
             modelLabel={modelLabel}
             onBranchMessage={onBranchMessage}
+            onContinueToolSetup={onContinueToolSetup}
             onRetryMessage={onRetryMessage}
             profileId={profileId}
+            sessionId={sessionId}
             showAwaiting={
               turnIndex === turns.length - 1 && awaitingLabel === "Working…"
             }
@@ -294,6 +300,8 @@ function ChatMessageListSession({
       );
     },
     [
+      sessionId,
+      onContinueToolSetup,
       actionsDisabled,
       awaitingLabel,
       branchingMessageId,
@@ -357,6 +365,8 @@ function ChatMessageListSession({
 }
 
 function AssistantTurn({
+  sessionId,
+  onContinueToolSetup,
   workStreamActive,
   messages,
   profileId,
@@ -371,6 +381,8 @@ function AssistantTurn({
   onBranchMessage,
   onRetryMessage,
 }: {
+  sessionId?: string;
+  onContinueToolSetup?: (setupId: string) => Promise<void>;
   workStreamActive: boolean;
   messages: IndexedMessage[];
   profileId?: string | null;
@@ -430,11 +442,19 @@ function AssistantTurn({
       {showAwaiting && !segments.some((segment) => segment.kind === "work") ? (
         <TurnAwaitingElapsed startedAt={turnStartedAt} />
       ) : null}
-      {turnMessages
-        .filter((message) => message.toolResult != null)
-        .map((message) => (
-          <ToolCredentialCard key={message.id} result={message.toolResult} />
-        ))}
+      {!workStreamActive &&
+        turnComplete &&
+        turnMessages
+          .filter((message) => message.toolResult != null)
+          .map((message) => (
+            <ToolCredentialCard
+              disabled={actionsDisabled}
+              key={message.id}
+              onContinue={onContinueToolSetup}
+              result={message.toolResult}
+              sessionId={sessionId}
+            />
+          ))}
       {profileId && showArtifacts ? (
         <div className="flex flex-wrap gap-2">
           {artifacts.map((artifact) => {

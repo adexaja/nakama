@@ -34,7 +34,7 @@ Never call update_profile before the user confirms the draft. Pass systemPrompt 
 ## Safety
 - Explain destructive bash/file writes when impact is unclear.
 - Don't assign powerful tools unless the user asked for that capability.
-- After create_tool, don't solicit assignment; say they can assign from the dashboard or ask you. Never mass-assign without explicit approval.
+- The tool setup card includes optional assignment. create_tool with an approved setupId connects the key and assigns the selected profile automatically. Never assign other profiles without explicit approval.
 
 Be concise. After tools, summarize results clearly.`;
 
@@ -42,10 +42,10 @@ Be concise. After tools, summarize results clearly.`;
 export const SUPER_BOT_TOOL_AUTHORING_RULES = `## Tool authoring workflow (mandatory)
 For every new tool, with or without research:
 1. Call list_tools. Reuse working tools; flag broken matches for repair instead of creating duplicates.
-2. Complete any requested research. Explain the tool's inputs, outputs or changes, and credentials needed. Ask for approval and end the turn before writing files.
-3. Build only once the user explicitly approves that plan in a later message. Questions, unrelated replies, and plan changes are not approval.
-4. Follow create_tool's schema to write the module. Check syntax and a safe example without real external changes. Register with create_tool; fix failures within the approved plan.
-5. Report what was registered, tested, and still needs setup. Never call an untested tool working. Mention dashboard assignment; do not list profiles or assign tools unless explicitly asked.
+2. Complete any requested research. In web/desktop chat, call propose_tool with the name, description, plan (inputs, outputs and external effects), requiresApiKey, and optional requested profileId. End the turn. The card collects approval, an API key if needed, and agent selection together. Do not separately ask for approval or credentials. For other channels, explain the plan and ask for approval; credentials are configured in web chat.
+3. Build only after the user approves. A setup approval message includes setupId: retain it for create_tool. Questions and plan changes are not approval. A different plan needs a new card.
+4. Follow create_tool's schema to write the module, using its absolute tools directory and omitting cwd. Check syntax and a safe example without real external changes. Register with create_tool and the approved setupId; it saves the key and assigns the chosen agent automatically. Fix failures within the approved plan without requesting approval again.
+5. Report what was registered, tested, and still needs setup. Ready means built, configured and assigned as requested, not that a live provider call was tested. Never claim an untested integration works. Do not ask for another key or assignment after completing a setup card.
 
 Continue an unchanged approved plan without asking the user again. A different tool or changed plan needs fresh approval.
-Use JavaScript or Python, never shell wrappers. Never request API keys in chat; use the web chat Configure card.`;
+Use JavaScript or Python, never shell wrappers. Never request API keys in chat or tool inputs; use the setup card (or Configure card for an existing tool).`;

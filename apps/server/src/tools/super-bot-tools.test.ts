@@ -10,6 +10,11 @@ import type {
   UpdateProfileRequest,
 } from "@nakama/core";
 import { runWriteFile } from "@nakama/core";
+import {
+  approveToolSetup,
+  loadToolApiKey,
+  loadToolSetup,
+} from "../services/custom-tool-shared";
 import type { ProfileService } from "../services/profile-service";
 import {
   PROFILE_UPDATE_CONFIRMATION_MESSAGE,
@@ -37,6 +42,123 @@ describe("super bot create_tool", () => {
       tempConfigDir = "";
     }
   });
+
+  test.each([false, true])(
+    "approved setup connects and assigns once, with API key: %s",
+    async (requiresApiKey) => {
+      tempConfigDir = await mkdtemp(
+        path.join(os.tmpdir(), "nakama-tool-setup-")
+      );
+      process.env.NAKAMA_CONFIG_DIR = tempConfigDir;
+      const created: CreateToolRequest[] = [];
+      const assigned: string[] = [];
+      let failAssignment = true;
+      let stored: ToolDetail;
+      const tools = createSuperBotTools(
+        {
+          async assignTool(orgId: string, profileId: string) {
+            expect(orgId).toBe(ORG_ID);
+            if (failAssignment) {
+              failAssignment = false;
+              throw new Error("Temporary assignment failure");
+            }
+            assigned.push(profileId);
+          },
+          async createTool(request: CreateToolRequest) {
+            created.push(request);
+            stored = {
+              ...request,
+              createdAt: "now",
+              handlerConfig: request.handlerConfig ?? {},
+              handlerType: "javascript",
+              id: "tool_setup_test",
+              updatedAt: "now",
+            };
+            return stored;
+          },
+          async getProfile() {
+            return { profile: { id: "target" } };
+          },
+          async getTool() {
+            return { tool: stored };
+          },
+        } as unknown as ProfileService,
+        new SuperBotSessionState()
+      );
+      const propose = tools.find((tool) => tool.name === "propose_tool")!;
+      const create = tools.find((tool) => tool.name === "create_tool")!;
+      const context = { orgId: ORG_ID, sessionId: SESSION_ID };
+      const proposal = (await propose.run(
+        {
+          description: "Echo",
+          name: "echo",
+          plan: "Return the supplied input.",
+          requiresApiKey,
+        },
+        context
+      )) as { setupId: string };
+      const input = {
+        description: "ignored",
+        handlerConfig: {
+          modulePath: "echo.js",
+          requiresApiKey: !requiresApiKey,
+        },
+        name: "ignored",
+        setupId: proposal.setupId,
+      };
+      await expect(create.run(input, context)).rejects.toThrow();
+      expect(created).toHaveLength(0);
+      if (requiresApiKey) {
+        await expect(
+          approveToolSetup(ORG_ID, proposal.setupId, { profileId: "target" })
+        ).rejects.toThrow();
+        expect((await loadToolSetup(ORG_ID, proposal.setupId)).status).toBe(
+          "pending"
+        );
+      }
+      const approval = await approveToolSetup(ORG_ID, proposal.setupId, {
+        apiKey: "private-key",
+        profileId: "target",
+      });
+      expect(JSON.stringify(approval)).not.toContain("private-key");
+      await expect(
+        create.run(input, { ...context, sessionId: "other" })
+      ).rejects.toThrow();
+      await expect(
+        create.run(input, { ...context, orgId: "other" })
+      ).rejects.toThrow();
+      await mkdir(path.join(tempConfigDir, "tools"), { recursive: true });
+      await writeFile(
+        path.join(tempConfigDir, "tools", "echo.js"),
+        "export async function run(input) { return input; }"
+      );
+      await expect(create.run(input, context)).rejects.toThrow(
+        "Temporary assignment failure"
+      );
+      expect((await loadToolSetup(ORG_ID, proposal.setupId)).toolId).toBe(
+        "tool_setup_test"
+      );
+      const result = await create.run(input, context);
+      expect(JSON.stringify(result)).not.toContain("private-key");
+      expect(created).toHaveLength(1);
+      expect(created[0]?.name).toBe("echo");
+      expect(created[0]?.handlerConfig).toEqual({
+        modulePath: "echo.js",
+        requiresApiKey,
+      });
+      expect(assigned).toEqual(["target"]);
+      expect(await loadToolApiKey(ORG_ID, "tool_setup_test")).toBe(
+        requiresApiKey ? "private-key" : undefined
+      );
+      expect(await loadToolApiKey(ORG_ID, proposal.setupId)).toBeUndefined();
+      expect((await loadToolSetup(ORG_ID, proposal.setupId)).status).toBe(
+        "ready"
+      );
+      await create.run(input, context);
+      expect(created).toHaveLength(1);
+      expect(assigned).toHaveLength(1);
+    }
+  );
 
   test.each([false, true])(
     "defaults to javascript and returns credential setup when required: %s",

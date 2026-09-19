@@ -16,6 +16,7 @@ import { useAuth } from "@/context/use-auth";
 import {
   useMcpServersQuery,
   useProfileQuery,
+  useProfilesQuery,
   useSkillsQuery,
   useToolsQuery,
 } from "@/hooks/use-app-queries";
@@ -31,12 +32,40 @@ import {
 } from "@/hooks/use-resource-mutations";
 import { client, formatError } from "@/lib/client";
 
-export function ToolCredentialCard({ result }: { result: unknown }) {
+export function ToolCredentialCard({
+  result,
+  sessionId,
+  disabled,
+  onContinue,
+}: {
+  result: unknown;
+  sessionId?: string;
+  disabled?: boolean;
+  onContinue?: (setupId: string) => Promise<void>;
+}) {
   const { user, activeOrg } = useAuth();
   if (!result || typeof result !== "object") {
     return null;
   }
   const value = result as Record<string, unknown>;
+  if (
+    value.type === "tool_setup_required" &&
+    typeof value.setupId === "string" &&
+    typeof value.orgId === "string" &&
+    value.orgId === activeOrg?.id
+  ) {
+    return (
+      <ToolSetupCard
+        canManage={user?.isPlatformAdmin === true || activeOrg.role === "admin"}
+        disabled={disabled}
+        key={`${value.orgId}:${value.setupId}`}
+        onContinue={onContinue}
+        orgId={value.orgId}
+        sessionId={sessionId}
+        setupId={value.setupId}
+      />
+    );
+  }
   if (
     value.type !== "tool_credentials_required" ||
     typeof value.toolId !== "string" ||
@@ -54,6 +83,163 @@ export function ToolCredentialCard({ result }: { result: unknown }) {
       toolId={value.toolId}
       toolName={value.toolName}
     />
+  );
+}
+
+function ToolSetupCard({
+  setupId,
+  orgId,
+  sessionId,
+  canManage,
+  disabled,
+  onContinue,
+}: {
+  setupId: string;
+  orgId: string;
+  sessionId?: string;
+  canManage: boolean;
+  disabled?: boolean;
+  onContinue?: (setupId: string) => Promise<void>;
+}) {
+  const queryClient = useQueryClient();
+  const queryKey = ["tool-setup", orgId, setupId];
+  const setup = useQuery({
+    enabled: canManage,
+    queryFn: () => client.forOrg(orgId).getToolSetup(setupId),
+    queryKey,
+    refetchInterval: (query) =>
+      query.state.data?.status === "approved" ? 2000 : false,
+  });
+  const profiles = useProfilesQuery();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fieldId = useId();
+  const locked = saving || disabled;
+  const plan = setup.data;
+  if (!canManage) {
+    return (
+      <p className="text-muted-foreground text-sm">
+        Ask an admin to create and connect this tool.
+      </p>
+    );
+  }
+  if (!plan) {
+    return (
+      <p className="text-muted-foreground text-sm" role="status">
+        {setup.isError ? "Could not load tool setup." : "Loading tool setup…"}
+      </p>
+    );
+  }
+  if (plan.sessionId !== sessionId) {
+    return (
+      <p className="text-muted-foreground text-sm">
+        Open the original chat to complete this tool setup.
+      </p>
+    );
+  }
+  if (plan.status === "ready") {
+    return (
+      <div className="w-full max-w-sm rounded-xl border bg-card p-4">
+        <p className="font-medium text-sm">{plan.name}</p>
+        <p className="text-sm" role="status">
+          Ready
+        </p>
+      </div>
+    );
+  }
+  if (!profiles.data) {
+    return (
+      <p className="text-muted-foreground text-sm" role="status">
+        {profiles.isError ? "Could not load agents." : "Loading agents…"}
+      </p>
+    );
+  }
+  const approved = plan.status === "approved";
+  const buttonLabel = approved ? "Continue build" : "Create & connect";
+  return (
+    <form
+      className="flex w-full max-w-md flex-col gap-4 rounded-xl border bg-card p-4"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (locked || !onContinue) {
+          return;
+        }
+        const form = event.currentTarget;
+        const values = new FormData(form);
+        setSaving(true);
+        setError(null);
+        try {
+          if (!approved) {
+            const saved = await client.forOrg(orgId).approveToolSetup(setupId, {
+              profileId: String(values.get("profileId") ?? "") || undefined,
+              ...(plan.requiresApiKey
+                ? { apiKey: String(values.get("apiKey") ?? "") }
+                : {}),
+            });
+            queryClient.setQueryData(queryKey, saved);
+          }
+          form.reset();
+          await onContinue(setupId);
+          await queryClient.invalidateQueries({ queryKey });
+          await queryClient.invalidateQueries({ queryKey: ["profiles"] });
+        } catch (error) {
+          setError(formatError(error));
+        } finally {
+          form.reset();
+          setSaving(false);
+        }
+      }}
+    >
+      <p className="font-medium">{plan.name}</p>
+      <p className="whitespace-pre-wrap text-sm">{plan.plan}</p>
+      {approved ? null : (
+        <>
+          <div className="space-y-2">
+            <label className="text-sm" htmlFor={`${fieldId}-profile`}>
+              Agent
+            </label>
+            <select
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+              defaultValue={plan.profileId ?? ""}
+              disabled={locked}
+              id={`${fieldId}-profile`}
+              name="profileId"
+            >
+              <option value="">Assign later</option>
+              {profiles.data.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {plan.requiresApiKey ? (
+            <div className="space-y-2">
+              <label className="text-sm" htmlFor={`${fieldId}-key`}>
+                API key
+              </label>
+              <Input
+                autoComplete="off"
+                disabled={locked}
+                id={`${fieldId}-key`}
+                maxLength={8192}
+                name="apiKey"
+                required
+                type="password"
+              />
+            </div>
+          ) : null}
+        </>
+      )}
+      {error ? (
+        <p className="text-destructive text-sm" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <Button disabled={locked || !onContinue} type="submit">
+        {saving ? "Building…" : buttonLabel}
+      </Button>
+    </form>
   );
 }
 

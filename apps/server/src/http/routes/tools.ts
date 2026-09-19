@@ -14,7 +14,9 @@ import {
   type ToolSourceResponse,
 } from "@nakama/core";
 import {
+  approveToolSetup,
   loadToolApiKey,
+  loadToolSetup,
   saveToolApiKey,
 } from "../../services/custom-tool-shared";
 import type { ServerOptions } from "../context";
@@ -28,6 +30,72 @@ import type { HonoApp } from "../types";
 
 export function registerToolRoutes(app: HonoApp, options: ServerOptions): void {
   const { agent } = options;
+  const setupInputSchema = z
+    .object({
+      profileId: z.string().trim().min(1).max(256).optional(),
+      apiKey: z
+        .string()
+        .trim()
+        .min(1)
+        .max(8192)
+        .regex(/^[^\r\n\0]+$/)
+        .optional(),
+    })
+    .strict();
+  const setupParams = z.object({ setupId: z.string().uuid() });
+  for (const method of ["get", "post"] as const) {
+    app.openAPIRegistry.registerPath(
+      createRoute({
+        method,
+        path: "/v1/tool-setups/{setupId}",
+        request: {
+          params: setupParams,
+          ...(method === "post"
+            ? {
+                body: {
+                  required: true,
+                  content: { "application/json": { schema: setupInputSchema } },
+                },
+              }
+            : {}),
+        },
+        responses: {
+          200: {
+            description:
+              "Tool setup plan and status; never includes credentials",
+            content: {
+              "application/json": { schema: z.object({}).passthrough() },
+            },
+          },
+        },
+        tags: ["Tools"],
+      })
+    );
+  }
+  app.get("/v1/tool-setups/:setupId", async (c) => {
+    requireOrgAdminOrPlatformAdminFromContext(c);
+    return json(
+      await loadToolSetup(
+        requireActiveOrgIdFromContext(c),
+        c.req.param("setupId")
+      )
+    );
+  });
+  app.post("/v1/tool-setups/:setupId", async (c) => {
+    requireOrgAdminOrPlatformAdminFromContext(c);
+    const orgId = requireActiveOrgIdFromContext(c);
+    const body = setupInputSchema.safeParse(await readJson<unknown>(c.req.raw));
+    if (!body.success) {
+      throw new NakamaApiError("Check the agent and API key.", 400);
+    }
+    // Validate the target within this organization before saving any credential.
+    if (body.data.profileId) {
+      await agent.getProfile(orgId, body.data.profileId);
+    }
+    return json(
+      await approveToolSetup(orgId, c.req.param("setupId"), body.data)
+    );
+  });
   const errorSchema = z
     .object({ error: z.string() })
     .openapi("ApiErrorResponse");

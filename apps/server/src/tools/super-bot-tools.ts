@@ -8,11 +8,17 @@ import {
   type ToolDefinition,
   type UpdateProfileRequest,
 } from "@nakama/core";
+import { z } from "zod";
 import {
   CUSTOM_TOOL_HANDLERS,
   customToolTypesLabel,
   isCustomToolType,
 } from "../services/custom-tool-handlers";
+import {
+  completeToolSetup,
+  loadToolSetup,
+  saveToolSetup,
+} from "../services/custom-tool-shared";
 import type { ProfileService } from "../services/profile-service";
 import {
   PROFILE_UPDATE_CONFIRMATION_MESSAGE,
@@ -63,6 +69,58 @@ export function createSuperBotTools(
   sessionState: SuperBotSessionState
 ): ToolDefinition[] {
   return [
+    {
+      description:
+        "Present a custom tool build plan for one-click approval, optional API key, and agent assignment. Call before writing code, then end the turn. Never accept API keys in tool inputs or chat. After approval, build and register with create_tool using the returned setupId. Works for any JavaScript or Python tool.",
+      name: "propose_tool",
+      parameters: {
+        additionalProperties: false,
+        properties: {
+          description: { description: "What the tool does.", type: "string" },
+          name: { description: "Unique tool name.", type: "string" },
+          plan: {
+            description:
+              "User-facing plan: inputs, outputs, external effects, and provider if applicable.",
+            type: "string",
+          },
+          profileId: {
+            description:
+              "Optional suggested existing agent. The user can change it in the card.",
+            type: "string",
+          },
+          requiresApiKey: { type: "boolean" },
+        },
+        required: ["name", "description", "plan", "requiresApiKey"],
+        type: "object",
+      },
+      async run(input, context) {
+        const orgId = requireOrgId(context);
+        if (!context.sessionId) {
+          throw new Error("A chat session is required to propose a tool.");
+        }
+        const parsed = z
+          .object({
+            description: z.string().trim().min(1).max(2000),
+            name: z.string().trim().min(1).max(128),
+            plan: z.string().trim().min(1).max(8000),
+            profileId: z.string().trim().min(1).optional(),
+            requiresApiKey: z.boolean(),
+          })
+          .strict()
+          .parse(input);
+        if (parsed.profileId) {
+          await profileService.getProfile(orgId, parsed.profileId);
+        }
+        const plan = {
+          ...parsed,
+          id: crypto.randomUUID(),
+          sessionId: context.sessionId,
+          status: "pending" as const,
+        };
+        await saveToolSetup(orgId, plan);
+        return { orgId, setupId: plan.id, type: "tool_setup_required" };
+      },
+    },
     {
       description:
         "List all bot profiles with their id, name, and tool counts. Use when managing profiles or when the user asks you to assign a tool and you need profile ids.",
@@ -274,7 +332,7 @@ export function createSuperBotTools(
     },
     {
       description:
-        "Register an existing JavaScript or Python module. Present the build plan and wait for user approval before writing or registering. Registration does not execute or test the tool.",
+        "Register an existing JavaScript or Python module. For a setup card, pass setupId after approval; registration connects its saved key and assigns the selected agent automatically. Registration does not execute or test the tool.",
       name: "create_tool",
       parameters: {
         additionalProperties: false,
@@ -290,13 +348,38 @@ export function createSuperBotTools(
             type: "string",
           },
           name: { description: "Unique tool name.", type: "string" },
+          setupId: {
+            description:
+              "Approved setup id from propose_tool. Never put an API key here.",
+            type: "string",
+          },
         },
         required: ["name", "description"],
         type: "object",
       },
       async run(input, context: ToolContext) {
-        const name = readString(input, "name");
-        const description = readString(input, "description");
+        const setupId = readString(input, "setupId");
+        const setup = setupId
+          ? await loadToolSetup(requireOrgId(context), setupId)
+          : null;
+        if (
+          setup &&
+          (setup.sessionId !== context.sessionId || setup.status === "pending")
+        ) {
+          throw new Error(
+            "Approve this tool's setup card in the original chat before building it."
+          );
+        }
+        if (setup?.status === "ready") {
+          return {
+            profileId: setup.profileId,
+            toolId: setup.toolId,
+            type: "tool_setup_ready",
+          };
+        }
+        const name = setup?.name ?? readString(input, "name");
+        const description =
+          setup?.description ?? readString(input, "description");
 
         if (!(name && description)) {
           throw new Error("name and description are required.");
@@ -312,7 +395,16 @@ export function createSuperBotTools(
         }
 
         const handler = CUSTOM_TOOL_HANDLERS[handlerType];
-        const handlerConfig = readObject(input, "handlerConfig");
+        const rawHandlerConfig = readObject(input, "handlerConfig");
+        const handlerConfig =
+          rawHandlerConfig &&
+          typeof rawHandlerConfig === "object" &&
+          !Array.isArray(rawHandlerConfig)
+            ? ({ ...rawHandlerConfig } as Record<string, unknown>)
+            : {};
+        if (setup) {
+          handlerConfig.requiresApiKey = setup.requiresApiKey;
+        }
         const modulePath = readModulePath(handlerConfig);
 
         if (!modulePath?.endsWith(handler.extension)) {
@@ -323,14 +415,39 @@ export function createSuperBotTools(
 
         await handler.validateModule(modulePath);
 
-        const tool = await profileService.createTool({
-          description,
-          handlerConfig,
-          handlerType,
-          name,
-        });
+        const tool = setup?.toolId
+          ? (await profileService.getTool(setup.toolId)).tool
+          : await profileService.createTool({
+              description,
+              handlerConfig,
+              handlerType,
+              name,
+            });
 
         sessionState.markToolCreated(context.sessionId, tool.id);
+
+        if (setup) {
+          const orgId = requireOrgId(context);
+          await saveToolSetup(orgId, { ...setup, toolId: tool.id });
+          if (setup.profileId) {
+            await profileService.assignTool(
+              orgId,
+              setup.profileId,
+              { toolId: tool.id },
+              {
+                actorUserId: context.userId ?? null,
+                source: "super_bot",
+              }
+            );
+          }
+          await completeToolSetup(orgId, setup, tool.id);
+          return {
+            profileId: setup.profileId,
+            tool,
+            toolId: tool.id,
+            type: "tool_setup_ready",
+          };
+        }
 
         if (
           (tool.handlerConfig as Record<string, unknown>)?.requiresApiKey ===

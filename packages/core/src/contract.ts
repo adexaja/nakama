@@ -2135,6 +2135,18 @@ export interface CreateToolRequest {
   name: string;
 }
 
+export interface ToolSetupPlan {
+  description: string;
+  id: string;
+  name: string;
+  plan: string;
+  profileId?: string;
+  requiresApiKey: boolean;
+  sessionId: string;
+  status: "pending" | "approved" | "ready";
+  toolId?: string;
+}
+
 export interface ListToolsResponse {
   tools: ToolDetail[];
 }
