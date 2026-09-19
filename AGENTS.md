@@ -44,6 +44,8 @@ Use `gh` for issues, PRs, checks, reviews, releases, and any GitHub URL. Always 
 
 Screenshots: `gh pr edit <number> --attach <image-path>` uploads and embeds it in the PR description.
 
+**Releases:** Bump root `package.json` to the next patch after the latest GitHub release, check, commit, push, tag `vX.Y.Z`, and publish with generated notes.
+
 ## Browser automation
 
 ```bash
@@ -173,4 +175,3 @@ Always build context with `buildToolExecutionContext()` (`packages/core/src/tool
 Server: Hono in `apps/server/src/http/app.ts`. Middleware: auth → org → routes (`routes/*`). OpenAPI: `openapi.ts` (`/openapi.json`). Viewers are blocked by `requireNotViewer` (worker control, agent invoke).
 
 Don't use compound engineering skills!
-
