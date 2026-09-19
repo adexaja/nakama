@@ -127,7 +127,10 @@ try {
       promptRemoteLogin(
         serverUrl,
         async (url, email, password, signal) => {
-          const target = await createRemoteConnection(url);
+          const target =
+            normalizeServerUrl(url) === serverUrl
+              ? connection
+              : await createRemoteConnection(url);
           signal?.throwIfAborted();
           await target.logout();
           signal?.throwIfAborted();
