@@ -22,12 +22,6 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates sudo \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --chown=root:root scripts/install-meet-deps.sh /usr/local/sbin/nakama-install-meet-deps
-RUN chmod 0755 /usr/local/sbin/nakama-install-meet-deps \
-  && printf '%s\n' 'nakama ALL=(root) NOPASSWD: /usr/local/sbin/nakama-install-meet-deps ""' > /etc/sudoers.d/nakama-meet \
-  && chmod 0440 /etc/sudoers.d/nakama-meet \
-  && visudo -cf /etc/sudoers.d/nakama-meet
-
 # Optional Google Meet audio-capture runtime. Chromium remains sandboxed and
 # runs as the existing non-root Nakama user.
 ARG INSTALL_MEET_DEPS=false
@@ -54,7 +48,7 @@ RUN if [ -n "$OMNI_VERSION" ]; then \
         amd64) target=x86_64-unknown-linux-musl ;; \
         arm64) target=aarch64-unknown-linux-musl ;; \
         *) echo "no omni build for $(dpkg --print-architecture)" >&2; exit 1 ;; \
-      esac; \ 
+      esac; \
       base="https://github.com/fajarhide/omni/releases/download/v${OMNI_VERSION}"; \
       archive="omni-v${OMNI_VERSION}-${target}.tar.gz"; \
       curl -fsSL -o "/tmp/${archive}" "${base}/${archive}"; \
