@@ -7,6 +7,7 @@ import {
 import { plainLine, styledLine, styledLineText } from "./styled-text";
 import { TerminalLayout } from "./terminal-layout";
 import { buildComposerLines, TerminalRenderer } from "./terminal-renderer";
+import { visibleLength } from "./text-measure";
 import { VirtualMessageList } from "./virtual-message-list";
 
 describe("formatPendingSummary", () => {
@@ -73,6 +74,21 @@ describe("formatPendingDisplayLines", () => {
 
     expect(lines[0]).toContain("⏳ pending:");
     expect(lines[0]).toContain("follow up");
+  });
+
+  test("keeps pending lines within the terminal width", () => {
+    const width = 56;
+    const lines = formatPendingDisplayLines(
+      [
+        {
+          line: "Profile: Default Bot (VdfJp6PY7m5hVM2dWX5xp) Provider: openai_compatible",
+          sendInput: { message: "pending" },
+        },
+      ],
+      width
+    );
+
+    expect(lines.every((line) => visibleLength(line) <= width)).toBe(true);
   });
 });
 
