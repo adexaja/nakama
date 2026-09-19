@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -13,6 +20,8 @@ import {
   deleteKnowledgeBaseDocument,
   deleteOrganizationKnowledgeBaseDocument,
   detachSharedKnowledgeBaseDocument,
+  findProfilesReferencingSharedDocument,
+  getProfileSharedDocumentIds,
   type KnowledgeBaseDocumentInUseError,
   KnowledgeBaseDuplicateError,
   listKnowledgeBaseDocuments,
@@ -378,5 +387,99 @@ describe("knowledge base store", () => {
         render: "text",
       })
     ).rejects.toThrow(/not found/);
+  });
+
+  test("reads shared document references without migrating the profile layout", async () => {
+    const profileId = "profile_kb_reference_check";
+    await setupProfile(profileId);
+
+    const legacyDir = path.join(
+      tempConfigDir,
+      "orgs",
+      ORG_ID,
+      "profiles",
+      profileId,
+      "data",
+      "knowledge-base"
+    );
+    await mkdir(path.join(legacyDir, "extracted"), { recursive: true });
+    await writeFile(
+      path.join(legacyDir, "manifest.json"),
+      JSON.stringify(
+        { documents: [], sharedDocumentIds: ["kb_legacy_shared"] },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    expect(
+      await findProfilesReferencingSharedDocument(ORG_ID, "kb_legacy_shared")
+    ).toEqual([profileId]);
+
+    // A reference check must stay read-only: no rename, no flatten, no `rm -rf`.
+    await expect(readdir(legacyDir)).resolves.toContain("extracted");
+    await expect(
+      readdir(getKnowledgeBaseDir(ORG_ID, profileId))
+    ).rejects.toThrow();
+  });
+
+  test("ignores leftover profile directories whose profile is gone", async () => {
+    const profileId = "profile_kb_orphan";
+    await setupProfile(profileId);
+    const uploaded = await uploadOrganizationKnowledgeBaseDocument(ORG_ID, {
+      data: Buffer.from("orphan needle", "utf8").toString("base64"),
+      filename: "orphan.txt",
+      mediaType: "text/plain",
+    });
+    await attachSharedKnowledgeBaseDocument(
+      ORG_ID,
+      profileId,
+      uploaded.document.id
+    );
+
+    // `deleteProfileWithHistoryArchives` can fail to remove the directory after
+    // the row is already gone, which used to block the delete forever.
+    expect(
+      await findProfilesReferencingSharedDocument(
+        ORG_ID,
+        uploaded.document.id,
+        []
+      )
+    ).toEqual([]);
+    expect(
+      await deleteOrganizationKnowledgeBaseDocument(
+        ORG_ID,
+        uploaded.document.id,
+        []
+      )
+    ).toBe(true);
+  });
+
+  test("ignores a manifest whose sharedDocumentIds is not an array", async () => {
+    const profileId = "profile_kb_malformed";
+    await setupProfile(profileId);
+    const uploaded = await uploadOrganizationKnowledgeBaseDocument(ORG_ID, {
+      data: Buffer.from("malformed needle", "utf8").toString("base64"),
+      filename: "malformed.txt",
+      mediaType: "text/plain",
+    });
+    await attachSharedKnowledgeBaseDocument(
+      ORG_ID,
+      profileId,
+      uploaded.document.id
+    );
+
+    const manifestPath = getKnowledgeBaseManifestPath(
+      getKnowledgeBaseDir(ORG_ID, profileId)
+    );
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    manifest.sharedDocumentIds = uploaded.document.id;
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+
+    expect(await getProfileSharedDocumentIds(ORG_ID, profileId)).toEqual([]);
   });
 });

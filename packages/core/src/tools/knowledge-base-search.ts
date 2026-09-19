@@ -78,18 +78,18 @@ export async function runKnowledgeBaseSearch(
   }
 
   const parsed = parseToolInput(knowledgeBaseSearchInputSchema, input);
-  const backend = await context.searchKnowledge?.({
-    ...parsed,
-    regex: (input as { regex?: unknown }).regex === true,
-  });
-  const workspaceRoot = await resolveWorkspaceRoot(
-    options.workspaceRoot ?? getProfileSoulDir(orgId, profileId)
-  );
-  const organizationTarget = await resolveOrganizationSearchTarget(
-    orgId,
-    profileId,
-    parsed.filename ?? null
-  );
+  // The backend call, the profile root and the organization target are
+  // independent reads, so they share one round of I/O.
+  const [backend, workspaceRoot, organizationTarget] = await Promise.all([
+    context.searchKnowledge?.({
+      ...parsed,
+      regex: (input as { regex?: unknown }).regex === true,
+    }),
+    resolveWorkspaceRoot(
+      options.workspaceRoot ?? getProfileSoulDir(orgId, profileId)
+    ),
+    resolveOrganizationSearchTarget(orgId, profileId, parsed.filename ?? null),
+  ]);
   // Organization hits are relative to the organization root, not to the
   // profile workspace they used to be resolved against.
   const organizationRoot = await resolveWorkspaceRoot(organizationTarget.root);
@@ -105,79 +105,71 @@ export async function runKnowledgeBaseSearch(
     const organizationResult = await runSearchTarget(
       organizationTarget,
       parsed,
-      organizationRoot,
-      organizationBudget(organizationTarget, parsed, profileMatches.length)
+      organizationRoot
     );
-    const matches = mergeScopedMatches(
+    const merged = mergeScopedMatches(
       profileMatches,
       organizationResult.matches,
       parsed.maxResults
     );
     return {
-      matchCount: matches.length,
-      matches,
+      matchCount: merged.matches.length,
+      matches: merged.matches,
       query: parsed.query,
       root: getKnowledgeBaseDir(orgId, profileId),
       truncated:
-        backend.truncated ||
-        organizationResult.truncated ||
-        matches.length >= parsed.maxResults,
+        backend.truncated || organizationResult.truncated || merged.dropped,
     };
   }
 
   await ensureKnowledgeBaseDirs(orgId, profileId);
-  const profileResult = await runSearchTarget(
-    await resolveProfileSearchTarget(orgId, profileId, parsed.filename ?? null),
-    parsed,
-    workspaceRoot
-  );
-  const organizationResult = await runSearchTarget(
-    organizationTarget,
-    parsed,
-    organizationRoot,
-    organizationBudget(organizationTarget, parsed, profileResult.matches.length)
-  );
-  const matches = mergeScopedMatches(
+  const [profileResult, organizationResult] = await Promise.all([
+    runSearchTarget(
+      await resolveProfileSearchTarget(
+        orgId,
+        profileId,
+        parsed.filename ?? null
+      ),
+      parsed,
+      workspaceRoot
+    ),
+    runSearchTarget(organizationTarget, parsed, organizationRoot),
+  ]);
+  const merged = mergeScopedMatches(
     profileResult.matches,
     organizationResult.matches,
     parsed.maxResults
   );
   return {
-    matchCount: matches.length,
-    matches,
+    matchCount: merged.matches.length,
+    matches: merged.matches,
     query: parsed.query,
     root: getKnowledgeBaseDir(orgId, profileId),
     truncated:
-      profileResult.truncated ||
-      organizationResult.truncated ||
-      matches.length >= parsed.maxResults,
+      profileResult.truncated || organizationResult.truncated || merged.dropped,
   };
 }
 
 /**
- * Organization matches are appended after the profile ones, so a profile search
- * that fills `maxResults` on its own would push every shared document out of
- * the answer. Attached documents were attached on purpose, so they always keep
- * a slot while the profile scope takes the rest.
+ * Organization matches take their slots first: shared documents were attached on
+ * purpose, so a profile search that fills `maxResults` on its own must not push
+ * them out. Whatever the organization scope leaves goes to the profile scope.
  */
-function organizationBudget(
-  target: SearchTarget,
-  parsed: KnowledgeBaseSearchInput,
-  profileMatchCount: number
-): number {
-  if (target.kind === "missing") {
-    return 0;
-  }
-  return Math.max(1, parsed.maxResults - profileMatchCount);
-}
-
 function mergeScopedMatches(
   profileMatches: ScopedMatch[],
   organizationMatches: ScopedMatch[],
   maxResults: number
-): ScopedMatch[] {
-  const profileBudget = Math.max(0, maxResults - organizationMatches.length);
-  return [...profileMatches.slice(0, profileBudget), ...organizationMatches];
+): { dropped: boolean; matches: ScopedMatch[] } {
+  const organizationKept = organizationMatches.slice(0, maxResults);
+  const profileBudget = Math.max(0, maxResults - organizationKept.length);
+  const profileKept = profileMatches.slice(0, profileBudget);
+
+  return {
+    dropped:
+      profileKept.length < profileMatches.length ||
+      organizationKept.length < organizationMatches.length,
+    matches: [...profileKept, ...organizationKept],
+  };
 }
 
 type SearchTarget =
@@ -268,16 +260,19 @@ async function runSearchTarget(
   if (target.kind === "missing" || maxResults <= 0) {
     return { matches: [], truncated: false };
   }
+  // Ask for one match more than the budget so "exactly `maxResults` matches" is
+  // only reported as truncated when a further match really exists.
+  const probeLimit = maxResults + 1;
   const result = await runRipgrep(
     buildRipgrepArgs({
       glob: target.glob,
-      maxResults,
+      maxResults: probeLimit,
       query: parsed.query,
       regex: parsed.regex,
       searchRoot: target.root,
     }),
     {
-      maxResults,
+      maxResults: probeLimit,
       searchRoot: target.root,
       // Reported paths are relative to this target's own root: the profile
       // workspace for profile documents, the organization knowledge base for
@@ -286,10 +281,10 @@ async function runSearchTarget(
     }
   );
   return {
-    matches: result.matches.map((match) => ({
+    matches: result.matches.slice(0, maxResults).map((match) => ({
       ...match,
       scope: target.scope,
     })),
-    truncated: result.truncated,
+    truncated: result.truncated || result.matches.length > maxResults,
   };
 }
