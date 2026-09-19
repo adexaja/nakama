@@ -49,6 +49,117 @@ describe("bash tool", () => {
     }
   });
 
+  for (const mode of ["abort", "timeout"] as const) {
+    test(`${mode} stops shell descendants and finishes the tool`, async () => {
+      workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "nakama-bash-"));
+      const controller = new AbortController();
+      const pending = runBash(
+        {
+          command: "sleep 30 & echo $! > child.pid; wait",
+          timeoutMs: mode === "timeout" ? 500 : 30_000,
+        },
+        {
+          orgId: "org_test",
+          profileId: "profile_test",
+          signal: controller.signal,
+        },
+        { backend: "host", workspaceRoot }
+      ).catch((error: unknown) => error);
+      const pid = await waitForPositivePid(
+        path.join(workspaceRoot, "child.pid")
+      );
+      try {
+        expect(pid).toBeGreaterThan(0);
+        if (mode === "abort") {
+          controller.abort();
+        }
+        const result = await Promise.race([
+          pending,
+          Bun.sleep(2000).then(() => "hung"),
+        ]);
+        expect(result).not.toBe("hung");
+        if (mode === "abort") {
+          expect(result).toMatchObject({ name: "AbortError" });
+        } else {
+          expect(result).toMatchObject({ timedOut: true });
+        }
+        // Reaping descendants can lag the shell's close event slightly.
+        for (let i = 0; i < 50 && isProcessAlive(pid); i++) {
+          await Bun.sleep(10);
+        }
+        expect(isProcessAlive(pid)).toBe(false);
+      } finally {
+        if (pid > 0 && isProcessAlive(pid)) {
+          process.kill(pid, "SIGKILL");
+        }
+        controller.abort();
+        await pending;
+      }
+    });
+  }
+
+  test("returns after shell exit when a quiet descendant holds the pipes", async () => {
+    workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "nakama-bash-"));
+    const pending = runBash(
+      { command: "sleep 30 & echo $! > child.pid; echo done; exit 0" },
+      { orgId: "org_test", profileId: "profile_test" },
+      { backend: "host", workspaceRoot }
+    );
+    const pid = await waitForPositivePid(path.join(workspaceRoot, "child.pid"));
+    try {
+      expect(pid).toBeGreaterThan(0);
+      const result = await Promise.race([
+        pending,
+        Bun.sleep(2000).then(() => "hung"),
+      ]);
+      expect(result).toMatchObject({
+        exitCode: 0,
+        stdout: "done\n",
+        timedOut: false,
+      });
+    } finally {
+      if (pid > 0 && isProcessAlive(pid)) {
+        process.kill(pid, "SIGKILL");
+      }
+      await pending;
+    }
+  });
+
+  test("drains active descendant output after the shell exits", async () => {
+    workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "nakama-bash-"));
+    const result = await runBash(
+      {
+        command:
+          '(for i in 1 2 3 4 5 6 7 8; do echo "$i"; sleep 0.04; done) & exit 0',
+      },
+      { orgId: "org_test", profileId: "profile_test" },
+      { backend: "host", workspaceRoot }
+    );
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: "1\n2\n3\n4\n5\n6\n7\n8\n",
+      timedOut: false,
+    });
+  });
+
+  test("does not spawn a command after cancellation", async () => {
+    workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "nakama-bash-"));
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      runBash(
+        { command: "echo started > marker" },
+        {
+          orgId: "org_test",
+          profileId: "profile_test",
+          signal: controller.signal,
+        },
+        { backend: "host", workspaceRoot }
+      )
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(await readdir(workspaceRoot)).toEqual([]);
+  });
+
   test("kills the shell when the turn is cancelled", async () => {
     workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "nakama-bash-"));
 
