@@ -41,12 +41,10 @@ describe("chatMessagesToListItems", () => {
       async ({ bytes }) => ({ attachmentId: "att_image", size: bytes.length })
     );
     items = chatMessagesToListItems(
-      JSON.parse(
-        JSON.stringify([
-          { content, role: "user" },
-          { content: "A small image.", role: "assistant" },
-        ])
-      )
+      structuredClone([
+        { content, role: "user" },
+        { content: "A small image.", role: "assistant" },
+      ])
     );
     expect(items[0]).toMatchObject({
       content: "Describe this",

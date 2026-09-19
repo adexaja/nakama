@@ -7,16 +7,15 @@ import { math } from "@streamdown/math";
 import { type ComponentProps, type HTMLAttributes, memo } from "react";
 import {
   type Components,
-  defaultUrlTransform,
   type LinkSafetyModalProps,
   Streamdown,
-  type UrlTransform,
 } from "streamdown";
 import { ExternalLinkSafetyModal } from "@/components/ai-elements/external-link-safety-modal";
 import { createLazyMermaidPlugin } from "@/components/ai-elements/lazy-mermaid-plugin";
 import { MarkdownA } from "@/components/ai-elements/markdown-a";
 import { useTheme } from "@/context/use-theme";
 import type { UIMessage } from "@/lib/ai-ui-types";
+import { transformChatUrl } from "@/lib/transform-chat-url";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -70,28 +69,6 @@ const linkSafety = {
   enabled: true,
   renderModal: renderExternalLinkSafetyModal,
 } as const;
-
-export const transformChatUrl: UrlTransform = (url, key, node) => {
-  const safeUrl = defaultUrlTransform(url, key, node);
-  if (!safeUrl || key !== "src" || node.tagName !== "img") {
-    return safeUrl;
-  }
-  try {
-    const resolved = new URL(safeUrl, window.location.origin);
-    if (!["https:", "http:", "data:", "blob:"].includes(resolved.protocol)) {
-      return "";
-    }
-    if (
-      resolved.origin !== window.location.origin &&
-      (resolved.protocol === "https:" || resolved.protocol === "http:")
-    ) {
-      return `/v1/chat/images/proxy?url=${encodeURIComponent(resolved.href)}`;
-    }
-  } catch {
-    return "";
-  }
-  return safeUrl;
-};
 
 function mergeMarkdownComponents(userComponents?: Components): Components {
   return {

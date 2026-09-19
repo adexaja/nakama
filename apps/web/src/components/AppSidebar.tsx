@@ -306,6 +306,9 @@ function RecentChats() {
             <form
               onSubmit={async (event) => {
                 event.preventDefault();
+                if (updateSession.isPending) {
+                  return;
+                }
                 const title = renameTarget.title.trim();
                 if (!title) {
                   return;

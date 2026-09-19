@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ThemeContext } from "@/context/theme-context-shared";
-import { MessageResponse, transformChatUrl } from "./message";
+import { transformChatUrl } from "@/lib/transform-chat-url";
+import { MessageResponse } from "./message";
 
 test("Markdown images use the proxy, but links and local attachments do not", () => {
   const remote = "https://images.example.com/photo.png?x=1&y=two";
