@@ -130,7 +130,7 @@ export function TelegramQrSetup({
       </div>
       {waiting ? (
         <>
-          <div className="flex flex-col items-center gap-2 rounded-xl border border-primary bg-primary p-4">
+          <div className="flex flex-col items-center gap-2 p-4">
             <span className="rounded-full bg-zinc-800 px-3 py-1 font-semibold text-[10px] text-white uppercase tracking-wider">
               Scan me
             </span>
