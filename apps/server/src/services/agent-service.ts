@@ -194,6 +194,7 @@ import {
   saveWebSearchConfig,
   saveWhatsAppConfig,
   toMailboxConfig,
+  transcribeAudio,
   USER_CONTEXT_TEMPLATE,
   WRITABLE_SOUL_FILES,
   writeArtifactFile,
@@ -264,7 +265,6 @@ import {
 import {
   resolveTranscriptionProviderSelection,
   TRANSCRIPTION_MODEL_REQUIRED_MESSAGE,
-  transcribeAudioWithOpenAI,
 } from "./audio-transcription";
 import type { AutomationRunner } from "./automation-runner";
 import {
@@ -845,7 +845,8 @@ export class AgentService {
   }
 
   async transcribeAudio(
-    input: TranscribeAudioRequest
+    input: TranscribeAudioRequest,
+    signal?: AbortSignal
   ): Promise<TranscribeAudioResponse> {
     await this.ensureTranscriptionSettingsLoaded();
 
@@ -874,16 +875,16 @@ export class AgentService {
       throw new NakamaApiError(TRANSCRIPTION_MODEL_REQUIRED_MESSAGE, 400);
     }
 
-    const text = await transcribeAudioWithOpenAI(
-      selection.instance.apiKey,
-      selection.instance.baseUrl,
-      selection.model,
-      {
+    const text = await transcribeAudio({
+      audio: {
         bytes,
         filename: input.filename?.trim() || "audio.ogg",
         mediaType,
-      }
-    );
+      },
+      model: selection.model,
+      provider: selection.instance,
+      signal,
+    });
 
     return { text };
   }

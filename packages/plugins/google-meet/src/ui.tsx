@@ -1,7 +1,12 @@
 /** @jsxRuntime classic */
 /** @jsx React.createElement */
 /** @jsxFrag React.Fragment */
-import { ArrowRight01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowRight01Icon,
+  Copy01Icon,
+  Delete02Icon,
+  Download01Icon,
+} from "@hugeicons/core-free-icons";
 import type * as UI from "@nakama/ui";
 import type * as ReactType from "react";
 import type { Meeting } from "./store";
@@ -49,6 +54,8 @@ export function apply(ctx: Context) {
     Input,
     Dialog,
     DialogContent,
+    DialogDescription,
+    DialogFooter,
     DialogHeader,
     DialogTitle,
     ConfirmDialog,
@@ -73,9 +80,7 @@ export function apply(ctx: Context) {
     .meet-list li+li{border-top:1px solid var(--border)}
     .meet-meeting{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
     .meet-meta{display:grid;gap:4px;min-width:0;flex:1 1 220px}
-    .meet-link{overflow-wrap:anywhere}
     .meet-meeting .meet-row>button{min-height:40px}
-    .meet-link:hover{text-decoration:underline}
     .meet-status{font-size:12px;color:var(--muted-foreground);overflow-wrap:anywhere}
     .meet-badge{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:12px;color:var(--muted-foreground)}
     .meet-empty{padding:32px 16px;text-align:center;color:var(--muted-foreground);font-size:14px}
@@ -90,7 +95,13 @@ export function apply(ctx: Context) {
     `
   );
 
-  function Settings({ close }: { close(): void }) {
+  function Settings({
+    close,
+    configured,
+  }: {
+    close(): void;
+    configured: boolean;
+  }) {
     const [apiKey, setApiKey] = React.useState("");
     const [error, setError] = React.useState("");
     const [busy, setBusy] = React.useState(false);
@@ -100,7 +111,7 @@ export function apply(ctx: Context) {
       setError("");
       try {
         await ctx.host.call("configure", {
-          apiKey: apiKey || undefined,
+          apiKey: apiKey.trim() || undefined,
         });
         setApiKey("");
         close();
@@ -121,31 +132,63 @@ export function apply(ctx: Context) {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Google Meet settings</DialogTitle>
+            <DialogTitle>Live transcription</DialogTitle>
+            <DialogDescription>
+              Add an OpenAI key to turn your meetings into text.
+            </DialogDescription>
           </DialogHeader>
           <form className="meet-form" onSubmit={save}>
-            <label>
-              OpenAI API key
-              <Input
-                autoComplete="off"
-                onChange={(event) => setApiKey(event.target.value)}
-                placeholder="Keep saved key"
-                type="password"
-                value={apiKey}
-              />
-            </label>
+            <div
+              className="meet-row"
+              style={{ justifyContent: "space-between" }}
+            >
+              <label htmlFor="meet-api-key">OpenAI API key</label>
+              <a
+                href="https://platform.openai.com/api-keys"
+                rel="noreferrer"
+                style={{
+                  fontSize: 14,
+                  textDecoration: "underline",
+                  textUnderlineOffset: 3,
+                }}
+                target="_blank"
+              >
+                Get an API key ↗
+              </a>
+            </div>
+            <Input
+              autoComplete="off"
+              disabled={busy}
+              id="meet-api-key"
+              onChange={(event) => setApiKey(event.target.value)}
+              placeholder={
+                configured
+                  ? "Paste a new key to replace it"
+                  : "Paste your key here"
+              }
+              type="password"
+              value={apiKey}
+            />
+            {configured && (
+              <p className="meet-status">A key is already saved.</p>
+            )}
             <p className="meet-status">
-              gpt-transcribe uses separate API billing. Your ChatGPT
-              subscription does not cover transcription.
-            </p>
-            <p className="meet-status">
-              Open the Nakama Chrome extension on this page and connect it. Then
-              start transcription from the extension in your Meet tab.
+              OpenAI charges for transcription separately from ChatGPT.
             </p>
             {error && <p role="alert">{error}</p>}
-            <Button disabled={busy} type="submit">
-              {busy ? "Saving…" : "Save"}
-            </Button>
+            <DialogFooter>
+              <Button
+                disabled={busy}
+                onClick={close}
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button disabled={busy || !apiKey.trim()} type="submit">
+                {busy ? "Saving…" : "Save key"}
+              </Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
@@ -181,7 +224,11 @@ export function apply(ctx: Context) {
             setText(
               (previous) =>
                 previous +
-                value.segments.map((segment) => segment.text + "\n").join("")
+                value.segments
+                  .map(
+                    (segment) => segment.text + (meeting.sourceName ? "" : "\n")
+                  )
+                  .join("")
             );
             setError("");
             setLoaded(true);
@@ -207,7 +254,9 @@ export function apply(ctx: Context) {
       );
       const link = document.createElement("a");
       link.href = url;
-      link.download = `meeting-${new Date(meeting.createdAt).toISOString().slice(0, 10)}-${meeting.url.split("/").pop()}.txt`;
+      link.download = meeting.sourceName
+        ? `${meeting.sourceName.replace(/\.[^.]+$/, "")}.txt`
+        : `meeting-${new Date(meeting.createdAt).toISOString().slice(0, 10)}-${meeting.url.split("/").pop()}.txt`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
@@ -215,13 +264,13 @@ export function apply(ctx: Context) {
       <section className="meet-detail">
         <div>
           <Button onClick={close} size="sm" variant="ghost">
-            ← Back to meetings
+            ← Back
           </Button>
         </div>
         <div className="meet-detail-heading">
           <div className="meet-meta">
             <h2 ref={heading} tabIndex={-1}>
-              {meeting.title || "Meeting transcript"}
+              {meeting.title || meeting.sourceName || "Meeting transcript"}
             </h2>
             <span className="meet-status">
               {new Date(meeting.createdAt).toLocaleString(undefined, {
@@ -232,51 +281,71 @@ export function apply(ctx: Context) {
                 year: "numeric",
               })}
             </span>
-            <a
-              className="meet-link meet-status"
-              href={meeting.url}
-              rel="noreferrer"
-              target="_blank"
-            >
-              Google Meet · {meeting.url.split("/").pop()}
-            </a>
+            {meeting.state !== "finished" && (
+              <span className="meet-status" role="status">
+                {meetingStatus(meeting)}
+              </span>
+            )}
           </div>
-          <span className="meet-badge" role="status">
-            {meetingStatus(meeting)}
+          <div className="meet-row">
+            <Button
+              aria-label="Copy transcript"
+              disabled={!text}
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(text);
+                  setCopyStatus("Transcript copied");
+                } catch {
+                  setCopyStatus(
+                    "Could not copy. Select the text to copy it, or download it."
+                  );
+                }
+              }}
+              size="icon"
+              title="Copy transcript"
+              variant="ghost"
+            >
+              <svg
+                aria-hidden="true"
+                fill="none"
+                height="16"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                width="16"
+              >
+                {Copy01Icon.map(([tag, attrs]) =>
+                  React.createElement(tag, attrs)
+                )}
+              </svg>
+            </Button>
+            <Button
+              aria-label="Download transcript"
+              disabled={!text}
+              onClick={download}
+              size="icon"
+              title="Download transcript"
+              variant="ghost"
+            >
+              <svg
+                aria-hidden="true"
+                fill="none"
+                height="16"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                width="16"
+              >
+                {Download01Icon.map(([tag, attrs]) =>
+                  React.createElement(tag, attrs)
+                )}
+              </svg>
+            </Button>
+          </div>
+        </div>
+        {copyStatus && (
+          <span className="meet-status" role="status">
+            {copyStatus}
           </span>
-        </div>
-        <div className="meet-row">
-          <Button
-            disabled={!text}
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(text);
-                setCopyStatus("Transcript copied");
-              } catch {
-                setCopyStatus(
-                  "Could not copy. Select the text to copy it, or download it."
-                );
-              }
-            }}
-            size="sm"
-            variant="outline"
-          >
-            Copy transcript
-          </Button>
-          <Button
-            disabled={!text}
-            onClick={download}
-            size="sm"
-            variant="outline"
-          >
-            Download .txt
-          </Button>
-          {copyStatus && (
-            <span className="meet-status" role="status">
-              {copyStatus}
-            </span>
-          )}
-        </div>
+        )}
         {error && <p role="alert">{error}</p>}
         {text ? (
           <Card className="meet-card meet-document">
@@ -305,6 +374,37 @@ export function apply(ctx: Context) {
     const [settings, setSettings] = React.useState<boolean | null>(null);
     const [deleting, setDeleting] = React.useState<Meeting | null>(null);
     const [selected, setSelected] = React.useState<Meeting | null>(null);
+    const [uploading, setUploading] = React.useState(false);
+    const uploadInput = React.useRef<HTMLInputElement>(null);
+    async function upload(file: File) {
+      setUploading(true);
+      setError("");
+      try {
+        const markdown = /\.(md|markdown)$/i.test(file.name);
+        if (
+          !(markdown || /\.(mp3|mp4|mpeg|mpga|m4a|wav|webm)$/i.test(file.name))
+        ) {
+          throw new Error("Choose a Markdown or supported audio file");
+        }
+        if (!file.size || file.size > (markdown ? 1 : 7) * 1024 * 1024) {
+          throw new Error(
+            `Choose a nonempty file under ${markdown ? 1 : 7} MB`
+          );
+        }
+        const content = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(",")[1]!);
+          reader.onerror = () => reject(new Error("Could not read file"));
+          reader.readAsDataURL(file);
+        });
+        await ctx.host.call("upload", { content, filename: file.name });
+        setOverview((await ctx.host.call("meetings")) as Overview);
+      } catch (reason) {
+        setError(message(reason));
+      } finally {
+        setUploading(false);
+      }
+    }
     React.useEffect(() => {
       async function receive(event: MessageEvent) {
         if (
@@ -465,7 +565,38 @@ export function apply(ctx: Context) {
                 <Card className="meet-card">
                   <div className="meet-card-heading">
                     <h2>{group.title}</h2>
-                    <span className="meet-status">{group.meetings.length}</span>
+                    <div className="meet-row">
+                      <span className="meet-status">
+                        {group.meetings.length}
+                      </span>
+                      {group.title === "Meeting history" && (
+                        <>
+                          <input
+                            accept=".md,.markdown,.mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm"
+                            aria-label="Upload audio or Markdown"
+                            hidden
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              event.target.value = "";
+                              if (file) {
+                                void upload(file);
+                              }
+                            }}
+                            ref={uploadInput}
+                            type="file"
+                          />
+                          <Button
+                            disabled={uploading}
+                            onClick={() => uploadInput.current?.click()}
+                            size="sm"
+                            title="Audio up to 7 MB or Markdown up to 1 MB"
+                            variant="outline"
+                          >
+                            {uploading ? "Importing…" : "Upload file"}
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   {group.meetings.length ? (
                     <ul className="meet-list">
@@ -473,7 +604,11 @@ export function apply(ctx: Context) {
                         <li key={meeting.id}>
                           <div className="meet-meeting">
                             <div className="meet-meta">
-                              <h3>{meeting.title || "Untitled meeting"}</h3>
+                              <h3>
+                                {meeting.title ||
+                                  meeting.sourceName ||
+                                  "Untitled meeting"}
+                              </h3>
                               <span className="meet-status">
                                 {new Date(meeting.createdAt).toLocaleDateString(
                                   undefined,
@@ -618,7 +753,10 @@ export function apply(ctx: Context) {
           />
         )}
         {(settings ?? (overview?.canConfigure && !overview.configured)) && (
-          <Settings close={() => setSettings(false)} />
+          <Settings
+            close={() => setSettings(false)}
+            configured={overview?.configured === true}
+          />
         )}
       </section>
     );

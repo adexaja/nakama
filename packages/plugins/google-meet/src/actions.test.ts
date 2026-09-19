@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -103,6 +103,92 @@ test("settings are admin-only, credentials never returned, meetings are scoped t
     expect(
       existsSync(join(dir, "transcripts", `meeting-${meeting.id}.txt`))
     ).toBe(false);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+test("uploads preserve Markdown and use Nakama's host for audio without plugin credentials", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "meet-upload-"));
+  const host = mock(async () => ({ text: "Audio transcript" }));
+  const context = {
+    actionKey: "upload",
+    actor: { id: "a", role: "member" as const },
+    apiVersion: 1 as const,
+    dataDir: dir,
+    host,
+    invocationId: "test",
+    orgId: "org",
+    pluginId: "google-meet",
+    pluginVersion: "0.1.0",
+    profileId: "p",
+  };
+  try {
+    const content = "# Planning\n\n**Keep** this Markdown.\n";
+    const meeting = (await run(
+      {
+        content: Buffer.from(content).toString("base64"),
+        filename: "notes.md",
+      },
+      context
+    )) as { id: string; state: string };
+    expect(meeting.state).toBe("finished");
+    expect(host).not.toHaveBeenCalled();
+    const audio = Buffer.from("audio").toString("base64");
+    const imported = (await run(
+      { content: audio, filename: "meeting.wav" },
+      context
+    )) as { id: string };
+    expect(host).toHaveBeenCalledWith({
+      data: audio,
+      filename: "meeting.wav",
+      op: "transcribe_audio",
+    });
+    const store = new MeetingStore(dir, "org");
+    try {
+      expect(
+        store
+          .transcript(meeting.id)
+          .map((segment) => segment.text)
+          .join("")
+      ).toBe(content);
+      expect(store.transcript(imported.id)[0]?.text).toBe("Audio transcript");
+      expect(store.list("a", "p")).toHaveLength(2);
+      expect(store.list("b", "p")).toEqual([]);
+      expect(store.list("a", "other")).toEqual([]);
+    } finally {
+      store.close();
+    }
+    for (const filename of ["../notes.md", "notes.html", "bad\0.md"]) {
+      await expect(
+        run({ content: audio, filename }, context)
+      ).rejects.toThrow();
+    }
+    await expect(
+      run({ content: "%%%", filename: "notes.md" }, context)
+    ).rejects.toThrow();
+    await expect(
+      run(
+        {
+          content: Buffer.alloc(1024 * 1024 + 1, "x").toString("base64"),
+          filename: "notes.md",
+        },
+        context
+      )
+    ).rejects.toThrow();
+    await expect(
+      run(
+        { content: audio, filename: "notes.md" },
+        { ...context, actor: { id: "a", role: "viewer" } }
+      )
+    ).rejects.toThrow();
+    host.mockRejectedValueOnce(new Error("Provider unavailable"));
+    await expect(
+      run({ content: audio, filename: "meeting.wav" }, context)
+    ).rejects.toThrow();
+    const afterFailure = new MeetingStore(dir, "org");
+    expect(afterFailure.list()).toHaveLength(2);
+    afterFailure.close();
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }

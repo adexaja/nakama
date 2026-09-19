@@ -9,6 +9,23 @@
   "description": "Capture Google Meet audio from Chrome and transcribe it with OpenAI.",
   "actions": [
     {
+      "key": "upload",
+      "access": "member",
+      "effect": "write",
+      "entry": "actions/actions.js",
+      "exposeAsTool": true,
+      "description": "Import a Markdown transcript (up to 1 MiB) or audio recording (up to 7 MiB) into meeting history. Audio uses Nakama's configured transcription provider. Pass file bytes as base64.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "filename": { "type": "string", "maxLength": 255 },
+          "content": { "type": "string", "maxLength": 9786712 }
+        },
+        "required": ["filename", "content"]
+      }
+    },
+    {
       "key": "start-capture",
       "access": "member",
       "effect": "write",

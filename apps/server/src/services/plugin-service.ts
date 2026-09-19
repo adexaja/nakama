@@ -1625,7 +1625,10 @@ export class PluginService {
           input.context.pluginId === "workflows" &&
           input.context.actionKey === "run_workflow"
             ? 300_000
-            : undefined,
+            : input.context.pluginId === "google-meet" &&
+                input.context.actionKey === "upload"
+              ? 150_000
+              : undefined,
       },
       workspaceRoot: input.context.workspaceRoot,
     });

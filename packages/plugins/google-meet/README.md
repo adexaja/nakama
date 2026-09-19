@@ -12,6 +12,12 @@ The plugin creates a short-lived capture session. The Nakama Chrome extension ca
 
 Tell participants before transcribing. Leave the meeting from Nakama or stop capture from the extension. Restarts fail interrupted meetings instead of silently rejoining; partial transcripts remain available.
 
+## Upload recordings or transcripts
+
+Choose **Upload file** in **Meeting history**. Import Markdown (`.md`, `.markdown`, up to 1 MiB), or audio (`.mp3`, `.mp4`, `.mpeg`, `.mpga`, `.m4a`, `.wav`, `.webm`, up to 7 MiB). Audio uploads use the provider and model configured in Nakama's **Settings → Transcription**; the plugin does not receive provider credentials. Keep the page open until the import finishes.
+
+Imported files appear in history with their filename until the running Google Meet worker generates a title. Title generation and live Chrome capture still use the OpenAI key in the plugin's settings.
+
 ## Remote workers
 
 The worker listens on loopback by default. For a remote Chrome browser, expose the WebSocket through an authenticated HTTPS proxy and set:

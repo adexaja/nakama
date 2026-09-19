@@ -18,7 +18,9 @@ export function readSettings(directory: string) {
 
 export async function run(
   input: Record<string, unknown>,
-  context: PluginExecutionContext
+  context: PluginExecutionContext & {
+    host?(request: Record<string, unknown>): Promise<unknown>;
+  }
 ) {
   if (context.actor.role === "viewer") {
     throw new Error("Member access required");
@@ -108,6 +110,70 @@ export async function run(
             }
           : undefined,
       };
+    }
+    if (action === "upload") {
+      const filename = input.filename;
+      const encoded = input.content;
+      if (
+        typeof filename !== "string" ||
+        filename.length > 255 ||
+        /[\\/\x00-\x1f]/.test(filename)
+      ) {
+        throw new Error("Invalid filename");
+      }
+      const markdown = /\.(md|markdown)$/i.test(filename);
+      if (
+        !(markdown || /\.(mp3|mp4|mpeg|mpga|m4a|wav|webm)$/i.test(filename))
+      ) {
+        throw new Error("Choose a Markdown or supported audio file");
+      }
+      const limit = (markdown ? 1 : 7) * 1024 * 1024;
+      if (
+        typeof encoded !== "string" ||
+        !encoded.length ||
+        encoded.length > Math.ceil(limit / 3) * 4
+      ) {
+        throw new Error(`File must be under ${markdown ? 1 : 7} MB`);
+      }
+      const bytes = Buffer.from(encoded, "base64");
+      if (
+        !bytes.length ||
+        bytes.length > limit ||
+        bytes.toString("base64") !== encoded
+      ) {
+        throw new Error("Invalid file content or size");
+      }
+      if (markdown) {
+        const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        if (!text.trim() || text.includes("\0")) {
+          throw new Error("Markdown file must contain text");
+        }
+        return store.importFile(
+          filename,
+          text,
+          context.actor.id,
+          context.profileId
+        );
+      }
+      if (!context.host) {
+        throw new Error(
+          "Nakama transcription is unavailable; update the server"
+        );
+      }
+      const result = (await context.host({
+        data: encoded,
+        filename,
+        op: "transcribe_audio",
+      })) as { text?: unknown };
+      if (typeof result.text !== "string" || !result.text.trim()) {
+        throw new Error("No speech found in the audio file");
+      }
+      return store.importFile(
+        filename,
+        result.text,
+        context.actor.id,
+        context.profileId
+      );
     }
     const meeting = store.get(String(input.meetingId ?? ""));
     if (!(meeting && canAccess(meeting))) {

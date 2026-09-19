@@ -25,6 +25,7 @@ export interface Meeting {
   id: string;
   preview?: string | null;
   profileId: string | null;
+  sourceName?: string | null;
   state: MeetingState;
   stopRequested: number;
   title?: string | null;
@@ -72,6 +73,9 @@ export class MeetingStore {
             .all();
           if (!columns.some((column) => column.name === "title")) {
             this.db.exec("ALTER TABLE meetings ADD COLUMN title TEXT");
+          }
+          if (!columns.some((column) => column.name === "sourceName")) {
+            this.db.exec("ALTER TABLE meetings ADD COLUMN sourceName TEXT");
           }
         })
         .immediate();
@@ -127,6 +131,57 @@ export class MeetingStore {
     return this.db
       .query<Meeting, [string]>("SELECT * FROM meetings WHERE id=?")
       .get(id);
+  }
+  importFile(
+    filename: string,
+    content: string,
+    actorId: string,
+    profileId?: string
+  ) {
+    const id = randomUUID();
+    try {
+      this.db
+        .transaction(() => {
+          this.db
+            .query(
+              "INSERT INTO meetings (id,actorId,profileId,url,state,createdAt,updatedAt,durationMinutes,sourceName) VALUES (?,?,?,'',?,?,?,0,?)"
+            )
+            .run(
+              id,
+              actorId,
+              profileId ?? null,
+              "finished",
+              Date.now(),
+              Date.now(),
+              filename
+            );
+          const insert = this.db.query(
+            "INSERT INTO segments (meetingId,id,text,receivedAt) VALUES (?,?,?,?)"
+          );
+          for (let offset = 0; offset < content.length; ) {
+            let end = Math.min(offset + 32_000, content.length);
+            if (
+              end < content.length &&
+              /[\uD800-\uDBFF]/.test(content[end - 1]!)
+            ) {
+              end--;
+            }
+            insert.run(
+              id,
+              `upload-${offset}`,
+              content.slice(offset, end),
+              Date.now()
+            );
+            offset = end;
+          }
+          this.saveTranscript(id);
+        })
+        .immediate();
+    } catch (error) {
+      rmSync(this.transcriptPath(id), { force: true });
+      throw error;
+    }
+    return this.get(id)!;
   }
   list(actorId: string | null = null, profileId: string | null = null) {
     return this.db
@@ -229,11 +284,12 @@ export class MeetingStore {
           recursive: true,
         });
         const path = this.transcriptPath(id);
+        const imported = Boolean(this.get(id)?.sourceName);
         const temporary = `${path}.${randomUUID()}.tmp`;
         try {
           writeFileSync(
             temporary,
-            rows.map((row) => `${row.text}\n`).join(""),
+            rows.map((row) => (imported ? row.text : `${row.text}\n`)).join(""),
             { mode: 0o600 }
           );
           renameSync(temporary, path);
@@ -244,11 +300,18 @@ export class MeetingStore {
       .immediate();
   }
   transcript(id: string, after = 0) {
-    return this.db
+    const rows = this.db
       .query<TranscriptSegment & { sequence: number }, [string, number]>(
         "SELECT sequence,id,text,receivedAt FROM segments WHERE meetingId=? AND sequence>? ORDER BY sequence LIMIT 2000"
       )
       .all(id, after);
+    let size = 0;
+    // Keep paginated responses below the plugin runner's output limit.
+    const end = rows.findIndex((row) => {
+      size += JSON.stringify(row).length;
+      return size > 500_000;
+    });
+    return end > 0 ? rows.slice(0, end) : rows;
   }
   close() {
     this.db.close();

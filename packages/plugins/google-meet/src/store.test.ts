@@ -20,6 +20,29 @@ beforeEach(() => {
   store = new MeetingStore(dir, "org");
 });
 
+test("large imports preserve Unicode and paginate below the runner output limit", () => {
+  const text = "x".repeat(31_999) + "😀" + '"'.repeat(700_000);
+  const active = store.create(meetingUrl, "me", undefined, 1);
+  const imported = store.importFile("notes.md", text, "me");
+  expect(store.get(active.id)?.state).toBe("queued");
+  expect(store.get(imported.id)?.sourceName).toBe("notes.md");
+  let cursor = 0;
+  let actual = "";
+  while (true) {
+    const page = store.transcript(imported.id, cursor);
+    if (!page.length) {
+      break;
+    }
+    expect(JSON.stringify(page).length).toBeLessThan(510_000);
+    actual += page.map((segment) => segment.text).join("");
+    cursor = page.at(-1)!.sequence;
+  }
+  expect(actual).toBe(text);
+  expect(
+    readFileSync(join(dir, "transcripts", `meeting-${imported.id}.txt`), "utf8")
+  ).toBe(text);
+});
+
 afterEach(() => {
   store.close();
   rmSync(dir, { force: true, recursive: true });

@@ -52,6 +52,9 @@ class MeetingStore {
         if (!columns.some((column) => column.name === "title")) {
           this.db.exec("ALTER TABLE meetings ADD COLUMN title TEXT");
         }
+        if (!columns.some((column) => column.name === "sourceName")) {
+          this.db.exec("ALTER TABLE meetings ADD COLUMN sourceName TEXT");
+        }
       }).immediate();
       this.restoreTranscripts(false);
     } catch (error) {
@@ -76,6 +79,28 @@ class MeetingStore {
   }
   get(id) {
     return this.db.query("SELECT * FROM meetings WHERE id=?").get(id);
+  }
+  importFile(filename, content, actorId, profileId) {
+    const id = randomUUID();
+    try {
+      this.db.transaction(() => {
+        this.db.query("INSERT INTO meetings (id,actorId,profileId,url,state,createdAt,updatedAt,durationMinutes,sourceName) VALUES (?,?,?,'',?,?,?,0,?)").run(id, actorId, profileId ?? null, "finished", Date.now(), Date.now(), filename);
+        const insert = this.db.query("INSERT INTO segments (meetingId,id,text,receivedAt) VALUES (?,?,?,?)");
+        for (let offset = 0;offset < content.length; ) {
+          let end = Math.min(offset + 32000, content.length);
+          if (end < content.length && /[\uD800-\uDBFF]/.test(content[end - 1])) {
+            end--;
+          }
+          insert.run(id, `upload-${offset}`, content.slice(offset, end), Date.now());
+          offset = end;
+        }
+        this.saveTranscript(id);
+      }).immediate();
+    } catch (error) {
+      rmSync(this.transcriptPath(id), { force: true });
+      throw error;
+    }
+    return this.get(id);
   }
   list(actorId = null, profileId = null) {
     return this.db.query("SELECT meetings.*, (SELECT substr(text, 1, 180) FROM segments WHERE meetingId=meetings.id AND trim(text) != '' ORDER BY sequence LIMIT 1) AS preview FROM meetings WHERE (? IS NULL OR actorId=?) AND (? IS NULL OR profileId=?) ORDER BY createdAt DESC LIMIT 100").all(actorId, actorId, profileId, profileId).map((meeting) => ({
@@ -139,9 +164,10 @@ class MeetingStore {
         recursive: true
       });
       const path = this.transcriptPath(id);
+      const imported = Boolean(this.get(id)?.sourceName);
       const temporary = `${path}.${randomUUID()}.tmp`;
       try {
-        writeFileSync(temporary, rows.map((row) => `${row.text}
+        writeFileSync(temporary, rows.map((row) => imported ? row.text : `${row.text}
 `).join(""), { mode: 384 });
         renameSync(temporary, path);
       } finally {
@@ -150,7 +176,13 @@ class MeetingStore {
     }).immediate();
   }
   transcript(id, after = 0) {
-    return this.db.query("SELECT sequence,id,text,receivedAt FROM segments WHERE meetingId=? AND sequence>? ORDER BY sequence LIMIT 2000").all(id, after);
+    const rows = this.db.query("SELECT sequence,id,text,receivedAt FROM segments WHERE meetingId=? AND sequence>? ORDER BY sequence LIMIT 2000").all(id, after);
+    let size = 0;
+    const end = rows.findIndex((row) => {
+      size += JSON.stringify(row).length;
+      return size > 500000;
+    });
+    return end > 0 ? rows.slice(0, end) : rows;
   }
   close() {
     this.db.close();
