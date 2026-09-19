@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { NakamaApiError } from "@nakama/core";
+import { loadToolApiKey } from "../../services/custom-tool-shared";
 import { setupTestConfigDir } from "../../test-config-dir";
 import { createMinimalHonoApp } from "../test-app-helpers";
 import {
@@ -40,6 +41,78 @@ function createApp(agentOverrides: Record<string, unknown> = {}) {
 }
 
 describe("tool playground routes", () => {
+  test("credential endpoint saves only for an admin's organization and never returns the key", async () => {
+    let visibleOrg = "";
+    const { app, authService, databaseAdapter } = createApp({
+      listTools: async (orgId: string) => ({
+        tools:
+          orgId === visibleOrg
+            ? [
+                {
+                  id: "tool_key",
+                  name: "key_tool",
+                  handlerType: "javascript",
+                  handlerConfig: { requiresApiKey: true },
+                },
+              ]
+            : [],
+      }),
+    });
+    const { orgId, adminSession } = await createOrgAdminSession(
+      app,
+      authService,
+      databaseAdapter,
+      "credential-org",
+      "credential-admin@acme.com"
+    );
+    visibleOrg = orgId;
+    const url = "http://localhost:4310/v1/tools/tool_key/credentials";
+    const headers = adminSession.headers(
+      {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": adminSession.csrfToken,
+      },
+      orgId
+    );
+    const status = await app.fetch(new Request(url, { headers }));
+    expect(await status.json()).toEqual({ configured: false });
+    const saved = await app.fetch(
+      new Request(url, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ apiKey: "private-tool-key" }),
+      })
+    );
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toEqual({ configured: true });
+    expect(await loadToolApiKey(orgId, "tool_key")).toBe("private-tool-key");
+    expect(await loadToolApiKey("another_org", "tool_key")).toBeUndefined();
+    expect(
+      await (await app.fetch(new Request(url, { headers }))).json()
+    ).toEqual({ configured: true });
+    const invalid = await app.fetch(
+      new Request(url, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ apiKey: "key\n[evil]" }),
+      })
+    );
+    expect(invalid.status).toBe(400);
+    expect(await loadToolApiKey(orgId, "tool_key")).toBe("private-tool-key");
+    visibleOrg = "other_org";
+    expect(
+      (
+        await app.fetch(
+          new Request(url, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify({ apiKey: "overwrite" }),
+          })
+        )
+      ).status
+    ).toBe(404);
+    expect((await app.fetch(new Request(url))).status).toBe(401);
+  });
   test("GET source is allowed for plugin-owned tools", async () => {
     const { app, authService, databaseAdapter } = createApp({
       getTool: async (toolId: string) => ({
@@ -146,6 +219,24 @@ describe("tool playground routes", () => {
     );
 
     expect(response.status).toBe(403);
+    for (const method of ["GET", "PUT"]) {
+      const credentialResponse = await app.fetch(
+        new Request("http://localhost:4310/v1/tools/tool_echo/credentials", {
+          method,
+          headers: memberSession.headers(
+            {
+              "Content-Type": "application/json",
+              "X-CSRF-Token": memberSession.csrfToken,
+            },
+            orgId
+          ),
+          ...(method === "PUT"
+            ? { body: JSON.stringify({ apiKey: "not-allowed" }) }
+            : {}),
+        })
+      );
+      expect(credentialResponse.status).toBe(403);
+    }
   });
 
   test("org admin can run a javascript tool", async () => {

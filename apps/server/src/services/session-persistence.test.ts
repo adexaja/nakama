@@ -89,6 +89,103 @@ async function seedSession(
 describe("session persistence", () => {
   setupTestConfigDir("nakama-history-archive-");
 
+  for (const cancelled of [false, true]) {
+    test(`handles a turn with no output (cancelled: ${cancelled})`, async () => {
+      const db = createInMemoryDatabaseAdapter();
+      await seedSession(db, "empty");
+      const controller = new AbortController();
+      const session = wrapPersistedSession(
+        "empty",
+        createAgentChatSession({
+          provider: {
+            ...summaryProvider,
+            streamChat() {
+              if (cancelled) {
+                controller.abort();
+              }
+              return Promise.reject(new Error("Interrupted"));
+            },
+          },
+        }),
+        db
+      );
+      await expect(
+        session.sendStream(
+          "Keep my request",
+          { onChunk() {} },
+          { signal: controller.signal }
+        )
+      ).rejects.toThrow();
+      expect(await loadSessionHistory(db, "empty")).toEqual(
+        cancelled ? [{ content: "Keep my request", role: "user" }] : []
+      );
+    });
+  }
+
+  for (const ignoresAbort of [false, true]) {
+    test(`saves a stopped reply and reuses it after reopening (ignores abort: ${ignoresAbort})`, async () => {
+      const db = createInMemoryDatabaseAdapter();
+      await seedSession(db, "stopped");
+      const controller = new AbortController();
+      const provider: ProviderClient = {
+        ...summaryProvider,
+        async streamChat(input, handlers) {
+          handlers.onThinking?.("Considering the request");
+          handlers.onChunk("Partial ");
+          handlers.onChunk("reply");
+          controller.abort();
+          if (!ignoresAbort) {
+            input.signal?.throwIfAborted();
+          }
+          handlers.onChunk("late output");
+          return summaryProvider.generateChat(input);
+        },
+      };
+      const session = wrapPersistedSession(
+        "stopped",
+        createAgentChatSession({ provider }),
+        db
+      );
+      await expect(
+        session.sendStream(
+          "Help me",
+          { onChunk() {} },
+          { signal: controller.signal }
+        )
+      ).rejects.toThrow();
+      const stored = await loadSessionHistory(db, "stopped");
+      expect(stored).toEqual([
+        { content: "Help me", role: "user" },
+        {
+          content: "Partial reply",
+          role: "assistant",
+          thinking: "Considering the request",
+          thinkingDurationMs: expect.any(Number),
+        },
+      ]);
+      let nextMessages: readonly ChatMessage[] = [];
+      const reopened = wrapPersistedSession(
+        "stopped",
+        createAgentChatSession(
+          {
+            provider: {
+              ...summaryProvider,
+              generateChat(input) {
+                nextMessages = [...input.messages];
+                return summaryProvider.generateChat(input);
+              },
+            },
+          },
+          { initialHistory: stored }
+        ),
+        db
+      );
+      await reopened.send("Continue");
+      expect(nextMessages.slice(0, 2)).toEqual(stored);
+      expect(await loadSessionHistory(db, "stopped")).toHaveLength(4);
+    });
+  }
+
   test("compaction replaces working history but preserves raw messages for scoped recovery", async () => {
     const db = createInMemoryDatabaseAdapter();
     await seedSession(db, "session_1");

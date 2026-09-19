@@ -1,7 +1,63 @@
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { JsonSchema, ToolContext, ToolDefinition } from "@nakama/core";
-import { getCustomToolsDir, permissiveObjectSchema } from "@nakama/core";
+import {
+  getCustomToolsDir,
+  getUserConfigPath,
+  NakamaApiError,
+  parseIniWithSections,
+  permissiveObjectSchema,
+  writeParsedConfigIni,
+} from "@nakama/core";
 import type { StoredToolRecord } from "@nakama/db";
+
+function credentialSection(orgId: string, toolId: string): string {
+  return `tool-key.${Buffer.from(JSON.stringify([orgId, toolId])).toString("base64url")}`;
+}
+
+async function readConfig() {
+  try {
+    return parseIniWithSections(await readFile(getUserConfigPath(), "utf8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { global: {}, sections: {} };
+    }
+    throw error;
+  }
+}
+
+export async function loadToolApiKey(
+  orgId: string,
+  toolId: string
+): Promise<string | undefined> {
+  return (await readConfig()).sections[credentialSection(orgId, toolId)]
+    ?.api_key;
+}
+
+let credentialWrite: Promise<void> = Promise.resolve();
+
+export function saveToolApiKey(
+  orgId: string,
+  toolId: string,
+  value: unknown
+): Promise<void> {
+  if (
+    typeof value !== "string" ||
+    !value.trim() ||
+    value.length > 8192 ||
+    /[\r\n\0]/.test(value)
+  ) {
+    throw new NakamaApiError("Enter a valid API key.", 400);
+  }
+  const apiKey = value.trim();
+  const write = credentialWrite.then(async () => {
+    const parsed = await readConfig();
+    parsed.sections[credentialSection(orgId, toolId)] = { api_key: apiKey };
+    await writeParsedConfigIni(parsed.global, parsed.sections);
+  });
+  credentialWrite = write.catch(() => undefined);
+  return write;
+}
 
 // Helpers shared by the custom tool loaders (javascript, python, and any
 // future handler type registered in custom-tool-handlers.ts).
@@ -32,7 +88,8 @@ export async function loadCustomSubprocessTool(options: {
   run: (
     modulePath: string,
     input: unknown,
-    context: ToolContext
+    context: ToolContext,
+    apiKey?: string
   ) => Promise<unknown>;
   validateModule: (modulePath: string) => Promise<void>;
 }): Promise<ToolDefinition | null> {
@@ -74,7 +131,54 @@ export async function loadCustomSubprocessTool(options: {
     parameters: config.parameters ?? permissiveObjectSchema(),
     ...(allowParallelSafe && config.parallelSafe ? { parallelSafe: true } : {}),
     async run(input, context) {
-      return run(modulePath, input, context);
+      if (record.orgId && record.orgId !== context.orgId) {
+        throw new Error("Tool not available in this organization.");
+      }
+      if (!config.requiresApiKey) {
+        return run(modulePath, input, context);
+      }
+      if (!context.orgId) {
+        throw new Error("Organization context is required.");
+      }
+      const apiKey = await loadToolApiKey(context.orgId, record.id);
+      if (!apiKey) {
+        return {
+          orgId: context.orgId,
+          toolId: record.id,
+          toolName: record.name,
+          type: "tool_credentials_required",
+        };
+      }
+      // Keep accidental key echoes and subprocess errors out of chat and logs.
+      const redact = (text: string) =>
+        text
+          .replaceAll(apiKey, "[REDACTED]")
+          .replaceAll(JSON.stringify(apiKey).slice(1, -1), "[REDACTED]");
+      const redactResult = (value: unknown): unknown => {
+        if (typeof value === "string") {
+          return redact(value);
+        }
+        if (Array.isArray(value)) {
+          return value.map(redactResult);
+        }
+        if (value && typeof value === "object") {
+          return Object.fromEntries(
+            Object.entries(value).map(([key, entry]) => [
+              redact(key),
+              redactResult(entry),
+            ])
+          );
+        }
+        return value;
+      };
+      try {
+        const result = await run(modulePath, input, context, apiKey);
+        return redactResult(result);
+      } catch (error) {
+        throw new Error(
+          redact(error instanceof Error ? error.message : String(error))
+        );
+      }
     },
   };
 }
@@ -94,6 +198,7 @@ interface CustomToolHandlerConfig {
   modulePath: string;
   parallelSafe?: boolean;
   parameters?: JsonSchema;
+  requiresApiKey?: boolean;
 }
 
 function readHandlerConfig(
@@ -118,7 +223,12 @@ function readHandlerConfig(
     : undefined;
   const parallelSafe = record.parallelSafe === true;
 
-  return { modulePath, parallelSafe, parameters };
+  return {
+    modulePath,
+    parallelSafe,
+    parameters,
+    requiresApiKey: record.requiresApiKey === true,
+  };
 }
 
 export function readHandlerModulePath(handlerConfig: unknown): string | null {

@@ -226,41 +226,18 @@ function AssistantWorkGroup({
   const visibleTools = tools.filter(
     (tool) => !isArtifactMetaSidecarTool(tool) && tool.tool !== "create_profile"
   );
-  const pluginTools = visibleTools.filter((tool) =>
-    tool.tool?.startsWith("plugin_")
-  );
-  const workflowRunTools = visibleTools.filter(
-    (tool) => !tool.tool?.startsWith("plugin_") && isRunWorkflowTool(tool.tool)
-  );
-  const otherTools = visibleTools.filter(
-    (tool) =>
-      !(tool.tool?.startsWith("plugin_") || isRunWorkflowTool(tool.tool))
-  );
 
-  if (
-    pluginTools.length === 0 &&
-    workflowRunTools.length === 0 &&
-    otherTools.length === 0 &&
-    !thinking
-  ) {
+  if (visibleTools.length === 0 && !thinking) {
     return null;
   }
 
   return (
-    <div className="flex w-full max-w-full flex-col gap-3">
-      <OtherWorkGroup
-        modelLabel={modelLabel}
-        profileId={profileId}
-        thinking={thinking}
-        tools={otherTools}
-      />
-      {pluginTools.map((tool) => (
-        <PluginToolRow key={tool.id} message={tool} />
-      ))}
-      {workflowRunTools.map((tool) => (
-        <WorkflowRunToolRow key={tool.id} message={tool} />
-      ))}
-    </div>
+    <OtherWorkGroup
+      modelLabel={modelLabel}
+      profileId={profileId}
+      thinking={thinking}
+      tools={visibleTools}
+    />
   );
 }
 
@@ -303,18 +280,12 @@ function OtherWorkGroup({
     >
       {tools.map((tool, index) => (
         <TimelineStep isLast={index === tools.length - 1} key={tool.id}>
-          {isDedicatedTool(tool) ? (
-            <DedicatedToolRow
-              message={tool}
-              modelLabel={modelLabel}
-              profileId={profileId}
-            />
-          ) : (
-            <ToolTimelineItem
-              defaultDetailsOpen={tools.length === 1}
-              message={tool}
-            />
-          )}
+          <ToolRow
+            defaultDetailsOpen={tools.length === 1}
+            message={tool}
+            modelLabel={modelLabel}
+            profileId={profileId}
+          />
         </TimelineStep>
       ))}
     </ThinkingReasoning>
@@ -416,18 +387,12 @@ function ToolOnlyWorkGroup({
             <div className={thinkingStyles.tools}>
               {tools.map((tool, index) => (
                 <TimelineStep isLast={index === tools.length - 1} key={tool.id}>
-                  {isDedicatedTool(tool) ? (
-                    <DedicatedToolRow
-                      message={tool}
-                      modelLabel={modelLabel}
-                      profileId={profileId}
-                    />
-                  ) : (
-                    <ToolTimelineItem
-                      defaultDetailsOpen={tools.length === 1}
-                      message={tool}
-                    />
-                  )}
+                  <ToolRow
+                    defaultDetailsOpen={tools.length === 1}
+                    message={tool}
+                    modelLabel={modelLabel}
+                    profileId={profileId}
+                  />
                 </TimelineStep>
               ))}
             </div>
@@ -435,6 +400,43 @@ function ToolOnlyWorkGroup({
         </div>
       </div>
     </div>
+  );
+}
+
+function ToolRow({
+  message,
+  modelLabel,
+  profileId,
+  defaultDetailsOpen = false,
+}: {
+  message: ChatListItem;
+  modelLabel?: string | null;
+  profileId?: string | null;
+  defaultDetailsOpen?: boolean;
+}) {
+  if (message.tool?.startsWith("plugin_")) {
+    return <PluginToolRow message={message} />;
+  }
+
+  if (isRunWorkflowTool(message.tool)) {
+    return <WorkflowRunToolRow message={message} />;
+  }
+
+  if (isDedicatedTool(message)) {
+    return (
+      <DedicatedToolRow
+        message={message}
+        modelLabel={modelLabel}
+        profileId={profileId}
+      />
+    );
+  }
+
+  return (
+    <ToolTimelineItem
+      defaultDetailsOpen={defaultDetailsOpen}
+      message={message}
+    />
   );
 }
 

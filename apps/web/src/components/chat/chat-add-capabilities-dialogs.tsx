@@ -5,8 +5,11 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@nakama/ui/dialog";
-import { useState } from "react";
+import { Input } from "@nakama/ui/input";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useId, useState } from "react";
 import { McpServerDialog } from "@/components/soul-tools/mcp-tab/McpServerDialog";
 import { ToolAssignDialog } from "@/components/ToolAssignDialog";
 import { useAuth } from "@/context/use-auth";
@@ -27,6 +30,143 @@ import {
   useCreateMcpServerMutation,
 } from "@/hooks/use-resource-mutations";
 import { client, formatError } from "@/lib/client";
+
+export function ToolCredentialCard({ result }: { result: unknown }) {
+  const { user, activeOrg } = useAuth();
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+  const value = result as Record<string, unknown>;
+  if (
+    value.type !== "tool_credentials_required" ||
+    typeof value.toolId !== "string" ||
+    typeof value.toolName !== "string" ||
+    typeof value.orgId !== "string" ||
+    value.orgId !== activeOrg?.id
+  ) {
+    return null;
+  }
+  return (
+    <ToolCredentialForm
+      canManage={user?.isPlatformAdmin === true || activeOrg.role === "admin"}
+      key={`${value.orgId}:${value.toolId}`}
+      orgId={value.orgId}
+      toolId={value.toolId}
+      toolName={value.toolName}
+    />
+  );
+}
+
+function ToolCredentialForm({
+  toolId,
+  toolName,
+  orgId,
+  canManage,
+}: {
+  toolId: string;
+  toolName: string;
+  orgId: string;
+  canManage: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputId = useId();
+  const queryClient = useQueryClient();
+  const queryKey = ["tool-credentials", orgId, toolId];
+  const status = useQuery({
+    enabled: canManage,
+    queryFn: () => client.forOrg(orgId).getToolCredentialStatus(toolId),
+    queryKey,
+  });
+
+  return (
+    <div className="flex w-full max-w-sm items-center justify-between gap-3 rounded-xl border bg-card p-4">
+      <div className="min-w-0">
+        <p className="truncate font-medium text-sm">{toolName}</p>
+        <p className="text-muted-foreground text-xs" role="status">
+          {canManage
+            ? status.data?.configured
+              ? "API key saved"
+              : "Connect API key"
+            : "Ask an admin to connect the API key"}
+        </p>
+      </div>
+      {canManage ? (
+        <Dialog
+          onOpenChange={(next) => {
+            if (!saving) {
+              setOpen(next);
+              setError(null);
+            }
+          }}
+          open={open}
+        >
+          <DialogTrigger render={<Button size="sm" variant="outline" />}>
+            {status.data?.configured ? "Replace key" : "Configure"}
+          </DialogTrigger>
+          {open ? (
+            <DialogContent aria-describedby={undefined} className="sm:max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Connect {toolName}</DialogTitle>
+              </DialogHeader>
+              <form
+                className="space-y-4"
+                onSubmit={async (event) => {
+                  event.preventDefault();
+                  if (saving) {
+                    return;
+                  }
+                  const form = event.currentTarget;
+                  const apiKey = String(new FormData(form).get("apiKey") ?? "");
+                  form.reset();
+                  setSaving(true);
+                  setError(null);
+                  try {
+                    const saved = await client
+                      .forOrg(orgId)
+                      .saveToolCredential(toolId, apiKey);
+                    queryClient.setQueryData(queryKey, saved);
+                    setOpen(false);
+                  } catch {
+                    setError(
+                      "Could not save the API key. Enter it again to retry."
+                    );
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+              >
+                <div className="space-y-2">
+                  <label className="font-medium text-sm" htmlFor={inputId}>
+                    API key
+                  </label>
+                  <Input
+                    autoComplete="off"
+                    disabled={saving}
+                    id={inputId}
+                    maxLength={8192}
+                    name="apiKey"
+                    required
+                    type="password"
+                  />
+                </div>
+                {error ? (
+                  <p className="text-destructive text-sm" role="alert">
+                    {error}
+                  </p>
+                ) : null}
+                <Button disabled={saving} type="submit">
+                  {saving ? "Saving…" : "Save"}
+                </Button>
+              </form>
+            </DialogContent>
+          ) : null}
+        </Dialog>
+      ) : null}
+    </div>
+  );
+}
 
 export function ChatAddCapabilitiesDialogs({
   pluginOpen,

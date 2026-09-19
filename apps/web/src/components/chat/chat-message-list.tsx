@@ -39,6 +39,7 @@ import {
   ProfileCreatedCard,
 } from "@/components/chat/assistant-tool-group";
 import { segmentAssistantTurn } from "@/components/chat/assistant-tool-group.shared";
+import { ToolCredentialCard } from "@/components/chat/chat-add-capabilities-dialogs";
 import { ChatUsageBadge } from "@/components/chat/chat-usage-badge";
 import { ImageAttachmentPreview } from "@/components/chat/image-attachment-preview";
 import { TextAttachmentPreview } from "@/components/chat/text-attachment-preview";
@@ -424,6 +425,11 @@ function AssistantTurn({
         />
       ))}
       {showAwaiting ? <TurnAwaitingElapsed startedAt={turnStartedAt} /> : null}
+      {turnMessages
+        .filter((message) => message.toolResult != null)
+        .map((message) => (
+          <ToolCredentialCard key={message.id} result={message.toolResult} />
+        ))}
       {profileId && showArtifacts ? (
         <div className="flex flex-wrap gap-2">
           {artifacts.map((artifact) => {
