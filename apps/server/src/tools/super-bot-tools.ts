@@ -66,7 +66,11 @@ function requireOrgId(context: ToolContext): string {
 
 export function createSuperBotTools(
   profileService: ProfileService,
-  sessionState: SuperBotSessionState
+  sessionState: SuperBotSessionState,
+  resolveInheritedModel?: (
+    model: string | null,
+    context: ToolContext
+  ) => Promise<string | null>
 ): ToolDefinition[] {
   return [
     {
@@ -177,8 +181,9 @@ export function createSuperBotTools(
             type: "boolean",
           },
           model: {
-            description: "Model override, or null to use the server default.",
-            type: "string",
+            description:
+              "Model override. Omit to inherit this bot's provider and model, or pass null to use the server default.",
+            type: ["string", "null"],
           },
           name: {
             description: "Display name for the profile.",
@@ -204,16 +209,25 @@ export function createSuperBotTools(
           throw new Error("name is required.");
         }
 
-        const result = await profileService.createProfile(
-          requireOrgId(context),
-          {
-            isSuper: readBoolean(input, "isSuper") ?? false,
-            model: readOptionalString(input, "model"),
-            name,
-            soulFiles: readSoulFiles(input),
-            systemPrompt: readString(input, "systemPrompt") ?? undefined,
-          }
-        );
+        const orgId = requireOrgId(context);
+        let model = readOptionalString(input, "model");
+        if (model === undefined && context.profileId) {
+          const source = await profileService.getProfile(
+            orgId,
+            context.profileId
+          );
+          model = resolveInheritedModel
+            ? await resolveInheritedModel(source.profile.model, context)
+            : source.profile.model;
+        }
+
+        const result = await profileService.createProfile(orgId, {
+          isSuper: readBoolean(input, "isSuper") ?? false,
+          model,
+          name,
+          soulFiles: readSoulFiles(input),
+          systemPrompt: readString(input, "systemPrompt") ?? undefined,
+        });
 
         return {
           ...result,

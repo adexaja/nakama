@@ -437,7 +437,27 @@ export class AgentService {
     this.todoTools = createTodoTools(this.agentTodoState);
     this.superBotTools = createSuperBotTools(
       this.profileService,
-      this.superBotSessionState
+      this.superBotSessionState,
+      async (profileModel, context) => {
+        const session =
+          context.sessionId && context.orgId
+            ? await this.getSessionRecordForOrg(
+                context.sessionId,
+                context.orgId
+              )
+            : null;
+        const selection = resolveProfileProviderSelection({
+          defaultProviderId: this.userConfig?.defaultProviderId,
+          profileModel:
+            (session?.profileId === context.profileId
+              ? session?.model
+              : null) ?? profileModel,
+          providers: this.userConfig?.providers ?? [],
+        });
+        return selection
+          ? `${selection.instance.id}::${selection.model}`
+          : profileModel;
+      }
     );
     this.orgMemoryTools = createOrgMemoryTools(this.getOrgMemoryService());
     this._providerConfigured =
