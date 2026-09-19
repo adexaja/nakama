@@ -266,13 +266,11 @@ export class PersistentPrompt {
 
     const suggestions = this.currentSuggestions();
 
-    if (this.hasNavigated && suggestions.length > 0) {
-      const suggestion = suggestions[this.selectedIndex] ?? suggestions[0];
+    const suggestion = suggestions[this.selectedIndex] ?? suggestions[0];
 
-      if (suggestion) {
-        this.applySuggestion(suggestion, true);
-        return;
-      }
+    if (suggestion && (this.hasNavigated || suggestion.submitOnEnter)) {
+      this.applySuggestion(suggestion, true);
+      return;
     }
 
     this.submitValue();

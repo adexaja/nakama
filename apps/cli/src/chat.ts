@@ -543,23 +543,6 @@ async function runStickyChat(
       return "handled";
     }
 
-    if (line === "/models") {
-      if (isStreaming) {
-        writeOutput("Wait for the current response to finish.");
-        return "handled";
-      }
-
-      await refreshModelsCache();
-
-      if (!modelsCache?.models.length) {
-        writeOutput("No models available.");
-        return "handled";
-      }
-
-      prompt?.prefill("/model ");
-      return "handled";
-    }
-
     if (line === "/thinking" || line.startsWith("/thinking ")) {
       return handleThinkingCommand(line);
     }
@@ -679,18 +662,20 @@ async function runStickyChat(
   async function handleModelCommand(line: string): Promise<"handled"> {
     const modelArg = line.slice("/model".length).trim();
 
-    if (!modelArg) {
-      await printCurrentModel(
-        options.client,
-        writeOutput,
-        currentProfile,
-        modelsCache
-      );
+    if (isStreaming) {
+      writeOutput("Wait for the current response to finish.");
       return "handled";
     }
 
-    if (isStreaming) {
-      writeOutput("Wait for the current response to finish.");
+    if (!modelArg) {
+      await refreshModelsCache();
+
+      if (!modelsCache?.models.length) {
+        writeOutput("No models available.");
+        return "handled";
+      }
+
+      prompt?.prefill("/model ");
       return "handled";
     }
 
@@ -705,7 +690,7 @@ async function runStickyChat(
 
       if (target === "ambiguous") {
         writeOutput(
-          `Ambiguous model: ${modelArg}. Use /model <provider-id>::<model-id> (see /models).`
+          `Ambiguous model: ${modelArg}. Choose a provider-specific model from /model.`
         );
         return "handled";
       }

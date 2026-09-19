@@ -203,7 +203,7 @@ test.each([
       emit("\u001b");
       await finalStarted.promise;
       expect(aborted).toBe(true);
-      emit("/models");
+      emit("/model");
       emit("\r");
       await Bun.sleep(0);
       expect(getModels).not.toHaveBeenCalled();
@@ -228,7 +228,7 @@ test.each([
       emit("\r");
       await Bun.sleep(0);
       expect(sent).toEqual([...admitted, "after-drain"]);
-      emit("/models");
+      emit("/model");
       emit("\r");
       await Bun.sleep(0);
       expect(getModels).toHaveBeenCalledTimes(1);
