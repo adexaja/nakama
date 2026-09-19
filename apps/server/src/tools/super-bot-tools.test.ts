@@ -9,12 +9,12 @@ import type {
   ToolDetail,
   UpdateProfileRequest,
 } from "@nakama/core";
+import { runWriteFile } from "@nakama/core";
 import type { ProfileService } from "../services/profile-service";
 import {
   PROFILE_UPDATE_CONFIRMATION_MESSAGE,
   SuperBotSessionState,
   TOOL_ASSIGNMENT_CONFIRMATION_MESSAGE,
-  TOOL_CREATION_CONFIRMATION_MESSAGE,
 } from "../services/super-bot-session-state";
 import { createSuperBotTools } from "./super-bot-tools";
 
@@ -38,104 +38,6 @@ describe("super bot create_tool", () => {
     }
   });
 
-  test.each([undefined, "unknown_session", SESSION_ID])(
-    "blocks registration without an approved session: %s",
-    async (sessionId) => {
-      const sessionState = new SuperBotSessionState();
-      sessionState.beginTurn(SESSION_ID);
-      let createToolCalled = false;
-      const createTool = getCreateToolTool(
-        {
-          async createTool(): Promise<ToolDetail> {
-            createToolCalled = true;
-            throw new Error("should not be called");
-          },
-        },
-        sessionState
-      );
-
-      const error = await captureError(
-        createTool.run(
-          {
-            description: "Generate media",
-            handlerConfig: { modulePath: "media.js" },
-            name: "media_generation",
-          },
-          { orgId: ORG_ID, sessionId }
-        )
-      );
-
-      expect(error).toBeInstanceOf(Error);
-      expect(createToolCalled).toBe(false);
-    }
-  );
-
-  test("records approval only in an eligible session and resets it between turns", async () => {
-    const sessionState = new SuperBotSessionState();
-    const approveBuild = createSuperBotTools(
-      {} as ProfileService,
-      sessionState
-    ).find((tool) => tool.name === "approve_tool_build");
-    if (!approveBuild) {
-      throw new Error("approve_tool_build was not registered");
-    }
-    const context = { orgId: ORG_ID, sessionId: SESSION_ID };
-
-    for (const sessionId of [undefined, SESSION_ID]) {
-      expect(
-        await captureError(approveBuild.run({}, { orgId: ORG_ID, sessionId }))
-      ).toBeInstanceOf(Error);
-      expect(sessionState.canCreateTool(sessionId)).toBe(false);
-    }
-
-    sessionState.beginTurn(SESSION_ID);
-    expect(await captureError(approveBuild.run({}, context))).toBeInstanceOf(
-      Error
-    );
-    expect(sessionState.canCreateTool(SESSION_ID)).toBe(false);
-
-    sessionState.beginTurn(SESSION_ID);
-    await approveBuild.run({}, context);
-    expect(sessionState.canCreateTool(SESSION_ID)).toBe(true);
-    sessionState.beginTurn("other_session");
-    sessionState.beginTurn("other_session");
-    expect(sessionState.canCreateTool("other_session")).toBe(false);
-
-    sessionState.beginTurn(SESSION_ID);
-    expect(sessionState.canCreateTool(SESSION_ID)).toBe(false);
-    await approveBuild.run({}, context);
-    expect(sessionState.canCreateTool(SESSION_ID)).toBe(true);
-    sessionState.clearSession(SESSION_ID);
-    expect(sessionState.canCreateTool(SESSION_ID)).toBe(false);
-  });
-
-  test("does not unlock creation for an unrelated later turn", async () => {
-    const sessionState = new SuperBotSessionState();
-    sessionState.beginTurn(SESSION_ID);
-    sessionState.beginTurn(SESSION_ID);
-    const createTool = getCreateToolTool(
-      {
-        async createTool(): Promise<ToolDetail> {
-          throw new Error("should not be called");
-        },
-      },
-      sessionState
-    );
-
-    const error = await captureError(
-      createTool.run(
-        {
-          description: "Generate media",
-          handlerConfig: { modulePath: "media.js" },
-          name: "media_generation",
-        },
-        { orgId: ORG_ID, sessionId: SESSION_ID }
-      )
-    );
-
-    expect(error?.message).toBe(TOOL_CREATION_CONFIRMATION_MESSAGE);
-  });
-
   test.each([false, true])(
     "defaults to javascript and returns credential setup when required: %s",
     async (requiresApiKey) => {
@@ -144,21 +46,16 @@ describe("super bot create_tool", () => {
       );
       process.env.NAKAMA_CONFIG_DIR = tempConfigDir;
       const toolsDir = path.join(tempConfigDir, "tools");
-      await mkdir(toolsDir, { recursive: true });
-
-      await writeFile(
-        path.join(toolsDir, "echo.js"),
-        `export async function run(input) {
-  return input;
-}
-`,
-        "utf8"
+      await runWriteFile(
+        {
+          content: "export async function run(input) { return input; }",
+          path: path.join(toolsDir, "echo.js"),
+        },
+        { orgId: ORG_ID, profileId: "super_bot" }
       );
 
       const capturedRequests: CreateToolRequest[] = [];
       const sessionState = new SuperBotSessionState();
-      sessionState.beginTurn(SESSION_ID);
-      sessionState.beginTurn(SESSION_ID);
       const tools = createSuperBotTools(
         {
           async createTool(request: CreateToolRequest): Promise<ToolDetail> {
@@ -177,14 +74,10 @@ describe("super bot create_tool", () => {
         } as ProfileService,
         sessionState
       );
-      const approveBuild = tools.find(
-        (tool) => tool.name === "approve_tool_build"
-      );
       const createTool = tools.find((tool) => tool.name === "create_tool");
-      if (!(approveBuild && createTool)) {
-        throw new Error("Tool creation workflow was not registered");
+      if (!createTool) {
+        throw new Error("create_tool was not registered");
       }
-      await approveBuild.run({}, { orgId: ORG_ID, sessionId: SESSION_ID });
 
       const result = await createTool.run(
         {
@@ -948,7 +841,6 @@ function createTestTools(
   const sessionState = new SuperBotSessionState();
   sessionState.beginTurn(SESSION_ID);
   sessionState.beginTurn(SESSION_ID);
-  sessionState.approveToolBuild(SESSION_ID);
   return createSuperBotTools(profileService as ProfileService, sessionState);
 }
 

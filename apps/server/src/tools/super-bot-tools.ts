@@ -1,6 +1,7 @@
 import {
   type CreateProfileRequest,
   emptyObjectSchema,
+  getCustomToolsDir,
   getProfileSoulDir,
   loadSoulStack,
   type ToolContext,
@@ -17,7 +18,6 @@ import {
   PROFILE_UPDATE_CONFIRMATION_MESSAGE,
   type SuperBotSessionState,
   TOOL_ASSIGNMENT_CONFIRMATION_MESSAGE,
-  TOOL_CREATION_CONFIRMATION_MESSAGE,
 } from "../services/super-bot-session-state";
 
 const SUPPORTED_SOUL_FILE_NAMES = [
@@ -274,20 +274,7 @@ export function createSuperBotTools(
     },
     {
       description:
-        "Record the user's explicit approval of a previously presented tool build plan. Required for every new tool before writing files or registering. Questions and plan changes are not approval. Call again in each turn continuing the same approved plan; do not ask the user again unless the plan changes.",
-      name: "approve_tool_build",
-      parameters: emptyObjectSchema(),
-      async run(_input, context: ToolContext) {
-        if (!sessionState.approveToolBuild(context.sessionId)) {
-          throw new Error(TOOL_CREATION_CONFIRMATION_MESSAGE);
-        }
-
-        return { approved: true };
-      },
-    },
-    {
-      description:
-        "Register an existing JavaScript or Python module after approve_tool_build succeeds this turn. Follow the tool authoring workflow. Registration does not execute or test the tool.",
+        "Register an existing JavaScript or Python module. Present the build plan and wait for user approval before writing or registering. Registration does not execute or test the tool.",
       name: "create_tool",
       parameters: {
         additionalProperties: false,
@@ -295,8 +282,7 @@ export function createSuperBotTools(
           description: { description: "What the tool does.", type: "string" },
           handlerConfig: {
             additionalProperties: true,
-            description:
-              "Write the module with write_file before registering. modulePath: filename relative to ~/.nakama/tools/, ending in .js or .py. JavaScript (preferred): export async function run(input, context). Python: def run(input, context) plus a __main__ harness reading JSON from sys.stdin and writing JSON to sys.stdout. parameters: input JSON schema with properties and required fields; exported JS parameters are ignored. Validate inputs; return JSON-serializable results; log only to stderr. Profile files: context.workspaceRoot (JS) or NAKAMA_WORKSPACE_ROOT (Python). requiresApiKey: true only if needed; read NAKAMA_TOOL_API_KEY at runtime, never put keys in inputs/source/output. Direct users to the web chat Configure card, then retry.",
+            description: `Write the module with write_file using an absolute path under ${getCustomToolsDir()} before registering; omit cwd. modulePath: filename relative to that directory, ending in .js or .py. JavaScript (preferred): export async function run(input, context). Python: def run(input, context) plus a __main__ harness reading JSON from sys.stdin and writing JSON to sys.stdout. parameters: input JSON schema with properties and required fields; exported JS parameters are ignored. Validate inputs; return JSON-serializable results; log only to stderr. Profile files: context.workspaceRoot (JS) or NAKAMA_WORKSPACE_ROOT (Python). requiresApiKey: true only if needed; read NAKAMA_TOOL_API_KEY at runtime, never put keys in inputs/source/output. Direct users to the web chat Configure card, then retry.`,
             type: "object",
           },
           handlerType: {
@@ -316,10 +302,6 @@ export function createSuperBotTools(
           throw new Error("name and description are required.");
         }
 
-        if (!sessionState.canCreateTool(context.sessionId)) {
-          throw new Error(TOOL_CREATION_CONFIRMATION_MESSAGE);
-        }
-
         const requestedHandlerType = readString(input, "handlerType");
         const handlerType = requestedHandlerType ?? "javascript";
 
@@ -335,7 +317,7 @@ export function createSuperBotTools(
 
         if (!modulePath?.endsWith(handler.extension)) {
           throw new Error(
-            `${handlerType} tools require handlerConfig.modulePath ending in "${handler.extension}". Write the module with write_file to ~/.nakama/tools/ first.`
+            `${handlerType} tools require handlerConfig.modulePath ending in "${handler.extension}". Write the module with write_file to ${getCustomToolsDir()} first.`
           );
         }
 
