@@ -153,3 +153,26 @@ test("history limits apply after actor and profile access filters", () => {
   expect(store.list(null, "mine").map((row) => row.id)).toEqual([own.id]);
   expect(store.list()).toHaveLength(100);
 });
+
+test("upgrades existing meeting databases without losing transcripts", () => {
+  const meeting = store.create(meetingUrl, "me", undefined, 1);
+  store.addSegment(meeting.id, {
+    id: "one",
+    receivedAt: 1,
+    text: "Launch planning",
+  });
+  store.update(meeting.id, "finished");
+  store.close();
+  const db = new Database(join(dir, "meetings.sqlite"));
+  db.exec("ALTER TABLE meetings DROP COLUMN title");
+  db.close();
+  store = new MeetingStore(dir, "org");
+  expect(store.nextUntitled()).toEqual({
+    id: meeting.id,
+    text: "Launch planning",
+  });
+  store.setTitle(meeting.id, "Launch Plan");
+  expect(store.get(meeting.id)?.title).toBe("Launch Plan");
+  expect(store.transcript(meeting.id)[0]?.text).toBe("Launch planning");
+  expect(store.nextUntitled()).toBeNull();
+});

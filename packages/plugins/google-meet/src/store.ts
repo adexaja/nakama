@@ -27,6 +27,7 @@ export interface Meeting {
   profileId: string | null;
   state: MeetingState;
   stopRequested: number;
+  title?: string | null;
   transcriptFile?: string;
   updatedAt: number;
   url: string;
@@ -64,6 +65,16 @@ export class MeetingStore {
       throw new Error("Meeting data belongs to another organization");
     }
     try {
+      this.db
+        .transaction(() => {
+          const columns = this.db
+            .query<{ name: string }, []>("PRAGMA table_info(meetings)")
+            .all();
+          if (!columns.some((column) => column.name === "title")) {
+            this.db.exec("ALTER TABLE meetings ADD COLUMN title TEXT");
+          }
+        })
+        .immediate();
       this.restoreTranscripts(false);
     } catch (error) {
       this.db.close();
@@ -137,6 +148,16 @@ export class MeetingStore {
     return this.db
       .query<Meeting, []>("SELECT * FROM meetings WHERE state='queued' LIMIT 1")
       .get();
+  }
+  nextUntitled() {
+    return this.db
+      .query<{ id: string; text: string }, []>(
+        "SELECT id, (SELECT group_concat(text, char(10)) FROM (SELECT text FROM segments WHERE meetingId=meetings.id ORDER BY sequence)) AS text FROM meetings WHERE title IS NULL AND state IN ('finished','failed') AND EXISTS (SELECT 1 FROM segments WHERE meetingId=meetings.id AND trim(text) != '') ORDER BY createdAt DESC LIMIT 1"
+      )
+      .get();
+  }
+  setTitle(id: string, title: string) {
+    this.db.query("UPDATE meetings SET title=? WHERE id=?").run(title, id);
   }
   recover() {
     this.db

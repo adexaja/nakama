@@ -74,7 +74,6 @@ export function apply(ctx: Context) {
     .meet-meeting{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
     .meet-meta{display:grid;gap:4px;min-width:0;flex:1 1 220px}
     .meet-link{overflow-wrap:anywhere}
-    .meet-preview{margin:0;font-size:14px;line-height:1.5;color:var(--muted-foreground);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
     .meet-meeting .meet-row>button{min-height:40px}
     .meet-link:hover{text-decoration:underline}
     .meet-status{font-size:12px;color:var(--muted-foreground);overflow-wrap:anywhere}
@@ -222,7 +221,7 @@ export function apply(ctx: Context) {
         <div className="meet-detail-heading">
           <div className="meet-meta">
             <h2 ref={heading} tabIndex={-1}>
-              Meeting transcript
+              {meeting.title || "Meeting transcript"}
             </h2>
             <span className="meet-status">
               {new Date(meeting.createdAt).toLocaleString(undefined, {
@@ -474,7 +473,8 @@ export function apply(ctx: Context) {
                         <li key={meeting.id}>
                           <div className="meet-meeting">
                             <div className="meet-meta">
-                              <h3>
+                              <h3>{meeting.title || "Untitled meeting"}</h3>
+                              <span className="meet-status">
                                 {new Date(meeting.createdAt).toLocaleDateString(
                                   undefined,
                                   {
@@ -488,12 +488,7 @@ export function apply(ctx: Context) {
                                   undefined,
                                   { hour: "numeric", minute: "2-digit" }
                                 )}
-                              </h3>
-                              {meeting.preview && (
-                                <p className="meet-preview">
-                                  {meeting.preview}
-                                </p>
-                              )}
+                              </span>
                             </div>
                             <div className="meet-row">
                               {meetingStatus(meeting) !==

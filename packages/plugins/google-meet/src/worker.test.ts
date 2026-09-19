@@ -1,11 +1,85 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { privateJson } from "./actions";
 import { MeetingStore } from "./store";
 import { transcriptionProviders } from "./transcription";
-import { captureSession, createStreamMeeting } from "./worker";
+import {
+  captureSession,
+  createStreamMeeting,
+  generateNextMeetingTitle,
+} from "./worker";
+
+test.each([true, false])(
+  "saved meetings get a persistent title with API success=%s",
+  async (success) => {
+    const directory = mkdtempSync(join(tmpdir(), "meet-title-"));
+    const store = new MeetingStore(directory, "org");
+    const request = spyOn(globalThis, "fetch").mockImplementation(
+      async (_url, options) => {
+        const body = JSON.parse(String(options?.body));
+        expect(body.messages[1].content).toContain("Plan the September launch");
+        return success
+          ? Response.json({
+              choices: [{ message: { content: "September Launch Plan" } }],
+            })
+          : new Response(null, { status: 503 });
+      }
+    );
+    try {
+      privateJson(join(directory, "settings.json"), { apiKey: "test" });
+      const meeting = store.create(
+        "https://meet.google.com/abc-defg-hij",
+        "user",
+        undefined,
+        1
+      );
+      store.addSegment(meeting.id, {
+        id: "one",
+        receivedAt: 1,
+        text: "Plan the September launch",
+      });
+      await generateNextMeetingTitle(
+        store,
+        directory,
+        new AbortController().signal
+      );
+      expect(request).not.toHaveBeenCalled();
+      store.update(meeting.id, "finished");
+      await generateNextMeetingTitle(
+        store,
+        directory,
+        new AbortController().signal
+      );
+      await generateNextMeetingTitle(
+        store,
+        directory,
+        new AbortController().signal
+      );
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(store.list()[0]?.title).toBe(
+        success ? "September Launch Plan" : "Plan the September launch"
+      );
+      expect(store.get(meeting.id)?.state).toBe("finished");
+      expect(store.transcript(meeting.id)[0]?.text).toBe(
+        "Plan the September launch"
+      );
+      const reopened = new MeetingStore(directory, "org");
+      try {
+        expect(reopened.get(meeting.id)?.title).toBe(
+          store.get(meeting.id)?.title
+        );
+      } finally {
+        reopened.close();
+      }
+    } finally {
+      request.mockRestore();
+      store.close();
+      rmSync(directory, { force: true, recursive: true });
+    }
+  }
+);
 
 test("streams PCM frames to OpenAI and persists the final transcript", async () => {
   const directory = mkdtempSync(join(tmpdir(), "meet-stream-"));

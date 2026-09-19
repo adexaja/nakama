@@ -43,6 +43,12 @@ class MeetingStore {
       throw new Error("Meeting data belongs to another organization");
     }
     try {
+      this.db.transaction(() => {
+        const columns = this.db.query("PRAGMA table_info(meetings)").all();
+        if (!columns.some((column) => column.name === "title")) {
+          this.db.exec("ALTER TABLE meetings ADD COLUMN title TEXT");
+        }
+      }).immediate();
       this.restoreTranscripts(false);
     } catch (error) {
       this.db.close();
@@ -75,6 +81,12 @@ class MeetingStore {
   }
   next() {
     return this.db.query("SELECT * FROM meetings WHERE state='queued' LIMIT 1").get();
+  }
+  nextUntitled() {
+    return this.db.query("SELECT id, (SELECT group_concat(text, char(10)) FROM (SELECT text FROM segments WHERE meetingId=meetings.id ORDER BY sequence)) AS text FROM meetings WHERE title IS NULL AND state IN ('finished','failed') AND EXISTS (SELECT 1 FROM segments WHERE meetingId=meetings.id AND trim(text) != '') ORDER BY createdAt DESC LIMIT 1").get();
+  }
+  setTitle(id, title) {
+    this.db.query("UPDATE meetings SET title=? WHERE id=?").run(title, id);
   }
   recover() {
     this.db.query("UPDATE meetings SET state='failed', error='Meeting worker restarted; partial transcript saved',updatedAt=? WHERE state IN ('joining','transcribing')").run(Date.now());

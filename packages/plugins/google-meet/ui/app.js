@@ -53,7 +53,6 @@ function apply(ctx) {
     .meet-meeting{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
     .meet-meta{display:grid;gap:4px;min-width:0;flex:1 1 220px}
     .meet-link{overflow-wrap:anywhere}
-    .meet-preview{margin:0;font-size:14px;line-height:1.5;color:var(--muted-foreground);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
     .meet-meeting .meet-row>button{min-height:40px}
     .meet-link:hover{text-decoration:underline}
     .meet-status{font-size:12px;color:var(--muted-foreground);overflow-wrap:anywhere}
@@ -179,7 +178,7 @@ function apply(ctx) {
     }, /* @__PURE__ */ React.createElement("h2", {
       ref: heading,
       tabIndex: -1
-    }, "Meeting transcript"), /* @__PURE__ */ React.createElement("span", {
+    }, meeting.title || "Meeting transcript"), /* @__PURE__ */ React.createElement("span", {
       className: "meet-status"
     }, new Date(meeting.createdAt).toLocaleString(undefined, {
       day: "numeric",
@@ -360,13 +359,13 @@ function apply(ctx) {
       className: "meet-meeting"
     }, /* @__PURE__ */ React.createElement("div", {
       className: "meet-meta"
-    }, /* @__PURE__ */ React.createElement("h3", null, new Date(meeting.createdAt).toLocaleDateString(undefined, {
+    }, /* @__PURE__ */ React.createElement("h3", null, meeting.title || "Untitled meeting"), /* @__PURE__ */ React.createElement("span", {
+      className: "meet-status"
+    }, new Date(meeting.createdAt).toLocaleDateString(undefined, {
       day: "numeric",
       month: "short",
       year: "numeric"
-    }), " · ", new Date(meeting.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })), meeting.preview && /* @__PURE__ */ React.createElement("p", {
-      className: "meet-preview"
-    }, meeting.preview)), /* @__PURE__ */ React.createElement("div", {
+    }), " · ", new Date(meeting.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }))), /* @__PURE__ */ React.createElement("div", {
       className: "meet-row"
     }, meetingStatus(meeting) !== "Transcript ready" && /* @__PURE__ */ React.createElement("span", {
       className: "meet-badge"
