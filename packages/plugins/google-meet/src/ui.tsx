@@ -1,6 +1,7 @@
 /** @jsxRuntime classic */
 /** @jsx React.createElement */
 /** @jsxFrag React.Fragment */
+import { ArrowRight01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import type * as UI from "@nakama/ui";
 import type * as ReactType from "react";
 import type { Meeting } from "./store";
@@ -62,7 +63,13 @@ export function apply(ctx: Context) {
     .meet-form{display:grid;gap:12px}
     .meet-form label{display:grid;gap:6px;font-size:14px;font-weight:500;min-width:0}
     .meet-list{list-style:none;padding:0;margin:0}
-    .meet-list li{padding:10px 16px;display:grid;gap:6px}
+    .meet-list li{position:relative;padding:10px 16px;display:grid;gap:6px}
+    .meet-list li:hover{background:color-mix(in oklab,var(--muted) 50%,transparent)}
+    .meet-open::after{content:"";position:absolute;inset:0;cursor:pointer}
+    .meet-open:focus-visible::after{outline:2px solid var(--ring);outline-offset:-2px}
+    .meet-meeting .meet-row>.meet-open{position:static;scale:none;transform:none}
+    .meet-action{position:relative;z-index:1}
+    .meet-delete:hover{color:var(--destructive)}
     .meet-list li+li{border-top:1px solid var(--border)}
     .meet-meeting{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
     .meet-meta{display:grid;gap:4px;min-width:0;flex:1 1 220px}
@@ -495,19 +502,11 @@ export function apply(ctx: Context) {
                                   {meetingStatus(meeting)}
                                 </span>
                               )}
-                              <Button
-                                onClick={() => setSelected(meeting)}
-                                size="sm"
-                                variant="outline"
-                              >
-                                {meeting.transcriptFile
-                                  ? "Read transcript"
-                                  : "View details"}
-                              </Button>
                               {["queued", "joining", "transcribing"].includes(
                                 meeting.state
                               ) && (
                                 <Button
+                                  className="meet-action"
                                   disabled={busy || !!meeting.stopRequested}
                                   onClick={() =>
                                     void action("leave", {
@@ -525,6 +524,7 @@ export function apply(ctx: Context) {
                               ) && (
                                 <Button
                                   aria-label="Delete meeting"
+                                  className="meet-action meet-delete"
                                   disabled={busy}
                                   onClick={() => {
                                     setDeleting(meeting);
@@ -544,10 +544,48 @@ export function apply(ctx: Context) {
                                     viewBox="0 0 24 24"
                                     width="16"
                                   >
-                                    <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7" />
+                                    {Delete02Icon.map(([tag, attrs]) =>
+                                      React.createElement(tag, attrs)
+                                    )}
                                   </svg>
                                 </Button>
                               )}
+                              <Button
+                                aria-label={
+                                  meeting.transcriptFile
+                                    ? "Read transcript"
+                                    : "View details"
+                                }
+                                className="meet-open"
+                                onClick={() => setSelected(meeting)}
+                                size="icon"
+                                title={
+                                  meeting.transcriptFile
+                                    ? "Read transcript"
+                                    : "View details"
+                                }
+                                variant="ghost"
+                              >
+                                <svg
+                                  aria-hidden="true"
+                                  fill="none"
+                                  height="16"
+                                  stroke="currentColor"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth="1.75"
+                                  style={{ color: "var(--muted-foreground)" }}
+                                  viewBox="0 0 24 24"
+                                  width="16"
+                                >
+                                  {ArrowRight01Icon.map(([tag, attrs]) =>
+                                    React.createElement(tag, {
+                                      ...attrs,
+                                      strokeWidth: 1.75,
+                                    })
+                                  )}
+                                </svg>
+                              </Button>
                             </div>
                           </div>
                           {meeting.error && <p role="alert">{meeting.error}</p>}
