@@ -1,9 +1,6 @@
 import { NakamaClient } from "@nakama/client";
-import {
-  ensureServerRunning,
-  stopSpawnedServer,
-} from "@nakama/core/ensure-server";
 import { loadLocalAuthToken } from "@nakama/core/local-auth";
+import { resolveServerUrl } from "@nakama/core/runtime";
 import { runChat, runCleanupThenExit } from "./chat";
 import { isCliVerbose } from "./display-path";
 import { parseCliOrgArgs, resolveCliOrgId } from "./org";
@@ -53,20 +50,17 @@ async function resolveTheme(): Promise<Theme> {
   return detected ?? "dark";
 }
 
-let spawnedChild: Bun.Subprocess | null = null;
 const abortController = new AbortController();
 
 registerCleanupHandlers(async () => {
   abortController.abort();
-  stopSpawnedServer(spawnedChild);
 });
 
 const cliTheme = await resolveTheme();
 setTheme(cliTheme);
 
 try {
-  const { serverUrl, spawnedChild: child } = await ensureServerRunning();
-  spawnedChild = child;
+  const serverUrl = resolveServerUrl();
 
   const serverHost = new URL(serverUrl).hostname;
   if (
@@ -127,8 +121,6 @@ try {
   }
 
   process.exit(1);
-} finally {
-  stopSpawnedServer(spawnedChild);
 }
 
 process.exit(0);
