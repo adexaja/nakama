@@ -46,6 +46,7 @@ test("one active meeting per org, transcripts survive closing and cannot cross t
     text: "Hello",
   });
   expect(store.transcript(meeting.id)).toHaveLength(1);
+  expect(store.list("user-a", "profile-a")[0]?.preview).toBe("Hello");
   const file = join(dir, "transcripts", `meeting-${meeting.id}.txt`);
   expect(readFileSync(file, "utf8")).toBe("Hello\n");
   expect(statSync(file).mode % 0o1000).toBe(0o600);

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PluginExecutionContext } from "@nakama/core";
@@ -80,6 +80,29 @@ test("settings are admin-only, credentials never returned, meetings are scoped t
       { ...context, actionKey: "status" }
     )) as { meeting: { state: string } };
     expect(status.meeting.state).toBe("queued");
+    const deletion = { ...context, actionKey: "delete" };
+    await expect(run({ meetingId: meeting.id }, deletion)).rejects.toThrow();
+    const finished = new MeetingStore(dir, "org");
+    finished.update(meeting.id, "finished");
+    finished.close();
+    for (const denied of [
+      { ...deletion, actor: { id: "b", role: "member" as const } },
+      { ...deletion, actor: { id: "a", role: "viewer" as const } },
+      { ...deletion, profileId: "other" },
+    ]) {
+      await expect(run({ meetingId: meeting.id }, denied)).rejects.toThrow();
+    }
+    expect(await run({ meetingId: meeting.id }, deletion)).toEqual({
+      deleted: true,
+    });
+    const reopened = new MeetingStore(dir, "org");
+    expect(reopened.get(meeting.id)).toBeNull();
+    expect(reopened.transcript(meeting.id)).toEqual([]);
+    expect(reopened.list()).toEqual([]);
+    reopened.close();
+    expect(
+      existsSync(join(dir, "transcripts", `meeting-${meeting.id}.txt`))
+    ).toBe(false);
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }

@@ -68,7 +68,7 @@ class MeetingStore {
     return this.db.query("SELECT * FROM meetings WHERE id=?").get(id);
   }
   list(actorId = null, profileId = null) {
-    return this.db.query("SELECT * FROM meetings WHERE (? IS NULL OR actorId=?) AND (? IS NULL OR profileId=?) ORDER BY createdAt DESC LIMIT 100").all(actorId, actorId, profileId, profileId).map((meeting) => ({
+    return this.db.query("SELECT meetings.*, (SELECT substr(text, 1, 180) FROM segments WHERE meetingId=meetings.id AND trim(text) != '' ORDER BY sequence LIMIT 1) AS preview FROM meetings WHERE (? IS NULL OR actorId=?) AND (? IS NULL OR profileId=?) ORDER BY createdAt DESC LIMIT 100").all(actorId, actorId, profileId, profileId).map((meeting) => ({
       ...meeting,
       transcriptFile: existsSync(this.transcriptPath(meeting.id)) ? `meeting-${meeting.id}.txt` : undefined
     }));
@@ -85,6 +85,17 @@ class MeetingStore {
   }
   stop(id) {
     this.db.query("UPDATE meetings SET stopRequested=1 WHERE id=?").run(id);
+  }
+  delete(id) {
+    this.db.transaction(() => {
+      const meeting = this.get(id);
+      if (!(meeting && ["finished", "failed"].includes(meeting.state))) {
+        throw new Error("Stop transcription before deleting this meeting");
+      }
+      rmSync(this.transcriptPath(id), { force: true });
+      this.db.query("DELETE FROM segments WHERE meetingId=?").run(id);
+      this.db.query("DELETE FROM meetings WHERE id=?").run(id);
+    }).immediate();
   }
   addSegment(meetingId, segment) {
     if (!this.get(meetingId)) {
@@ -220,6 +231,10 @@ async function run(input, context) {
     }
     if (action === "status") {
       return { meeting, worker };
+    }
+    if (action === "delete") {
+      store.delete(meeting.id);
+      return { deleted: true };
     }
     if (action === "leave") {
       store.stop(meeting.id);

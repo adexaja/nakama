@@ -75,7 +75,12 @@ export const NAV_GROUPS: NavGroup[] = [
         "Start a new conversation",
         PlusSignSquareIcon
       ),
-      navItem("files", "Your files", "Manage profile artifacts", Folder01Icon),
+      navItem(
+        "files",
+        "Browse Files",
+        "Manage profile artifacts",
+        Folder01Icon
+      ),
     ],
     label: "Chat",
   },
@@ -84,7 +89,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       navItem(
         "profiles",
-        "Agent config",
+        "Assistants",
         "Manage bot configs and tool allowlists",
         UserSquareIcon
       ),
@@ -96,13 +101,13 @@ export const NAV_GROUPS: NavGroup[] = [
       ),
       navItem(
         "integrations",
-        "Integrations",
+        "Connect apps",
         "Bridges and Composio",
         WebhookIcon
       ),
       navItem(
         "customize",
-        "Customize",
+        "Workspace",
         "Customize your workspace",
         DashboardSquare01Icon
       ),

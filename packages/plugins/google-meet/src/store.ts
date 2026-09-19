@@ -23,6 +23,7 @@ export interface Meeting {
   durationMinutes: number;
   error: string | null;
   id: string;
+  preview?: string | null;
   profileId: string | null;
   state: MeetingState;
   stopRequested: number;
@@ -122,7 +123,7 @@ export class MeetingStore {
         Meeting,
         [string | null, string | null, string | null, string | null]
       >(
-        "SELECT * FROM meetings WHERE (? IS NULL OR actorId=?) AND (? IS NULL OR profileId=?) ORDER BY createdAt DESC LIMIT 100"
+        "SELECT meetings.*, (SELECT substr(text, 1, 180) FROM segments WHERE meetingId=meetings.id AND trim(text) != '' ORDER BY sequence LIMIT 1) AS preview FROM meetings WHERE (? IS NULL OR actorId=?) AND (? IS NULL OR profileId=?) ORDER BY createdAt DESC LIMIT 100"
       )
       .all(actorId, actorId, profileId, profileId)
       .map((meeting) => ({
@@ -152,6 +153,19 @@ export class MeetingStore {
   }
   stop(id: string) {
     this.db.query("UPDATE meetings SET stopRequested=1 WHERE id=?").run(id);
+  }
+  delete(id: string) {
+    this.db
+      .transaction(() => {
+        const meeting = this.get(id);
+        if (!(meeting && ["finished", "failed"].includes(meeting.state))) {
+          throw new Error("Stop transcription before deleting this meeting");
+        }
+        rmSync(this.transcriptPath(id), { force: true });
+        this.db.query("DELETE FROM segments WHERE meetingId=?").run(id);
+        this.db.query("DELETE FROM meetings WHERE id=?").run(id);
+      })
+      .immediate();
   }
   addSegment(meetingId: string, segment: TranscriptSegment) {
     if (!this.get(meetingId)) {

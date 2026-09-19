@@ -504,11 +504,10 @@ function GoogleMeetInstallDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Install Google Meet</DialogTitle>
+          <DialogTitle>Transcribe Google Meet calls</DialogTitle>
           <DialogDescription>
-            Install the Chrome extension after the plugin is enabled. It
-            captures audio locally and sends it to Nakama over a scoped
-            WebSocket.
+            Turn meetings into transcripts. Add Google Meet to Nakama, then
+            install the Chrome extension.
           </DialogDescription>
         </DialogHeader>
         <GoogleMeetInstallProgress
@@ -524,10 +523,8 @@ function GoogleMeetInstallDialog({
           install={install}
           onClose={onClose}
           onInstalled={() => {
-            if (expectedRevision === undefined) {
-              onClose();
-              navigate("/plugins/google-meet");
-            }
+            onClose();
+            navigate("/plugins/google-meet");
           }}
         />
       </DialogContent>
@@ -542,7 +539,7 @@ function GoogleMeetInstallProgress({
   install,
 }: GoogleMeetInstallState) {
   const status = dependencies.data;
-  let pluginStatus = "Waiting";
+  let pluginStatus = "Not installed";
   if (install.isSuccess) {
     pluginStatus = "Installed";
   } else if (install.isPending && status?.state === "ready") {
@@ -569,7 +566,7 @@ function GoogleMeetInstallProgress({
         </li>
       ))}
       <li className="flex justify-between gap-4">
-        <span>Google Meet plugin</span>
+        <span>Meeting transcription</span>
         <span>{pluginStatus}</span>
       </li>
     </ol>
@@ -585,11 +582,11 @@ function GoogleMeetInstallFooter({
   onInstalled(): void;
 }) {
   const busy = install.isPending;
-  let label = "Install plugin";
+  let label = "Add to Nakama";
   if (busy) {
     label = "Installing…";
   } else if (install.isError) {
-    label = "Retry";
+    label = "Try again";
   }
   return (
     <DialogFooter>

@@ -24,17 +24,33 @@ const message = (error: unknown) =>
   error instanceof Error ? error.message : "Request failed";
 export const inject = ["slots", "host", "styles", "ui"];
 
+function meetingStatus(meeting: Meeting) {
+  if (["queued", "joining", "transcribing"].includes(meeting.state)) {
+    return meeting.stopRequested
+      ? "Stopping…"
+      : meeting.state === "transcribing"
+        ? "Transcribing…"
+        : "Connecting…";
+  }
+  if (meeting.state === "failed") {
+    return meeting.transcriptFile
+      ? "Partial transcript"
+      : "Transcription failed";
+  }
+  return meeting.transcriptFile ? "Transcript ready" : "No speech captured";
+}
+
 export function apply(ctx: Context) {
   const React = ctx.React;
   const {
     Button,
     Card,
-    CodeBlock,
     Input,
     Dialog,
     DialogContent,
     DialogHeader,
     DialogTitle,
+    ConfirmDialog,
   } = ctx.ui;
   ctx.styles(
     `
@@ -46,11 +62,13 @@ export function apply(ctx: Context) {
     .meet-form{display:grid;gap:12px}
     .meet-form label{display:grid;gap:6px;font-size:14px;font-weight:500;min-width:0}
     .meet-list{list-style:none;padding:0;margin:0}
-    .meet-list li{padding:16px;display:grid;gap:10px}
+    .meet-list li{padding:10px 16px;display:grid;gap:6px}
     .meet-list li+li{border-top:1px solid var(--border)}
     .meet-meeting{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
     .meet-meta{display:grid;gap:4px;min-width:0;flex:1 1 220px}
-    .meet-link{font-weight:500;overflow-wrap:anywhere}
+    .meet-link{overflow-wrap:anywhere}
+    .meet-preview{margin:0;font-size:14px;line-height:1.5;color:var(--muted-foreground);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+    .meet-meeting .meet-row>button{min-height:40px}
     .meet-link:hover{text-decoration:underline}
     .meet-status{font-size:12px;color:var(--muted-foreground);overflow-wrap:anywhere}
     .meet-badge{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:12px;color:var(--muted-foreground)}
@@ -58,7 +76,11 @@ export function apply(ctx: Context) {
     .meet-page [role=alert]{font-size:14px;color:var(--destructive);overflow-wrap:anywhere}
     .meet-detail{display:grid;gap:16px;min-width:0}
     .meet-detail-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
-    .meet-code{border:1px solid var(--border);border-radius:8px;min-width:0}
+    .meet-detail h2{font-size:20px;font-weight:600;letter-spacing:-0.02em}
+    .meet-document{padding:24px;min-width:0}
+    .meet-document-text{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:15px;line-height:1.9}
+    .meet-detail .meet-row>button{min-height:40px}
+    @media(max-width:480px){.meet-document{padding:16px}}
     `
   );
 
@@ -128,6 +150,7 @@ export function apply(ctx: Context) {
     const [text, setText] = React.useState("");
     const [error, setError] = React.useState("");
     const [loaded, setLoaded] = React.useState(false);
+    const [copyStatus, setCopyStatus] = React.useState("");
     const heading = React.useRef<HTMLHeadingElement>(null);
     React.useEffect(() => heading.current?.focus(), []);
     React.useEffect(() => {
@@ -178,7 +201,7 @@ export function apply(ctx: Context) {
       );
       const link = document.createElement("a");
       link.href = url;
-      link.download = `meeting-${meeting.id}.txt`;
+      link.download = `meeting-${new Date(meeting.createdAt).toISOString().slice(0, 10)}-${meeting.url.split("/").pop()}.txt`;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
@@ -194,34 +217,65 @@ export function apply(ctx: Context) {
             <h2 ref={heading} tabIndex={-1}>
               Meeting transcript
             </h2>
+            <span className="meet-status">
+              {new Date(meeting.createdAt).toLocaleString(undefined, {
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+                month: "long",
+                year: "numeric",
+              })}
+            </span>
             <a
-              className="meet-link"
+              className="meet-link meet-status"
               href={meeting.url}
               rel="noreferrer"
               target="_blank"
             >
-              {meeting.url.replace("https://", "")}
+              Google Meet · {meeting.url.split("/").pop()}
             </a>
-            <span className="meet-status">
-              {new Date(meeting.createdAt).toLocaleString()} · {meeting.state}
-            </span>
           </div>
+          <span className="meet-badge" role="status">
+            {meetingStatus(meeting)}
+          </span>
+        </div>
+        <div className="meet-row">
+          <Button
+            disabled={!text}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(text);
+                setCopyStatus("Transcript copied");
+              } catch {
+                setCopyStatus(
+                  "Could not copy. Select the text to copy it, or download it."
+                );
+              }
+            }}
+            size="sm"
+            variant="outline"
+          >
+            Copy transcript
+          </Button>
           <Button
             disabled={!text}
             onClick={download}
             size="sm"
             variant="outline"
           >
-            Download transcript
+            Download .txt
           </Button>
+          {copyStatus && (
+            <span className="meet-status" role="status">
+              {copyStatus}
+            </span>
+          )}
         </div>
         {error && <p role="alert">{error}</p>}
         {text ? (
-          <CodeBlock
-            className="meet-code"
-            code={text}
-            lang={meeting.transcriptFile || "text"}
-          />
+          <Card className="meet-card meet-document">
+            <div className="meet-document-text">{text}</div>
+          </Card>
         ) : (
           <Card className="meet-card">
             <p className="meet-empty" role="status">
@@ -243,6 +297,7 @@ export function apply(ctx: Context) {
     const [extensionConnected, setExtensionConnected] = React.useState(false);
     const [busy, setBusy] = React.useState(false);
     const [settings, setSettings] = React.useState<boolean | null>(null);
+    const [deleting, setDeleting] = React.useState<Meeting | null>(null);
     const [selected, setSelected] = React.useState<Meeting | null>(null);
     React.useEffect(() => {
       async function receive(event: MessageEvent) {
@@ -333,13 +388,17 @@ export function apply(ctx: Context) {
     const groups = [
       {
         meetings:
-          overview?.meetings.filter((meeting) => !meeting.transcriptFile) ?? [],
-        title: "Meetings",
+          overview?.meetings.filter((meeting) =>
+            ["queued", "joining", "transcribing"].includes(meeting.state)
+          ) ?? [],
+        title: "In progress",
       },
       {
         meetings:
-          overview?.meetings.filter((meeting) => meeting.transcriptFile) ?? [],
-        title: "Saved transcripts",
+          overview?.meetings.filter((meeting) =>
+            ["finished", "failed"].includes(meeting.state)
+          ) ?? [],
+        title: "Meeting history",
       },
     ];
     if (selected) {
@@ -391,89 +450,139 @@ export function apply(ctx: Context) {
           </div>
         </Card>
         {overview ? (
-          groups.map((group) => (
-            <section key={group.title}>
-              <Card className="meet-card">
-                <div className="meet-card-heading">
-                  <h2>{group.title}</h2>
-                  <span className="meet-status">{group.meetings.length}</span>
-                </div>
-                {group.meetings.length ? (
-                  <ul className="meet-list">
-                    {group.meetings.map((meeting) => (
-                      <li key={meeting.id}>
-                        <div className="meet-meeting">
-                          <div className="meet-meta">
-                            <a
-                              className="meet-link"
-                              href={meeting.url}
-                              rel="noreferrer"
-                              target="_blank"
-                            >
-                              {meeting.url.replace("https://", "")}
-                            </a>
-                            <time
-                              className="meet-status"
-                              dateTime={new Date(
-                                meeting.createdAt
-                              ).toISOString()}
-                            >
-                              {new Date(meeting.createdAt).toLocaleString()}
-                            </time>
-                          </div>
-                          <div className="meet-row">
-                            <span className="meet-badge">
-                              {meeting.state}
-                              {meeting.stopRequested &&
-                              ["queued", "joining", "transcribing"].includes(
-                                meeting.state
-                              )
-                                ? " · stopping"
-                                : ""}
-                            </span>
-                            <Button
-                              onClick={() => setSelected(meeting)}
-                              size="sm"
-                              variant="outline"
-                            >
-                              {meeting.transcriptFile
-                                ? "Open transcript"
-                                : "Transcript"}
-                            </Button>
-                            {["queued", "joining", "transcribing"].includes(
-                              meeting.state
-                            ) && (
+          groups
+            .filter(
+              (group) => group.title !== "In progress" || group.meetings.length
+            )
+            .map((group) => (
+              <section key={group.title}>
+                <Card className="meet-card">
+                  <div className="meet-card-heading">
+                    <h2>{group.title}</h2>
+                    <span className="meet-status">{group.meetings.length}</span>
+                  </div>
+                  {group.meetings.length ? (
+                    <ul className="meet-list">
+                      {group.meetings.map((meeting) => (
+                        <li key={meeting.id}>
+                          <div className="meet-meeting">
+                            <div className="meet-meta">
+                              <h3>
+                                {new Date(meeting.createdAt).toLocaleDateString(
+                                  undefined,
+                                  {
+                                    day: "numeric",
+                                    month: "short",
+                                    year: "numeric",
+                                  }
+                                )}
+                                {" · "}
+                                {new Date(meeting.createdAt).toLocaleTimeString(
+                                  undefined,
+                                  { hour: "numeric", minute: "2-digit" }
+                                )}
+                              </h3>
+                              {meeting.preview && (
+                                <p className="meet-preview">
+                                  {meeting.preview}
+                                </p>
+                              )}
+                            </div>
+                            <div className="meet-row">
+                              {meetingStatus(meeting) !==
+                                "Transcript ready" && (
+                                <span className="meet-badge">
+                                  {meetingStatus(meeting)}
+                                </span>
+                              )}
                               <Button
-                                disabled={busy || !!meeting.stopRequested}
-                                onClick={() =>
-                                  void action("leave", {
-                                    meetingId: meeting.id,
-                                  })
-                                }
+                                onClick={() => setSelected(meeting)}
                                 size="sm"
                                 variant="outline"
                               >
-                                Leave
+                                {meeting.transcriptFile
+                                  ? "Read transcript"
+                                  : "View details"}
                               </Button>
-                            )}
+                              {["queued", "joining", "transcribing"].includes(
+                                meeting.state
+                              ) && (
+                                <Button
+                                  disabled={busy || !!meeting.stopRequested}
+                                  onClick={() =>
+                                    void action("leave", {
+                                      meetingId: meeting.id,
+                                    })
+                                  }
+                                  size="sm"
+                                  variant="outline"
+                                >
+                                  Stop transcription
+                                </Button>
+                              )}
+                              {["finished", "failed"].includes(
+                                meeting.state
+                              ) && (
+                                <Button
+                                  aria-label="Delete meeting"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    setDeleting(meeting);
+                                  }}
+                                  size="icon"
+                                  title="Delete meeting"
+                                  variant="ghost"
+                                >
+                                  <svg
+                                    aria-hidden="true"
+                                    fill="none"
+                                    height="16"
+                                    stroke="currentColor"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth="1.5"
+                                    viewBox="0 0 24 24"
+                                    width="16"
+                                  >
+                                    <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7M14 10v7" />
+                                  </svg>
+                                </Button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                        {meeting.error && <p role="alert">{meeting.error}</p>}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="meet-empty">
-                    {group.title === "Meetings"
-                      ? "No meetings yet."
-                      : "No saved transcripts yet."}
-                  </p>
-                )}
-              </Card>
-            </section>
-          ))
+                          {meeting.error && <p role="alert">{meeting.error}</p>}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="meet-empty">No meetings yet.</p>
+                  )}
+                </Card>
+              </section>
+            ))
         ) : (
           <p>Loading…</p>
+        )}
+        {deleting && (
+          <ConfirmDialog
+            confirmLabel="Delete meeting"
+            description={`This permanently deletes the meeting from ${new Date(deleting.createdAt).toLocaleString()} and its transcript. You can’t undo this.`}
+            onClose={() => setDeleting(null)}
+            onConfirm={async () => {
+              await ctx.host.call("delete", { meetingId: deleting.id });
+              setOverview((previous) =>
+                previous
+                  ? {
+                      ...previous,
+                      meetings: previous.meetings.filter(
+                        (meeting) => meeting.id !== deleting.id
+                      ),
+                    }
+                  : previous
+              );
+            }}
+            title="Delete meeting?"
+          />
         )}
         {(settings ?? (overview?.canConfigure && !overview.configured)) && (
           <Settings close={() => setSettings(false)} />

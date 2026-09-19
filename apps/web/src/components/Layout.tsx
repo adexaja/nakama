@@ -130,7 +130,7 @@ function AppShellHeader({
   const hideTitle = page === "soul" || page === "profiles";
   const showCustomizeBack =
     page !== "notifications" && !SIDEBAR_PAGE_IDS.includes(page);
-  const backLabel = page === "customize" ? "Back to Chat" : "Back to Customize";
+  const backLabel = page === "customize" ? "Back to Chat" : "Back to Workspace";
   const backPath =
     page === "customize" ? PAGE_PATHS.chat : PAGE_PATHS.customize;
 
