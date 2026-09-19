@@ -171,3 +171,6 @@ Always build context with `buildToolExecutionContext()` (`packages/core/src/tool
 - `packages/client` — API client
 
 Server: Hono in `apps/server/src/http/app.ts`. Middleware: auth → org → routes (`routes/*`). OpenAPI: `openapi.ts` (`/openapi.json`). Viewers are blocked by `requireNotViewer` (worker control, agent invoke).
+
+Don't use compound engineering skills!
+
