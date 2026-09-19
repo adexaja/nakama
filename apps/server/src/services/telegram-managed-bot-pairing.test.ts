@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 import { TelegramManagedBotPairingService } from "./telegram-managed-bot-pairing";
 
 function fakeTelegramFetch(getUsername: () => string) {
@@ -173,5 +173,60 @@ describe("TelegramManagedBotPairingService", () => {
     expect(result.status).toBe("applied");
     expect(actions).toEqual(["start", "status", "token", "token", "cancel"]);
     expect(JSON.stringify(result)).not.toContain("42:secret");
+  });
+});
+
+describe("TelegramManagedBotPairingService deadline and save failure", () => {
+  test("reports expiry past the deadline and never pairs late", async () => {
+    setSystemTime(new Date("2026-09-19T10:00:00.000Z"));
+    try {
+      let username = "";
+      const service = new TelegramManagedBotPairingService(
+        "manager-token",
+        fakeTelegramFetch(() => username)
+      );
+      const started = await service.start("org-a", "user-a", "profile-a");
+      username = started.suggestedUsername;
+
+      // One second past the 10 minute TTL, before the manager bot has reported
+      // the new bot. The update is waiting in getUpdates either way.
+      setSystemTime(new Date("2026-09-19T10:10:01.000Z"));
+
+      const status = await service.status(started.pairingId, "org-a", "user-a");
+      expect(status.status).toBe("expired");
+      // Still null, so the expired pairing did not claim the bot that arrived.
+      expect(status.botUsername).toBeNull();
+
+      await expect(
+        service.apply(started.pairingId, "org-a", "user-a", "profile-a", () =>
+          Promise.resolve()
+        )
+      ).rejects.toThrow("expired");
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("leaves the pairing unapplied when the connection fails to save", async () => {
+    let username = "";
+    const service = new TelegramManagedBotPairingService(
+      "manager-token",
+      fakeTelegramFetch(() => username)
+    );
+    const started = await service.start("org-a", "user-a", "profile-a");
+    username = started.suggestedUsername;
+    await service.status(started.pairingId, "org-a", "user-a");
+
+    await expect(
+      service.apply(started.pairingId, "org-a", "user-a", "profile-b", () =>
+        Promise.reject(new Error("telegram worker failed to start"))
+      )
+    ).rejects.toThrow("telegram worker failed to start");
+
+    // Never reported as connected, and the failed profile was not recorded, so
+    // the admin can retry rather than seeing a bot that does not run.
+    const after = await service.status(started.pairingId, "org-a", "user-a");
+    expect(after.status).toBe("ready");
+    expect(after.profileId).toBe("profile-a");
   });
 });
