@@ -181,8 +181,6 @@ export function createSuperBotTools(
             type: "boolean",
           },
           model: {
-            description:
-              "Model override. Omit to inherit this bot's provider and model, or pass null to use the server default.",
             type: ["string", "null"],
           },
           name: {
