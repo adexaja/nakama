@@ -167,7 +167,7 @@ export async function runChat(options: RunChatOptions): Promise<void> {
     console.log("");
   } else {
     try {
-      await printCurrentModel(options.client);
+      await printCurrentModel(options.client, printLine, currentProfile);
     } catch (error) {
       printError(error);
       console.log(
@@ -1156,13 +1156,11 @@ async function runBlockingChat(context: ChatContext): Promise<void> {
 async function printCurrentModel(
   client: NakamaClient,
   write: (text: string) => void = printLine,
-  profile: ProfileSummary | null = null,
+  profile: ProfileSummary,
   cachedModels: ModelsResponse | null = null
 ): Promise<void> {
   const models = cachedModels ?? (await client.getModels());
-  const active = profile
-    ? effectiveModelState(profile, models)
-    : { modelId: null, providerId: models.currentProviderId };
+  const active = effectiveModelState(profile, models);
 
   if (!(models.provider && active.modelId)) {
     write("No model configured.");
