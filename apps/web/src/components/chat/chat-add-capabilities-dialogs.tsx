@@ -1,4 +1,8 @@
-import type { CreateMcpServerRequest } from "@nakama/core/contract";
+import type {
+  CreateMcpServerRequest,
+  ProfileSummary,
+  ToolSetupPlan,
+} from "@nakama/core/contract";
 import { Button } from "@nakama/ui/button";
 import {
   Dialog,
@@ -113,7 +117,6 @@ function ToolSetupCard({
   const profiles = useProfilesQuery();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fieldId = useId();
   const locked = saving || disabled;
   const plan = setup.data;
   if (!canManage) {
@@ -192,45 +195,7 @@ function ToolSetupCard({
     >
       <p className="font-medium">{plan.name}</p>
       <p className="whitespace-pre-wrap text-sm">{plan.plan}</p>
-      {approved ? null : (
-        <>
-          <div className="space-y-2">
-            <label className="text-sm" htmlFor={`${fieldId}-profile`}>
-              Agent
-            </label>
-            <select
-              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-              defaultValue={plan.profileId ?? ""}
-              disabled={locked}
-              id={`${fieldId}-profile`}
-              name="profileId"
-            >
-              <option value="">Assign later</option>
-              {profiles.data.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          {plan.requiresApiKey ? (
-            <div className="space-y-2">
-              <label className="text-sm" htmlFor={`${fieldId}-key`}>
-                API key
-              </label>
-              <Input
-                autoComplete="off"
-                disabled={locked}
-                id={`${fieldId}-key`}
-                maxLength={8192}
-                name="apiKey"
-                required
-                type="password"
-              />
-            </div>
-          ) : null}
-        </>
-      )}
+      <ToolSetupFields disabled={locked} plan={plan} profiles={profiles.data} />
       {error ? (
         <p className="text-destructive text-sm" role="alert">
           {error}
@@ -240,6 +205,60 @@ function ToolSetupCard({
         {saving ? "Building…" : buttonLabel}
       </Button>
     </form>
+  );
+}
+
+function ToolSetupFields({
+  disabled,
+  plan,
+  profiles,
+}: {
+  disabled?: boolean;
+  plan: ToolSetupPlan;
+  profiles: ProfileSummary[];
+}) {
+  const fieldId = useId();
+  if (plan.status === "approved") {
+    return null;
+  }
+  return (
+    <>
+      <div className="space-y-2">
+        <label className="text-sm" htmlFor={`${fieldId}-profile`}>
+          Agent
+        </label>
+        <select
+          className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+          defaultValue={plan.profileId ?? ""}
+          disabled={disabled}
+          id={`${fieldId}-profile`}
+          name="profileId"
+        >
+          <option value="">Assign later</option>
+          {profiles.map((profile) => (
+            <option key={profile.id} value={profile.id}>
+              {profile.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      {plan.requiresApiKey ? (
+        <div className="space-y-2">
+          <label className="text-sm" htmlFor={`${fieldId}-key`}>
+            API key
+          </label>
+          <Input
+            autoComplete="off"
+            disabled={disabled}
+            id={`${fieldId}-key`}
+            maxLength={8192}
+            name="apiKey"
+            required
+            type="password"
+          />
+        </div>
+      ) : null}
+    </>
   );
 }
 

@@ -400,14 +400,6 @@ function AssistantTurn({
   const turnMessages = messages.map(({ message }) => message);
   const segments = segmentAssistantTurn(turnMessages, workStreamActive);
   const artifacts = extractTurnArtifacts(turnMessages);
-  const createdProfiles = turnMessages.flatMap((message) => {
-    if (message.tool !== "create_profile") {
-      return [];
-    }
-
-    const profile = parseProfileCreatedResult(message.toolResult);
-    return profile ? [profile] : [];
-  });
   const artifactTurnKey = messages.map(({ message }) => message.id).join(":");
   const anchorMessage = findAssistantTurnAnchor(turnMessages);
   const turnComplete = isAssistantTurnComplete(turnMessages);
@@ -471,13 +463,7 @@ function AssistantTurn({
           })}
         </div>
       ) : null}
-      {turnComplete && createdProfiles.length > 0 ? (
-        <div className="flex w-full flex-col gap-2">
-          {createdProfiles.map((profile) => (
-            <ProfileCreatedCard key={profile.id} profile={profile} />
-          ))}
-        </div>
-      ) : null}
+      <CreatedProfiles complete={turnComplete} messages={turnMessages} />
       {showActions && anchorMessage ? (
         <AssistantMessageActions
           actionsDisabled={actionsDisabled}
@@ -489,6 +475,36 @@ function AssistantTurn({
           usage={turnUsage}
         />
       ) : null}
+    </div>
+  );
+}
+
+function CreatedProfiles({
+  complete,
+  messages,
+}: {
+  complete: boolean;
+  messages: ChatListItem[];
+}) {
+  if (!complete) {
+    return null;
+  }
+  const profiles = messages.flatMap((message) => {
+    if (message.tool !== "create_profile") {
+      return [];
+    }
+
+    const profile = parseProfileCreatedResult(message.toolResult);
+    return profile ? [profile] : [];
+  });
+  if (profiles.length === 0) {
+    return null;
+  }
+  return (
+    <div className="flex w-full flex-col gap-2">
+      {profiles.map((profile) => (
+        <ProfileCreatedCard key={profile.id} profile={profile} />
+      ))}
     </div>
   );
 }
