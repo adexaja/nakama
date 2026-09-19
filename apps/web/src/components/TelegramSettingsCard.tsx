@@ -65,7 +65,7 @@ function telegramHeaderSubtitle(input: {
   running: boolean;
 }): string {
   if (!input.configured) {
-    return "Step 1: paste a bot token from @BotFather";
+    return "Step 1: Scan the QR code to create a new bot or paste an existing bot token";
   }
 
   if (input.hasLinkedUsers && input.running) {
@@ -285,48 +285,51 @@ function TelegramSettingsCardLoaded({
   submitLabel: string;
 }) {
   const content = (
-    <TelegramSettingsCardContent
-      allowedUserSummary={card.allowedUserSummary}
-      botToken={card.botToken}
-      formError={card.formError}
-      headerSubtitle={card.headerSubtitle}
-      loadError={card.loadError}
-      onBotTokenChange={(value) => {
-        card.setBotToken(value);
-        card.setHint(null);
-        if (card.formError) {
-          card.setFormError(null);
-        }
-      }}
-      onCopyHandshakeCode={() => void card.copyHandshakeCode()}
-      onManageAllowedUsers={() => card.setAllowedUsersOpen(true)}
-      onProfileChange={(value) => {
-        card.setProfileId(value);
-        card.setHint(null);
-      }}
-      onRegenerateHandshake={card.handleRegenerateHandshake}
-      onSave={() => card.handleSave()}
-      onToggleShowBotToken={() => card.setShowBotToken((current) => !current)}
-      pairingCode={card.pairingCode}
-      profileId={card.profileId}
-      profiles={card.profiles}
-      settings={card.settings}
-      statusBadge={card.statusBadge}
-      statusLine={card.statusLine}
-      submitLabel={submitLabel}
-      view={{
-        canSave: card.canSave,
-        configured: card.configured,
-        embedded,
-        hasLinkedUsers: card.hasLinkedUsers,
-        isPaired: card.isPaired,
-        regeneratePending: card.regeneratePending,
-        running: card.running,
-        savePending: card.savePending,
-        showBotToken: card.showBotToken,
-      }}
-      worker={card.worker}
-    />
+    <>
+      <TelegramSettingsCardContent
+        allowedUserSummary={card.allowedUserSummary}
+        botToken={card.botToken}
+        formError={card.formError}
+        headerSubtitle={card.headerSubtitle}
+        loadError={card.loadError}
+        onBotTokenChange={(value) => {
+          card.setBotToken(value);
+          card.setHint(null);
+          if (card.formError) {
+            card.setFormError(null);
+          }
+        }}
+        onCopyHandshakeCode={() => void card.copyHandshakeCode()}
+        onManageAllowedUsers={() => card.setAllowedUsersOpen(true)}
+        onProfileChange={(value) => {
+          card.setProfileId(value);
+          card.setHint(null);
+        }}
+        onRegenerateHandshake={card.handleRegenerateHandshake}
+        onSave={() => card.handleSave()}
+        onToggleShowBotToken={() => card.setShowBotToken((current) => !current)}
+        pairingCode={card.pairingCode}
+        profileId={card.profileId}
+        profiles={card.profiles}
+        settings={card.settings}
+        statusBadge={card.statusBadge}
+        statusLine={card.statusLine}
+        submitLabel={submitLabel}
+        view={{
+          canSave: card.canSave,
+          configured: card.configured,
+          embedded,
+          hasLinkedUsers: card.hasLinkedUsers,
+          isPaired: card.isPaired,
+          regeneratePending: card.regeneratePending,
+          running: card.running,
+          savePending: card.savePending,
+          showBotToken: card.showBotToken,
+          statusBadge: card.statusBadge,
+        }}
+        worker={card.worker}
+      />
+    </>
   );
 
   const allowedUsersDialog = (

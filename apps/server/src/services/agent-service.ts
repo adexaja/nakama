@@ -14,6 +14,7 @@ import type {
   AgentChannel,
   AgentQuestionnaire,
   AgentTodo,
+  ApplyTelegramPairingRequest,
   AssignSkillRequest,
   AssignToolRequest,
   BranchSessionResponse,
@@ -71,8 +72,11 @@ import type {
   SkillResponse,
   SoulStackResponse,
   SoulStatusResponse,
+  StartTelegramPairingRequest,
   SuggestToolParamsResponse,
   SyncSkillsResponse,
+  TelegramPairingStartResponse,
+  TelegramPairingStatusResponse,
   TelegramSettingsResponse,
   ThinkingSettings,
   ThinkingSettingsResponse,
@@ -339,6 +343,7 @@ import type { SkillProposalService } from "./skill-proposal-service";
 import type { SkillSuggestionService } from "./skill-suggestion-service";
 import type { SkillsService } from "./skills-service";
 import { SuperBotSessionState } from "./super-bot-session-state";
+import { telegramManagedBotPairing } from "./telegram-managed-bot-pairing";
 import {
   resolveProfileStoredTools,
   type ServerToolOverrides,
@@ -1184,6 +1189,47 @@ export class AgentService {
         : { allowedUserIds: input.allowedUserIds }),
       ...(input.profileId === undefined ? {} : { profileId: input.profileId }),
     });
+  }
+  async startTelegramPairing(
+    orgId: string,
+    userId: string,
+    input: StartTelegramPairingRequest
+  ): Promise<TelegramPairingStartResponse> {
+    return telegramManagedBotPairing.start(orgId, userId, input.profileId);
+  }
+
+  async getTelegramPairingStatus(
+    orgId: string,
+    userId: string,
+    pairingId: string
+  ): Promise<TelegramPairingStatusResponse> {
+    return telegramManagedBotPairing.status(pairingId, orgId, userId);
+  }
+
+  cancelTelegramPairing(
+    orgId: string,
+    userId: string,
+    pairingId: string
+  ): TelegramPairingStatusResponse {
+    return telegramManagedBotPairing.cancel(pairingId, orgId, userId);
+  }
+
+  async applyTelegramPairing(
+    orgId: string,
+    userId: string,
+    pairingId: string,
+    input: ApplyTelegramPairingRequest
+  ): Promise<TelegramPairingStatusResponse> {
+    const settings = await telegramManagedBotPairing.apply(
+      pairingId,
+      orgId,
+      userId,
+      input.profileId,
+      async (saveInput) => {
+        await this.setTelegramSettings(orgId, saveInput);
+      }
+    );
+    return settings;
   }
 
   async regenerateTelegramHandshake(

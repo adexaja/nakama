@@ -171,12 +171,15 @@ import type {
   SkillResponse,
   SoulStackResponse,
   SoulStatusResponse,
+  StartTelegramPairingRequest,
   StoredAutomation,
   StoredWorkflow,
   SuggestToolParamsRequest,
   SuggestToolParamsResponse,
   SyncSkillsResponse,
   SystemStatusResponse,
+  TelegramPairingStartResponse,
+  TelegramPairingStatusResponse,
   TelegramSettingsResponse,
   TestMcpServerResponse,
   ThinkingSettings,
@@ -1934,6 +1937,47 @@ export class NakamaClient {
     return this.request<TelegramSettingsResponse>(
       "/v1/settings/telegram/handshake",
       {
+        method: "POST",
+      }
+    );
+  }
+  async startTelegramPairing(
+    request: StartTelegramPairingRequest
+  ): Promise<TelegramPairingStartResponse> {
+    return this.request<TelegramPairingStartResponse>(
+      "/v1/settings/telegram/pairing",
+      {
+        body: JSON.stringify(request),
+        method: "POST",
+      }
+    );
+  }
+
+  async getTelegramPairingStatus(
+    pairingId: string
+  ): Promise<TelegramPairingStatusResponse> {
+    return this.request<TelegramPairingStatusResponse>(
+      `/v1/settings/telegram/pairing/${encodeURIComponent(pairingId)}`
+    );
+  }
+
+  async cancelTelegramPairing(
+    pairingId: string
+  ): Promise<TelegramPairingStatusResponse> {
+    return this.request<TelegramPairingStatusResponse>(
+      `/v1/settings/telegram/pairing/${encodeURIComponent(pairingId)}/cancel`,
+      { method: "POST" }
+    );
+  }
+
+  async applyTelegramPairing(
+    pairingId: string,
+    profileId: string
+  ): Promise<TelegramPairingStatusResponse> {
+    return this.request<TelegramPairingStatusResponse>(
+      `/v1/settings/telegram/pairing/${encodeURIComponent(pairingId)}/apply`,
+      {
+        body: JSON.stringify({ profileId }),
         method: "POST",
       }
     );

@@ -1,5 +1,8 @@
 import type {
   SendEmailTestRequest,
+  StartTelegramPairingRequest,
+  TelegramPairingStartResponse,
+  TelegramPairingStatusResponse,
   ThinkingEffort,
   UpdateDiscordSettingsRequest,
   UpdateEmailSettingsRequest,
@@ -135,6 +138,50 @@ export function useRegenerateTelegramHandshake() {
   return telegramSettings.useSetQueryDataMutation(() =>
     client.regenerateTelegramHandshake()
   );
+}
+
+export function useStartTelegramPairing() {
+  return useMutation<
+    TelegramPairingStartResponse,
+    Error,
+    StartTelegramPairingRequest
+  >({
+    mutationFn: (request) => client.startTelegramPairing(request),
+  });
+}
+
+export function useTelegramPairingStatus(pairingId: string | null) {
+  return useQuery<TelegramPairingStatusResponse>({
+    enabled: pairingId !== null,
+    queryFn: () => client.getTelegramPairingStatus(pairingId!),
+    queryKey: ["telegram-pairing", pairingId],
+    refetchInterval: (query) =>
+      query.state.data?.status === "waiting" ? 2000 : false,
+  });
+}
+
+export function useCancelTelegramPairing() {
+  return useMutation({
+    mutationFn: (pairingId: string) => client.cancelTelegramPairing(pairingId),
+  });
+}
+
+export function useApplyTelegramPairing() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      pairingId,
+      profileId,
+    }: {
+      pairingId: string;
+      profileId: string;
+    }) => client.applyTelegramPairing(pairingId, profileId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.telegram.settings,
+      });
+    },
+  });
 }
 
 const discordSettings = createSettingsHooks({

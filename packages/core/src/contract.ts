@@ -1483,6 +1483,30 @@ export interface UpdateTelegramSettingsRequest {
   botToken?: string;
   profileId?: string;
 }
+export interface StartTelegramPairingRequest {
+  profileId: string;
+}
+
+export interface TelegramPairingStartResponse {
+  deepLink: string;
+  expiresAt: string;
+  pairingId: string;
+  qrPayload: string;
+  suggestedUsername: string;
+}
+
+export interface TelegramPairingStatusResponse {
+  botUsername: string | null;
+  expiresAt: string;
+  ownerUserId: number | null;
+  pairingId: string;
+  profileId: string;
+  status: "waiting" | "ready" | "expired" | "cancelled" | "applied";
+}
+
+export interface ApplyTelegramPairingRequest {
+  profileId: string;
+}
 
 export interface DiscordSettingsResponse {
   allowedUserIds: string[];

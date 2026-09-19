@@ -28,6 +28,7 @@ import {
   SettingsRow,
 } from "@/components/integration-settings.shared";
 import { ProfileAvatar } from "@/components/ProfileAvatar";
+import { TelegramQrSetup } from "@/components/telegram-qr-setup";
 import { WorkerActionBar } from "@/components/WorkerActionBar";
 
 function pairingCodeDescription(
@@ -138,7 +139,6 @@ function TelegramPairingCodeControls({
     </Button>
   );
 }
-
 function TelegramBotTokenRow({
   botToken,
   configured,
@@ -161,7 +161,7 @@ function TelegramBotTokenRow({
   return (
     <SettingsRow
       className={paneItemClass}
-      description="From @BotFather"
+      description="Paste token from @BotFather"
       label="Bot token"
     >
       <InputGroup className="w-full min-w-[12rem] sm:w-[16rem]">
@@ -173,7 +173,7 @@ function TelegramBotTokenRow({
           placeholder={
             configured && settings?.botTokenMasked
               ? `Saved (${settings.botTokenMasked})`
-              : "Paste token"
+              : "Paste token from @BotFather"
           }
           type={showBotToken ? "text" : "password"}
           value={botToken}
@@ -322,7 +322,7 @@ function TelegramConfiguredSections({
 
 function TelegramPairingGuide() {
   return (
-    <div className="space-y-3">
+    <div className="mx-4 space-y-3">
       <p className="font-medium text-foreground text-xs">Link in Telegram</p>
       <div className="overflow-hidden rounded-md border border-border">
         <div className="grid grid-cols-1 sm:grid-cols-2">
@@ -340,7 +340,7 @@ function TelegramPairingGuide() {
         </div>
       </div>
 
-      <details className="group">
+      <details className="group mt-4 mb-3">
         <summary className="cursor-pointer text-muted-foreground text-xs transition-colors hover:text-foreground">
           Using the bot in a group?
         </summary>
@@ -399,8 +399,8 @@ export type TelegramSettingsCardView = {
   isPaired: boolean;
   regeneratePending: boolean;
   canSave: boolean;
+  statusBadge: string;
 };
-
 export function TelegramSettingsCardContent({
   view,
   headerSubtitle,
@@ -424,13 +424,13 @@ export function TelegramSettingsCardContent({
   submitLabel,
   onSave,
 }: {
-  view: TelegramSettingsCardView;
-  headerSubtitle: string;
-  statusBadge: string;
   settings: { botTokenMasked?: string | null } | null | undefined;
   botToken: string;
   onBotTokenChange: (value: string) => void;
   onToggleShowBotToken: () => void;
+  view: TelegramSettingsCardView;
+  headerSubtitle: string;
+  statusBadge: string;
   pairingCode: string | null;
   onCopyHandshakeCode: () => void;
   onRegenerateHandshake: () => void;
@@ -447,15 +447,15 @@ export function TelegramSettingsCardContent({
   onSave: () => void;
 }) {
   const {
-    embedded,
+    canSave,
     configured,
+    embedded,
     hasLinkedUsers,
-    running,
-    showBotToken,
-    savePending,
     isPaired,
     regeneratePending,
-    canSave,
+    running,
+    savePending,
+    showBotToken,
   } = view;
 
   const paneItemClass = embedded ? undefined : "px-4 py-3";
@@ -477,17 +477,24 @@ export function TelegramSettingsCardContent({
           title="Telegram"
         />
       )}
-
-      <TelegramBotTokenRow
-        botToken={botToken}
-        configured={configured}
-        onBotTokenChange={onBotTokenChange}
-        onToggleShowBotToken={onToggleShowBotToken}
-        paneItemClass={paneItemClass}
-        savePending={savePending}
-        settings={settings}
-        showBotToken={showBotToken}
-      />
+      <div>
+        <TelegramQrSetup profileId={profileId} running={running} />
+        <div className="flex items-center gap-3 px-4 py-2 text-muted-foreground text-xs">
+          <div className="h-px flex-1 bg-border" />
+          <span>OR</span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+        <TelegramBotTokenRow
+          botToken={botToken}
+          configured={configured}
+          onBotTokenChange={onBotTokenChange}
+          onToggleShowBotToken={onToggleShowBotToken}
+          paneItemClass={paneItemClass}
+          savePending={savePending}
+          settings={settings}
+          showBotToken={showBotToken}
+        />
+      </div>
 
       {configured ? (
         <TelegramConfiguredSections
