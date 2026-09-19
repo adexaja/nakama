@@ -77,6 +77,7 @@ export function AssistantTurnSegmentView({
   if (segment.kind === "work") {
     return (
       <AssistantWorkGroup
+        active={segment.active ?? false}
         modelLabel={modelLabel}
         profileId={profileId}
         thinking={showThinking ? segment.thinking : undefined}
@@ -213,11 +214,13 @@ function PluginToolRow({ message }: { message: ChatListItem }) {
 }
 
 function AssistantWorkGroup({
+  active,
   thinking,
   tools,
   modelLabel,
   profileId,
 }: {
+  active: boolean;
   thinking?: ChatListItem;
   tools: ChatListItem[];
   modelLabel?: string | null;
@@ -227,12 +230,13 @@ function AssistantWorkGroup({
     (tool) => !isArtifactMetaSidecarTool(tool) && tool.tool !== "create_profile"
   );
 
-  if (visibleTools.length === 0 && !thinking) {
+  if (visibleTools.length === 0 && !thinking && !active) {
     return null;
   }
 
   return (
     <OtherWorkGroup
+      active={active}
       modelLabel={modelLabel}
       profileId={profileId}
       thinking={thinking}
@@ -242,27 +246,24 @@ function AssistantWorkGroup({
 }
 
 function OtherWorkGroup({
+  active,
   thinking,
   tools,
   modelLabel,
   profileId,
 }: {
+  active: boolean;
   thinking?: ChatListItem;
   tools: ChatListItem[];
   modelLabel?: string | null;
   profileId?: string | null;
 }) {
-  const isThinkingStreaming = Boolean(thinking?.thinkingStreaming);
-  const hasRunningTools = tools.some((tool) => tool.toolStatus === "running");
-  const isWorkActive = isThinkingStreaming || hasRunningTools;
-
-  if (tools.length === 0) {
-    return thinking ? <ThinkingBlock message={thinking} /> : null;
-  }
+  const isThinkingStreaming = active && Boolean(thinking?.thinkingStreaming);
 
   if (!thinking) {
     return (
       <ToolOnlyWorkGroup
+        isWorkActive={active}
         modelLabel={modelLabel}
         profileId={profileId}
         tools={tools}
@@ -274,9 +275,12 @@ function OtherWorkGroup({
     <ThinkingReasoning
       className="w-full max-w-full"
       isThinkingStreaming={isThinkingStreaming}
-      isWorkActive={isWorkActive}
+      isWorkActive={active}
       startedAt={thinking.createdAt}
       text={thinking.thinking ?? ""}
+      thinkingDurationMs={
+        tools.length === 0 && !active ? thinking.thinkingDurationMs : undefined
+      }
     >
       {tools.map((tool, index) => (
         <TimelineStep isLast={index === tools.length - 1} key={tool.id}>
@@ -293,16 +297,16 @@ function OtherWorkGroup({
 }
 
 function ToolOnlyWorkGroup({
+  isWorkActive,
   tools,
   modelLabel,
   profileId,
 }: {
+  isWorkActive: boolean;
   tools: ChatListItem[];
   modelLabel?: string | null;
   profileId?: string | null;
 }) {
-  const hasRunningTools = tools.some((tool) => tool.toolStatus === "running");
-  const isWorkActive = hasRunningTools;
   const [open, setOpen] = useState(isWorkActive);
   const elapsedSeconds = useWorkDuration(isWorkActive, tools);
 
@@ -469,7 +473,7 @@ function useWorkDuration(
     const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(intervalId);
   }, [active]);
-  return toolGroupElapsedSeconds(tools, now);
+  return toolGroupElapsedSeconds(tools, now, active);
 }
 
 function isDedicatedTool(tool: ChatListItem): boolean {

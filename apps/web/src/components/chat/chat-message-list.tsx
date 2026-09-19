@@ -288,6 +288,7 @@ function ChatMessageListSession({
             showUsage={showUsage}
             streamActive={streamActive}
             turnStartedAt={turnStartedAt}
+            workStreamActive={streamActive && turnIndex === turns.length - 1}
           />
         </div>
       );
@@ -356,6 +357,7 @@ function ChatMessageListSession({
 }
 
 function AssistantTurn({
+  workStreamActive,
   messages,
   profileId,
   showThinking,
@@ -369,6 +371,7 @@ function AssistantTurn({
   onBranchMessage,
   onRetryMessage,
 }: {
+  workStreamActive: boolean;
   messages: IndexedMessage[];
   profileId?: string | null;
   showThinking: boolean;
@@ -383,7 +386,7 @@ function AssistantTurn({
   onRetryMessage?: (message: ChatListItem) => void;
 }) {
   const turnMessages = messages.map(({ message }) => message);
-  const segments = segmentAssistantTurn(turnMessages);
+  const segments = segmentAssistantTurn(turnMessages, workStreamActive);
   const artifacts = extractTurnArtifacts(turnMessages);
   const createdProfiles = turnMessages.flatMap((message) => {
     if (message.tool !== "create_profile") {
@@ -424,7 +427,9 @@ function AssistantTurn({
           showThinking={showThinking}
         />
       ))}
-      {showAwaiting ? <TurnAwaitingElapsed startedAt={turnStartedAt} /> : null}
+      {showAwaiting && !segments.some((segment) => segment.kind === "work") ? (
+        <TurnAwaitingElapsed startedAt={turnStartedAt} />
+      ) : null}
       {turnMessages
         .filter((message) => message.toolResult != null)
         .map((message) => (
