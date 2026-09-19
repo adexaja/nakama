@@ -181,17 +181,21 @@ export async function runChat(options: RunChatOptions): Promise<void> {
   const renderer = new TerminalRenderer(terminalInput);
   const useStickyInput = renderer.apply();
 
-  printLine(`Profile: ${currentProfile.name} (${currentProfile.id})`);
+  printLine(` Profile: ${currentProfile.name} (${currentProfile.id})`);
   console.log("");
 
   if (options.offline) {
     console.log(
-      "Server has no provider configured. Chat runs in offline mode."
+      " Server has no provider configured. Chat runs in offline mode."
     );
     console.log("");
   } else {
     try {
-      await printCurrentModel(options.client, printLine, currentProfile);
+      await printCurrentModel(
+        options.client,
+        (line) => printLine(` ${line}`),
+        currentProfile
+      );
     } catch (error) {
       printError(error);
       console.log(
@@ -302,49 +306,96 @@ async function runStickyChat(
     renderer.setPendingMessages([...queue]);
   }
 
-  function createStreamHandlers(): StreamHandlers {
+  function createStreamHandlers(): StreamHandlers & { finishTools(): void } {
     const activeTools = new Map<
       string,
       { tool: string; input: Record<string, unknown>; startedAt: number }
     >();
+    let completed = 0;
+    let failedCount = 0;
+    let startedAt: number | undefined;
+    let endedAt = 0;
+    const toolSummary = () =>
+      `${completed} ${completed === 1 ? "tool" : "tools"} completed${failedCount ? ` · ${failedCount} failed` : ""}`;
     const showRunningTool = () => {
       const active = activeTools.values().next().value;
       renderer.setStatusLine(
         active
-          ? styledLine(formatToolCall(active.tool, active.input, "running"), {
-              dim: true,
-            })
-          : null
+          ? styledLine(
+              formatToolCall(
+                active.tool,
+                active.input,
+                "running",
+                undefined,
+                Math.max(
+                  1,
+                  getTerminalColumns() - ` · ${completed} done`.length
+                )
+              ) + ` · ${completed} done`,
+              {
+                dim: true,
+              }
+            )
+          : styledLine(toolSummary(), { dim: true })
       );
     };
+    const finishTools = () => {
+      if (startedAt === undefined) {
+        return;
+      }
+      const interrupted = activeTools.size;
+      const elapsed =
+        ((interrupted ? performance.now() : endedAt) - startedAt) / 1000;
+      renderer.setStatusLine(null);
+      renderer.appendToolLine(
+        styledLine(
+          `${failedCount || interrupted ? "✗" : "✓"} ${toolSummary()}${interrupted ? ` · ${interrupted} interrupted` : ""} · ${elapsed.toFixed(1)}s`,
+          { dim: true }
+        )
+      );
+      completed = 0;
+      failedCount = 0;
+      startedAt = undefined;
+    };
     return {
+      finishTools,
       onChunk: (delta) => {
         thinkingIndicator.stop();
+        if (activeTools.size === 0) {
+          finishTools();
+        }
         renderer.appendStreamChunk(delta);
       },
       onThinking: () => {
+        if (activeTools.size > 0) {
+          return;
+        }
+        finishTools();
         thinkingIndicator.start();
       },
       onToolEnd: (event) => {
         const active = activeTools.get(event.toolCallId);
         activeTools.delete(event.toolCallId);
         const failed = toolResultFailed(event.result);
+        completed += 1;
+        failedCount += Number(failed);
+        endedAt = performance.now();
         showRunningTool();
-        renderer.appendToolLine(
-          styledLine(
-            formatToolCall(
-              event.tool,
-              active?.input ?? {},
-              failed ? "error" : "done",
-              active ? performance.now() - active.startedAt : undefined
-            ),
-            {
-              color: failed ? "red" : "green",
-              dim: true,
-            }
-          )
-        );
         if (failed) {
+          renderer.appendToolLine(
+            styledLine(
+              formatToolCall(
+                event.tool,
+                active?.input ?? {},
+                "error",
+                active ? performance.now() - active.startedAt : undefined
+              ),
+              {
+                color: "red",
+                dim: true,
+              }
+            )
+          );
           renderer.appendToolLine(
             styledLine(`  ${previewToolValue(event.result)}`, { color: "red" })
           );
@@ -352,6 +403,7 @@ async function runStickyChat(
       },
       onToolStart: (event) => {
         thinkingIndicator.stop();
+        startedAt ??= performance.now();
         activeTools.set(event.toolCallId, {
           input: event.input,
           startedAt: performance.now(),
@@ -369,18 +421,16 @@ async function runStickyChat(
       thinkingIndicator.start();
     }
 
+    const handlers = createStreamHandlers();
     try {
-      return await sendStreamCancellable(
-        session,
-        input,
-        createStreamHandlers(),
-        {
-          signal: abortController?.signal,
-        }
-      );
+      return await sendStreamCancellable(session, input, handlers, {
+        signal: abortController?.signal,
+      });
     } catch (error) {
       thinkingIndicator.stop();
       throw error;
+    } finally {
+      handlers.finishTools();
     }
   }
 
@@ -507,9 +557,13 @@ async function runStickyChat(
     }
 
     if (line === "/clear") {
+      if (isStreaming) {
+        writeOutput("Wait for the current response to finish.");
+        return "handled";
+      }
       await session.clear();
       lastUserMessage = null;
-      writeOutput("History cleared.");
+      renderer.clear();
       return "handled";
     }
 
@@ -1398,12 +1452,10 @@ function formatProfilesLines(
       .filter(Boolean)
       .join(", ");
 
-    lines.push(
-      `  ${profile.id} — ${profile.name}${markers ? ` (${markers})` : ""}`
-    );
+    lines.push(`  ${profile.name}${markers ? ` (${markers})` : ""}`);
   }
 
-  lines.push("Use /profile <id> to switch.");
+  lines.push("Use /profile <name> to switch.");
   return lines;
 }
 

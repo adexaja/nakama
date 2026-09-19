@@ -341,6 +341,38 @@ describe("TerminalLayout frame pipeline", () => {
     expect(output).toContain(" line-05 ");
   });
 
+  test("clears the transcript and redraws the composer from the top", () => {
+    captureStdout();
+    setTerminalSize(80, 12);
+    const layout = new TerminalLayout(null);
+    Object.assign(layout, {
+      anchored: true,
+      anchorRow: 8,
+      enabled: true,
+    });
+    const renderer = new TerminalRenderer(null, layout);
+    renderer.setComposerState(renderer.getState().composer);
+    renderer.appendOutputLine("old message");
+    renderer.setStatusLine(plainLine("old status"));
+    renderer.scrollPage(1);
+
+    writes = [];
+    renderer.clear();
+
+    expect(writes.join("")).toContain("\x1b[2J\x1b[3J\x1b[H");
+    expect(layout.previousFrame?.topRow).toBe(1);
+    expect(layout.getLastOutputLine()).toBe(0);
+    expect(renderer.getState().statusLine).toBeNull();
+    expect(layout.previousFrame?.lines.map(styledLineText).slice(0, 4)).toEqual(
+      ["", " ".repeat(80), "> ▌" + " ".repeat(77), " ".repeat(80)]
+    );
+    renderer.scrollPage(1);
+    expect(writes.join("")).not.toContain("old message");
+    renderer.appendOutputLine("new message");
+    expect(writes.join("")).toContain("new message");
+    expect(layout.isEnabled()).toBe(true);
+  });
+
   test("scrolls within retained history and returns to live output after eviction", () => {
     captureStdout();
     setTerminalSize(80, 8);

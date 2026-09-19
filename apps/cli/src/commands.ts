@@ -217,9 +217,9 @@ export function resolveSuggestions(
           .join(", ");
 
         return {
-          description: `${profile.name}${markers ? ` (${markers})` : ""}`,
+          description: markers ? `(${markers})` : "",
           insertValue: `/profile ${profile.id}`,
-          label: profile.id,
+          label: profile.name,
         };
       });
   }
