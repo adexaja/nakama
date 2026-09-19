@@ -123,6 +123,9 @@ export function validateCustomModels(entries: unknown): CustomModelEntry[] {
       defaultCount += 1;
     }
 
+    const cachedInputPerMillionUsd = parseOptionalUsdRate(
+      record.cachedInputPerMillionUsd
+    );
     const inputPerMillionUsd = parseOptionalUsdRate(record.inputPerMillionUsd);
     const outputPerMillionUsd = parseOptionalUsdRate(
       record.outputPerMillionUsd
@@ -156,6 +159,9 @@ export function validateCustomModels(entries: unknown): CustomModelEntry[] {
       ...(isDefault ? { default: true } : {}),
       ...(supportsThinking === undefined ? {} : { supportsThinking }),
       ...(supportsVision === undefined ? {} : { supportsVision }),
+      ...(cachedInputPerMillionUsd === undefined
+        ? {}
+        : { cachedInputPerMillionUsd }),
       ...(inputPerMillionUsd === undefined ? {} : { inputPerMillionUsd }),
       ...(outputPerMillionUsd === undefined ? {} : { outputPerMillionUsd }),
     });

@@ -190,6 +190,7 @@ export async function continueAnthropicUntilDone(
     options.provider
   );
   const combinedContent: ContentBlock[] = [];
+  let totalCachedInputTokens = 0;
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   const tools = buildAnthropicTools(options.tools, options.webSearch);
@@ -217,6 +218,7 @@ export async function continueAnthropicUntilDone(
       const streamed = await readAnthropicStream(stream, options.handlers);
       totalInputTokens += streamed.usage?.inputTokens ?? 0;
       totalOutputTokens += streamed.usage?.outputTokens ?? 0;
+      totalCachedInputTokens += streamed.usage?.cachedInputTokens ?? 0;
       combinedContent.push(...streamed.contentBlocks);
 
       if (streamed.stopReason !== "pause_turn") {
@@ -225,6 +227,7 @@ export async function continueAnthropicUntilDone(
           parsed: parseAnthropicContent(combinedContent),
           toolCalls: streamed.toolCalls,
           usage: buildTokenUsage({
+            cachedInputTokens: totalCachedInputTokens,
             inputTokens: totalInputTokens,
             outputTokens: totalOutputTokens,
           }),
@@ -245,8 +248,12 @@ export async function continueAnthropicUntilDone(
       },
       { signal: options.signal }
     );
-    totalInputTokens += payload.usage?.input_tokens ?? 0;
+    totalInputTokens +=
+      (payload.usage?.input_tokens ?? 0) +
+      (payload.usage?.cache_read_input_tokens ?? 0) +
+      (payload.usage?.cache_creation_input_tokens ?? 0);
     totalOutputTokens += payload.usage?.output_tokens ?? 0;
+    totalCachedInputTokens += payload.usage?.cache_read_input_tokens ?? 0;
 
     const content = payload.content;
     emitHostedToolEvents(content, options.handlers);
@@ -256,6 +263,7 @@ export async function continueAnthropicUntilDone(
       return finalizeAnthropicResult({
         parsed: parseAnthropicContent(combinedContent),
         usage: buildTokenUsage({
+          cachedInputTokens: totalCachedInputTokens,
           inputTokens: totalInputTokens,
           outputTokens: totalOutputTokens,
         }),
@@ -268,6 +276,7 @@ export async function continueAnthropicUntilDone(
   return finalizeAnthropicResult({
     parsed: parseAnthropicContent(combinedContent),
     usage: buildTokenUsage({
+      cachedInputTokens: totalCachedInputTokens,
       inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,
     }),
@@ -287,6 +296,7 @@ async function readAnthropicStream(
   let stopReason: string | undefined;
   let inputTokens: number | undefined;
   let outputTokens: number | undefined;
+  let cachedInputTokens: number | undefined;
   const pending = new Map<
     number,
     { id: string; name: string; inputJson: string }
@@ -296,15 +306,27 @@ async function readAnthropicStream(
 
   for await (const event of stream) {
     if (event.type === "message_start") {
-      inputTokens = event.message.usage.input_tokens;
-      outputTokens = event.message.usage.output_tokens;
+      // Anthropic reports cache buckets separately from input_tokens, so the
+      // total input is the sum. cachedInputTokens stays the read-hit subset.
+      const usage = event.message.usage;
+      cachedInputTokens = usage.cache_read_input_tokens ?? undefined;
+      inputTokens =
+        usage.input_tokens +
+        (usage.cache_read_input_tokens ?? 0) +
+        (usage.cache_creation_input_tokens ?? 0);
+      outputTokens = usage.output_tokens;
     }
 
     if (event.type === "message_delta") {
       stopReason = event.delta.stop_reason ?? stopReason;
 
       if (event.usage.input_tokens != null) {
-        inputTokens = event.usage.input_tokens;
+        cachedInputTokens =
+          event.usage.cache_read_input_tokens ?? cachedInputTokens;
+        inputTokens =
+          event.usage.input_tokens +
+          (event.usage.cache_read_input_tokens ?? 0) +
+          (event.usage.cache_creation_input_tokens ?? 0);
       }
 
       if (typeof event.usage.output_tokens === "number") {
@@ -430,7 +452,7 @@ async function readAnthropicStream(
       content,
       parsed,
       toolCalls,
-      usage: buildTokenUsage({ inputTokens, outputTokens }),
+      usage: buildTokenUsage({ cachedInputTokens, inputTokens, outputTokens }),
     }),
     contentBlocks: normalizedContent,
     stopReason,

@@ -1718,6 +1718,8 @@ export interface ApiErrorResponse {
 }
 
 export interface CustomModelEntry {
+  /** USD per 1M input tokens served from the provider's prompt cache. */
+  cachedInputPerMillionUsd?: number;
   /** Total context the model accepts. Blank falls back to the catalog entry,
    * then to a conservative default, so existing entries keep their behaviour. */
   contextWindow?: number;
@@ -2501,6 +2503,11 @@ export type ChatMessage =
     };
 
 export interface ChatUsage {
+  /**
+   * Input tokens the provider served from its prompt cache. A subset of
+   * `inputTokens`, so never add the two together.
+   */
+  cachedInputTokens?: number;
   /** Absent when the model has no known pricing. */
   costUsd?: number;
   /** True when input/output tokens were estimated rather than reported by the provider. */
