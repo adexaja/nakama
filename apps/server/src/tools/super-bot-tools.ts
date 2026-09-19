@@ -274,7 +274,7 @@ export function createSuperBotTools(
     },
     {
       description:
-        "Record the user's approval to build a researched tool. Call only after the user explicitly approves the build plan, and before create_tool.",
+        "Record the user's explicit approval of a previously presented tool build plan. Required for every new tool before writing files or registering. Questions and plan changes are not approval. Call again in each turn continuing the same approved plan; do not ask the user again unless the plan changes.",
       name: "approve_tool_build",
       parameters: emptyObjectSchema(),
       async run(_input, context: ToolContext) {
@@ -287,7 +287,7 @@ export function createSuperBotTools(
     },
     {
       description:
-        "Register a custom tool (javascript or python) after the user approves the build. Workflow: list_tools (check name) → write_file (~/.nakama/tools/<name>.js|.py) → create_tool. Do not call list_profiles as part of this workflow.",
+        "Register an existing JavaScript or Python module after approve_tool_build succeeds this turn. Follow the tool authoring workflow. Registration does not execute or test the tool.",
       name: "create_tool",
       parameters: {
         additionalProperties: false,
@@ -296,7 +296,7 @@ export function createSuperBotTools(
           handlerConfig: {
             additionalProperties: true,
             description:
-              'Handler config: { "modulePath": "my-tool.js", "requiresApiKey": true } or { "modulePath": "my-tool.py" } relative to ~/.nakama/tools/. The file must already exist. JS modules export run(input, context) plus optional parameters. Python modules define def run(input, context) and a __main__ stdin/stdout JSON harness. For tools needing an API key, set requiresApiKey: true and read NAKAMA_TOOL_API_KEY from the environment at execution time. Never request keys in chat, put them in tool parameters/source, or return/log them. The web chat shows a Configure card; tell the user to save the key there, then ask them to retry the tool.',
+              "Write the module with write_file before registering. modulePath: filename relative to ~/.nakama/tools/, ending in .js or .py. JavaScript (preferred): export async function run(input, context). Python: def run(input, context) plus a __main__ harness reading JSON from sys.stdin and writing JSON to sys.stdout. parameters: input JSON schema with properties and required fields; exported JS parameters are ignored. Validate inputs; return JSON-serializable results; log only to stderr. Profile files: context.workspaceRoot (JS) or NAKAMA_WORKSPACE_ROOT (Python). requiresApiKey: true only if needed; read NAKAMA_TOOL_API_KEY at runtime, never put keys in inputs/source/output. Direct users to the web chat Configure card, then retry.",
             type: "object",
           },
           handlerType: {

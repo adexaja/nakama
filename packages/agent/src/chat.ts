@@ -14,6 +14,7 @@ import type {
   ToolContext,
   ToolDefinition,
 } from "@nakama/core";
+import { createId } from "@nakama/core";
 
 export interface AgentRequest {
   channel: AgentChannel;
@@ -72,17 +73,20 @@ export interface StreamHandlers {
   }) => void;
   onThinking?: (delta: string) => void;
   onToolEnd?: (event: {
+    toolGroupId?: string;
     toolCallId: string;
     tool: string;
     result: unknown;
   }) => void;
   onToolInputDelta?: (event: {
+    toolGroupId?: string;
     toolCallId: string;
     tool: string;
     delta: string;
     accumulatedArguments?: string;
   }) => void;
   onToolStart?: (event: {
+    toolGroupId?: string;
     toolCallId: string;
     tool: string;
     input: Record<string, unknown>;
@@ -644,6 +648,7 @@ async function runConversation(
       ) + Math.max(0, MAX_TURN_OUTPUT_TOKENS - producedTokens);
     await toolContext?.assertCanStartLlmTurn?.(reservedTokens);
 
+    const toolGroupId = createId("toolgroup");
     const result = await generateReply(
       provider,
       systemPrompt,
@@ -653,7 +658,8 @@ async function runConversation(
       mode,
       handlers,
       rehydrateMessagesForProvider,
-      signal
+      signal,
+      toolGroupId
     );
 
     const usedTokens =
@@ -723,7 +729,8 @@ async function runConversation(
       history,
       handlers,
       toolContext,
-      preprocessUserContent
+      preprocessUserContent,
+      toolGroupId
     );
     // Check between batches: one batch can overshoot, but no next request runs.
     producedTokens += estimateHistoryTokens(
@@ -758,7 +765,8 @@ async function executeToolCalls(
   history: ChatMessage[],
   handlers?: StreamHandlers,
   toolContext: ToolContext = {},
-  preprocessUserContent?: AgentChatSessionOptions["preprocessUserContent"]
+  preprocessUserContent?: AgentChatSessionOptions["preprocessUserContent"],
+  toolGroupId?: string
 ): Promise<void> {
   const contextForCall = (call: ToolCall): ToolContext => {
     if (!handlers?.onSubAgentActivity || call.name !== "sub_agent") {
@@ -783,6 +791,7 @@ async function executeToolCalls(
           input: call.arguments,
           tool: call.name,
           toolCallId: call.id,
+          toolGroupId,
         });
 
         const { result, attachments } = await prepareReadFileResult(
@@ -796,6 +805,7 @@ async function executeToolCalls(
           result,
           tool: call.name,
           toolCallId: call.id,
+          toolGroupId,
         });
 
         return { attachments, call, result, toolCompletedAt, toolStartedAt };
@@ -814,6 +824,7 @@ async function executeToolCalls(
         role: "tool",
         toolCallId: entry.call.id,
         toolCompletedAt: entry.toolCompletedAt,
+        toolGroupId,
         toolStartedAt: entry.toolStartedAt,
       });
     }
@@ -833,6 +844,7 @@ async function executeToolCalls(
       input: call.arguments,
       tool: call.name,
       toolCallId: call.id,
+      toolGroupId,
     });
 
     const { result, attachments } = await prepareReadFileResult(
@@ -846,6 +858,7 @@ async function executeToolCalls(
       result,
       tool: call.name,
       toolCallId: call.id,
+      toolGroupId,
     });
 
     history.push({
@@ -855,6 +868,7 @@ async function executeToolCalls(
       role: "tool",
       toolCallId: call.id,
       toolCompletedAt,
+      toolGroupId,
       toolStartedAt,
     });
   }
@@ -916,7 +930,8 @@ async function generateReply(
   rehydrateMessagesForProvider?: (
     messages: readonly ChatMessage[]
   ) => Promise<ChatMessage[]>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  toolGroupId?: string
 ) {
   const dateLine = `Today is ${formatCurrentDate()}.`;
   // All tool replies must precede the visual content, including parallel calls.
@@ -991,14 +1006,14 @@ async function generateReply(
           }
           handlers.onThinking?.(delta);
         },
-        onToolEnd: handlers.onToolEnd,
+        onToolEnd: (event) => handlers.onToolEnd?.({ ...event, toolGroupId }),
         onToolInputDelta: (event) => {
           finishThinking();
-          handlers.onToolInputDelta?.(event);
+          handlers.onToolInputDelta?.({ ...event, toolGroupId });
         },
         onToolStart: (event) => {
           finishThinking();
-          handlers.onToolStart?.(event);
+          handlers.onToolStart?.({ ...event, toolGroupId });
         },
       });
       signal?.throwIfAborted();

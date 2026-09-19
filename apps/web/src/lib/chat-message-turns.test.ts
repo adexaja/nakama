@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { toolGroupElapsedSeconds } from "@/components/chat/assistant-tool-group.shared";
+import {
+  segmentAssistantTurn,
+  toolGroupElapsedSeconds,
+} from "@/components/chat/assistant-tool-group.shared";
 import type { ChatListItem } from "./chat-history";
 import { groupMessagesIntoTurns, turnKey } from "./chat-message-turns";
 
@@ -92,6 +95,21 @@ describe("groupMessagesIntoTurns", () => {
         "a1",
       ]);
     }
+  });
+
+  test("keeps explicit tool groups stable across message updates", () => {
+    const segments = segmentAssistantTurn([
+      item({ id: "t1", role: "tool", tool: "read_file", toolGroupId: "g1" }),
+      item({ id: "a1", role: "assistant", thinking: "progress" }),
+      item({ id: "t2", role: "tool", tool: "search_files", toolGroupId: "g1" }),
+    ]);
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      groupId: "g1",
+      kind: "work",
+      tools: [{ id: "t1" }, { id: "t2" }],
+    });
   });
 });
 

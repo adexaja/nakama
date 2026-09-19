@@ -1118,6 +1118,7 @@ export type StreamEvent =
   | { type: "thinking"; delta: string }
   | {
       type: "tool_input_delta";
+      toolGroupId?: string;
       toolCallId: string;
       tool: string;
       delta: string;
@@ -1125,12 +1126,14 @@ export type StreamEvent =
     }
   | {
       type: "tool_start";
+      toolGroupId?: string;
       toolCallId: string;
       tool: string;
       input: Record<string, unknown>;
     }
   | {
       type: "tool_end";
+      toolGroupId?: string;
       toolCallId: string;
       tool: string;
       result: unknown;
@@ -2451,6 +2454,7 @@ export type ChatMessage =
     }
   | {
       role: "tool";
+      toolGroupId?: string;
       toolCallId: string;
       name: string;
       content: string;

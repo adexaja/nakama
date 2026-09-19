@@ -36,7 +36,7 @@ export class SuperBotSessionState {
 
   canCreateTool(sessionId: string | undefined): boolean {
     if (!sessionId) {
-      return true;
+      return false;
     }
 
     const turn = this.turns.get(sessionId);
@@ -107,4 +107,4 @@ export const PROFILE_UPDATE_CONFIRMATION_MESSAGE =
   "Wait for the user to confirm the draft in a later message before calling update_profile.";
 
 export const TOOL_CREATION_CONFIRMATION_MESSAGE =
-  "Wait for the user to confirm the build, call approve_tool_build, then call create_tool.";
+  "Tool creation requires a session and recorded approval in the current turn. If the user already explicitly approved this plan, call approve_tool_build, then retry create_tool. Otherwise, explain the build plan and wait for the user's approval in a later message before writing files or registering the tool.";

@@ -374,6 +374,7 @@ export interface ChatListItem {
   tool?: string;
   toolCallId?: string;
   toolCompletedAt?: number;
+  toolGroupId?: string;
   toolInput?: Record<string, unknown>;
   toolInputAccumulatedJson?: string;
   toolResult?: unknown;
@@ -677,6 +678,7 @@ export function chatMessagesToListItems(
         tool: message.name,
         toolCallId: message.toolCallId,
         toolCompletedAt: message.toolCompletedAt,
+        toolGroupId: message.toolGroupId,
         toolInput: toolInputs.get(message.toolCallId),
         toolResult: parseToolResult(message.content),
         toolStartedAt: message.toolStartedAt,

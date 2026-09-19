@@ -38,33 +38,75 @@ describe("super bot create_tool", () => {
     }
   });
 
-  test("waits for confirmation after a research turn", async () => {
-    const sessionState = new SuperBotSessionState();
-    sessionState.beginTurn(SESSION_ID);
-    let createToolCalled = false;
-    const createTool = getCreateToolTool(
-      {
-        async createTool(): Promise<ToolDetail> {
-          createToolCalled = true;
-          throw new Error("should not be called");
-        },
-      },
-      sessionState
-    );
-
-    const error = await captureError(
-      createTool.run(
+  test.each([undefined, "unknown_session", SESSION_ID])(
+    "blocks registration without an approved session: %s",
+    async (sessionId) => {
+      const sessionState = new SuperBotSessionState();
+      sessionState.beginTurn(SESSION_ID);
+      let createToolCalled = false;
+      const createTool = getCreateToolTool(
         {
-          description: "Generate media",
-          handlerConfig: { modulePath: "media.js" },
-          name: "media_generation",
+          async createTool(): Promise<ToolDetail> {
+            createToolCalled = true;
+            throw new Error("should not be called");
+          },
         },
-        { orgId: ORG_ID, sessionId: SESSION_ID }
-      )
-    );
+        sessionState
+      );
 
-    expect(error?.message).toBe(TOOL_CREATION_CONFIRMATION_MESSAGE);
-    expect(createToolCalled).toBe(false);
+      const error = await captureError(
+        createTool.run(
+          {
+            description: "Generate media",
+            handlerConfig: { modulePath: "media.js" },
+            name: "media_generation",
+          },
+          { orgId: ORG_ID, sessionId }
+        )
+      );
+
+      expect(error).toBeInstanceOf(Error);
+      expect(createToolCalled).toBe(false);
+    }
+  );
+
+  test("records approval only in an eligible session and resets it between turns", async () => {
+    const sessionState = new SuperBotSessionState();
+    const approveBuild = createSuperBotTools(
+      {} as ProfileService,
+      sessionState
+    ).find((tool) => tool.name === "approve_tool_build");
+    if (!approveBuild) {
+      throw new Error("approve_tool_build was not registered");
+    }
+    const context = { orgId: ORG_ID, sessionId: SESSION_ID };
+
+    for (const sessionId of [undefined, SESSION_ID]) {
+      expect(
+        await captureError(approveBuild.run({}, { orgId: ORG_ID, sessionId }))
+      ).toBeInstanceOf(Error);
+      expect(sessionState.canCreateTool(sessionId)).toBe(false);
+    }
+
+    sessionState.beginTurn(SESSION_ID);
+    expect(await captureError(approveBuild.run({}, context))).toBeInstanceOf(
+      Error
+    );
+    expect(sessionState.canCreateTool(SESSION_ID)).toBe(false);
+
+    sessionState.beginTurn(SESSION_ID);
+    await approveBuild.run({}, context);
+    expect(sessionState.canCreateTool(SESSION_ID)).toBe(true);
+    sessionState.beginTurn("other_session");
+    sessionState.beginTurn("other_session");
+    expect(sessionState.canCreateTool("other_session")).toBe(false);
+
+    sessionState.beginTurn(SESSION_ID);
+    expect(sessionState.canCreateTool(SESSION_ID)).toBe(false);
+    await approveBuild.run({}, context);
+    expect(sessionState.canCreateTool(SESSION_ID)).toBe(true);
+    sessionState.clearSession(SESSION_ID);
+    expect(sessionState.canCreateTool(SESSION_ID)).toBe(false);
   });
 
   test("does not unlock creation for an unrelated later turn", async () => {
@@ -114,22 +156,35 @@ describe("super bot create_tool", () => {
       );
 
       const capturedRequests: CreateToolRequest[] = [];
+      const sessionState = new SuperBotSessionState();
+      sessionState.beginTurn(SESSION_ID);
+      sessionState.beginTurn(SESSION_ID);
+      const tools = createSuperBotTools(
+        {
+          async createTool(request: CreateToolRequest): Promise<ToolDetail> {
+            capturedRequests.push(request);
 
-      const createTool = getCreateToolTool({
-        async createTool(request: CreateToolRequest): Promise<ToolDetail> {
-          capturedRequests.push(request);
-
-          return {
-            createdAt: "2026-01-01T00:00:00.000Z",
-            description: request.description,
-            handlerConfig: request.handlerConfig ?? {},
-            handlerType: request.handlerType ?? "javascript",
-            id: "tool_echo",
-            name: request.name,
-            updatedAt: "2026-01-01T00:00:00.000Z",
-          };
-        },
-      });
+            return {
+              createdAt: "2026-01-01T00:00:00.000Z",
+              description: request.description,
+              handlerConfig: request.handlerConfig ?? {},
+              handlerType: request.handlerType ?? "javascript",
+              id: "tool_echo",
+              name: request.name,
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            };
+          },
+        } as ProfileService,
+        sessionState
+      );
+      const approveBuild = tools.find(
+        (tool) => tool.name === "approve_tool_build"
+      );
+      const createTool = tools.find((tool) => tool.name === "create_tool");
+      if (!(approveBuild && createTool)) {
+        throw new Error("Tool creation workflow was not registered");
+      }
+      await approveBuild.run({}, { orgId: ORG_ID, sessionId: SESSION_ID });
 
       const result = await createTool.run(
         {

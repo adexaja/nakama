@@ -534,6 +534,7 @@ function buildAgentStreamHandlers(send: (event: StreamEvent) => void) {
       }),
     onThinking: (delta: string) => send({ delta, type: "thinking" }),
     onToolEnd: (event: {
+      toolGroupId?: string;
       toolCallId: string;
       tool: string;
       result: unknown;
@@ -542,6 +543,7 @@ function buildAgentStreamHandlers(send: (event: StreamEvent) => void) {
         result: event.result,
         tool: event.tool,
         toolCallId: event.toolCallId,
+        toolGroupId: event.toolGroupId,
         type: "tool_end",
       });
 
@@ -562,6 +564,7 @@ function buildAgentStreamHandlers(send: (event: StreamEvent) => void) {
       }
     },
     onToolInputDelta: (event: {
+      toolGroupId?: string;
       toolCallId: string;
       tool: string;
       delta: string;
@@ -572,9 +575,11 @@ function buildAgentStreamHandlers(send: (event: StreamEvent) => void) {
         delta: event.delta,
         tool: event.tool,
         toolCallId: event.toolCallId,
+        toolGroupId: event.toolGroupId,
         type: "tool_input_delta",
       }),
     onToolStart: (event: {
+      toolGroupId?: string;
       toolCallId: string;
       tool: string;
       input: Record<string, unknown>;
@@ -583,6 +588,7 @@ function buildAgentStreamHandlers(send: (event: StreamEvent) => void) {
         input: event.input,
         tool: event.tool,
         toolCallId: event.toolCallId,
+        toolGroupId: event.toolGroupId,
         type: "tool_start",
       }),
     onUsage: (usage: ChatUsage) => send({ type: "usage", usage }),
