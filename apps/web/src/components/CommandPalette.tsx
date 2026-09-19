@@ -73,6 +73,7 @@ export function CommandPalette() {
 
   return (
     <CommandDialog
+      className="sm:max-w-2xl"
       description="Jump to a page"
       onOpenChange={setOpen}
       open={open}
