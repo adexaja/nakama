@@ -1,3 +1,4 @@
+import uFuzzy from "@leeoniya/ufuzzy";
 import type {
   ModelsResponse,
   ProfileSummary,
@@ -161,6 +162,11 @@ const COMMANDS_WITH_ARGS = new Set([
   "/user",
 ]);
 
+const commandSearch = new uFuzzy({
+  compare: () => 0,
+  intraIns: Number.POSITIVE_INFINITY,
+});
+
 export interface ResolveSuggestionsOptions {
   currentModel?: string | null;
   currentProfileId?: string | null;
@@ -294,18 +300,22 @@ export function resolveSuggestions(
     return [];
   }
 
-  const query = input.toLowerCase();
+  let commands = SLASH_COMMANDS;
 
-  return SLASH_COMMANDS.filter((command) => {
-    if (query === "/") {
-      return true;
-    }
-
-    return (
-      command.name.toLowerCase().startsWith(query) ||
-      command.description.toLowerCase().includes(query.slice(1))
+  if (input !== "/") {
+    const needle = input.slice(1).toLowerCase().replace(/[-_]/g, "");
+    const [indices, info, order] = commandSearch.search(
+      SLASH_COMMANDS.map((command) =>
+        command.name.slice(1).toLowerCase().replace(/[-_]/g, "")
+      ),
+      needle
     );
-  }).map((command) => ({
+    const matches =
+      info && order ? order.map((index) => info.idx[index]) : indices;
+    commands = (matches ?? []).map((index) => SLASH_COMMANDS[index]);
+  }
+
+  return commands.map((command) => ({
     description: command.description,
     insertValue: COMMANDS_WITH_ARGS.has(command.name)
       ? `${command.name} `
