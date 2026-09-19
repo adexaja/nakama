@@ -150,7 +150,7 @@ async function resolveDirectoryPath(dir: string): Promise<string> {
   try {
     return await realpath(dir);
   } catch {
-    return path.resolve(dir);
+    return resolveWithRealpath(dir);
   }
 }
 

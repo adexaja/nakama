@@ -669,6 +669,7 @@ export function buildStreamHandlers(
                 content: `${event.tool} completed`,
                 subAgentActivity: undefined,
                 toolCompletedAt: Date.now(),
+                toolGroupId: event.toolGroupId ?? message.toolGroupId,
                 toolResult: event.result,
                 toolStatus: "done",
               }
@@ -682,6 +683,7 @@ export function buildStreamHandlers(
           accumulatedArguments: event.accumulatedArguments ?? event.delta,
           tool: event.tool,
           toolCallId: event.toolCallId,
+          toolGroupId: event.toolGroupId,
         })
       );
     },
@@ -704,6 +706,7 @@ export function buildStreamHandlers(
           role: "tool",
           tool: event.tool,
           toolCallId: event.toolCallId,
+          toolGroupId: event.toolGroupId,
           toolInput: event.input,
           toolStartedAt: Date.now(),
           toolStatus: "running",

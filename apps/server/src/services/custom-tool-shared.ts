@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { JsonSchema, ToolContext, ToolDefinition } from "@nakama/core";
+import type {
+  JsonSchema,
+  ToolContext,
+  ToolDefinition,
+  ToolSetupPlan,
+} from "@nakama/core";
 import {
   getCustomToolsDir,
   getUserConfigPath,
@@ -36,11 +41,7 @@ export async function loadToolApiKey(
 
 let credentialWrite: Promise<void> = Promise.resolve();
 
-export function saveToolApiKey(
-  orgId: string,
-  toolId: string,
-  value: unknown
-): Promise<void> {
+function validateApiKey(value: unknown): string {
   if (
     typeof value !== "string" ||
     !value.trim() ||
@@ -49,10 +50,113 @@ export function saveToolApiKey(
   ) {
     throw new NakamaApiError("Enter a valid API key.", 400);
   }
-  const apiKey = value.trim();
+  return value.trim();
+}
+
+export function saveToolApiKey(
+  orgId: string,
+  toolId: string,
+  value: unknown
+): Promise<void> {
+  const apiKey = validateApiKey(value);
   const write = credentialWrite.then(async () => {
     const parsed = await readConfig();
     parsed.sections[credentialSection(orgId, toolId)] = { api_key: apiKey };
+    await writeParsedConfigIni(parsed.global, parsed.sections);
+  });
+  credentialWrite = write.catch(() => undefined);
+  return write;
+}
+
+function setupSection(orgId: string, setupId: string): string {
+  return `tool-setup.${Buffer.from(JSON.stringify([orgId, setupId])).toString("base64url")}`;
+}
+
+export async function loadToolSetup(
+  orgId: string,
+  setupId: string
+): Promise<ToolSetupPlan> {
+  const value = (await readConfig()).sections[setupSection(orgId, setupId)]
+    ?.plan;
+  if (!value) {
+    throw new NakamaApiError("Tool setup not found.", 404);
+  }
+  return JSON.parse(value) as ToolSetupPlan;
+}
+
+export function saveToolSetup(
+  orgId: string,
+  plan: ToolSetupPlan
+): Promise<void> {
+  const write = credentialWrite.then(async () => {
+    const parsed = await readConfig();
+    parsed.sections[setupSection(orgId, plan.id)] = {
+      plan: JSON.stringify(plan),
+    };
+    await writeParsedConfigIni(parsed.global, parsed.sections);
+  });
+  credentialWrite = write.catch(() => undefined);
+  return write;
+}
+
+export function approveToolSetup(
+  orgId: string,
+  setupId: string,
+  input: { profileId?: string; apiKey?: string }
+): Promise<ToolSetupPlan> {
+  const write = credentialWrite.then(async () => {
+    const parsed = await readConfig();
+    const section = setupSection(orgId, setupId);
+    const value = parsed.sections[section]?.plan;
+    if (!value) {
+      throw new NakamaApiError("Tool setup not found.", 404);
+    }
+    const plan = JSON.parse(value) as ToolSetupPlan;
+    if (plan.status !== "pending") {
+      return plan;
+    }
+    if (plan.requiresApiKey) {
+      parsed.sections[credentialSection(orgId, setupId)] = {
+        api_key: validateApiKey(input.apiKey),
+      };
+    }
+    const approved: ToolSetupPlan = {
+      ...plan,
+      profileId: input.profileId,
+      status: "approved",
+    };
+    parsed.sections[section] = { plan: JSON.stringify(approved) };
+    await writeParsedConfigIni(parsed.global, parsed.sections);
+    return approved;
+  });
+  credentialWrite = write.then(
+    () => undefined,
+    () => undefined
+  );
+  return write;
+}
+
+export function completeToolSetup(
+  orgId: string,
+  plan: ToolSetupPlan,
+  toolId: string
+): Promise<void> {
+  const write = credentialWrite.then(async () => {
+    const parsed = await readConfig();
+    const staged = credentialSection(orgId, plan.id);
+    if (plan.requiresApiKey) {
+      const credential = parsed.sections[staged];
+      if (!credential?.api_key) {
+        throw new Error(
+          "The API key is missing. Configure the tool before using it."
+        );
+      }
+      parsed.sections[credentialSection(orgId, toolId)] = credential;
+      delete parsed.sections[staged];
+    }
+    parsed.sections[setupSection(orgId, plan.id)] = {
+      plan: JSON.stringify({ ...plan, status: "ready", toolId }),
+    };
     await writeParsedConfigIni(parsed.global, parsed.sections);
   });
   credentialWrite = write.catch(() => undefined);

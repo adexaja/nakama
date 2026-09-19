@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { NakamaApiError } from "@nakama/core";
-import { loadToolApiKey } from "../../services/custom-tool-shared";
+import {
+  loadToolApiKey,
+  loadToolSetup,
+  saveToolSetup,
+} from "../../services/custom-tool-shared";
 import { setupTestConfigDir } from "../../test-config-dir";
 import { createMinimalHonoApp } from "../test-app-helpers";
 import {
@@ -41,6 +45,75 @@ function createApp(agentOverrides: Record<string, unknown> = {}) {
 }
 
 describe("tool playground routes", () => {
+  test("setup approval validates org and target, keeps keys private, and is idempotent", async () => {
+    let visibleOrg = "";
+    const { app, authService, databaseAdapter } = createApp({
+      getProfile: async (orgId: string, profileId: string) => {
+        if (orgId !== visibleOrg || profileId !== "target") {
+          throw new NakamaApiError("Profile not found.", 404);
+        }
+        return { profile: { id: profileId } };
+      },
+    });
+    const { orgId, adminSession } = await createOrgAdminSession(
+      app,
+      authService,
+      databaseAdapter,
+      "setup-org",
+      "setup-admin@acme.com"
+    );
+    visibleOrg = orgId;
+    const setupId = crypto.randomUUID();
+    await saveToolSetup(orgId, {
+      id: setupId,
+      name: "generic_tool",
+      description: "Provider tool",
+      plan: "Read provider data",
+      requiresApiKey: true,
+      sessionId: "session",
+      status: "pending",
+    });
+    const url = `http://localhost:4310/v1/tool-setups/${setupId}`;
+    const headers = adminSession.headers(
+      {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": adminSession.csrfToken,
+      },
+      orgId
+    );
+    const approve = (body: unknown) =>
+      app.fetch(
+        new Request(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        })
+      );
+    expect(
+      (await approve({ profileId: "foreign", apiKey: "secret" })).status
+    ).toBe(404);
+    expect(await loadToolApiKey(orgId, setupId)).toBeUndefined();
+    expect((await approve({ profileId: "target" })).status).toBe(400);
+    expect(
+      (await approve({ profileId: "target", apiKey: "bad\nkey" })).status
+    ).toBe(400);
+    const approved = await approve({
+      profileId: "target",
+      apiKey: "private-key",
+    });
+    expect(approved.status).toBe(200);
+    expect(await approved.json()).toMatchObject({
+      status: "approved",
+      profileId: "target",
+    });
+    expect((await approve({ apiKey: "overwrite" })).status).toBe(200);
+    expect(await loadToolApiKey(orgId, setupId)).toBe("private-key");
+    expect((await loadToolSetup(orgId, setupId)).profileId).toBe("target");
+    const status = await app.fetch(new Request(url, { headers }));
+    expect(await status.text()).not.toContain("private-key");
+    await expect(loadToolSetup("other-org", setupId)).rejects.toThrow();
+    expect((await app.fetch(new Request(url))).status).toBe(401);
+  });
   test("credential endpoint saves only for an admin's organization and never returns the key", async () => {
     let visibleOrg = "";
     const { app, authService, databaseAdapter } = createApp({
@@ -236,6 +309,27 @@ describe("tool playground routes", () => {
         })
       );
       expect(credentialResponse.status).toBe(403);
+    }
+    for (const method of ["GET", "POST"]) {
+      const response = await app.fetch(
+        new Request(
+          `http://localhost:4310/v1/tool-setups/${crypto.randomUUID()}`,
+          {
+            method,
+            headers: memberSession.headers(
+              {
+                "Content-Type": "application/json",
+                "X-CSRF-Token": memberSession.csrfToken,
+              },
+              orgId
+            ),
+            ...(method === "POST"
+              ? { body: JSON.stringify({ apiKey: "secret" }) }
+              : {}),
+          }
+        )
+      );
+      expect(response.status).toBe(403);
     }
   });
 

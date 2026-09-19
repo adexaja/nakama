@@ -184,6 +184,7 @@ import type {
   TokenOptimizationResponse,
   TokenOptimizationUpdateResponse,
   ToolResponse,
+  ToolSetupPlan,
   ToolSourceResponse,
   TranscribeAudioRequest,
   TranscribeAudioResponse,
@@ -888,6 +889,20 @@ export class NakamaClient {
     toolId: string
   ): Promise<{ configured: boolean }> {
     return this.request(`/v1/tools/${encodeURIComponent(toolId)}/credentials`);
+  }
+
+  async getToolSetup(setupId: string): Promise<ToolSetupPlan> {
+    return this.request(`/v1/tool-setups/${encodeURIComponent(setupId)}`);
+  }
+
+  async approveToolSetup(
+    setupId: string,
+    input: { apiKey?: string; profileId?: string }
+  ): Promise<ToolSetupPlan> {
+    return this.request(`/v1/tool-setups/${encodeURIComponent(setupId)}`, {
+      body: JSON.stringify(input),
+      method: "POST",
+    });
   }
 
   async saveToolCredential(

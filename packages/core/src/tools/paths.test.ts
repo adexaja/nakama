@@ -5,6 +5,28 @@ import path from "node:path";
 import { guardFilePath, PathGuardError } from "./paths";
 
 describe("guardFilePath", () => {
+  test("allows a new directory beneath a symlinked parent without allowing siblings", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "nakama-new-tools-"));
+    try {
+      const data = path.join(root, "data");
+      const alias = path.join(root, "alias");
+      await mkdir(data);
+      await symlink(data, alias);
+      const toolsDir = path.join(alias, "tools");
+      const options = { allowedDirs: [toolsDir], cwd: toolsDir };
+
+      const result = await guardFilePath("echo.js", null, undefined, options);
+      expect(result.resolved).toBe(
+        path.join(await realpath(data), "tools", "echo.js")
+      );
+      await expect(
+        guardFilePath("../config.ini", null, undefined, options)
+      ).rejects.toBeInstanceOf(PathGuardError);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
   test("checks the real cwd and preserves valid directory aliases", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "nakama-cwd-"));
     try {

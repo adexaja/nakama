@@ -77,6 +77,7 @@ export function AssistantTurnSegmentView({
   if (segment.kind === "work") {
     return (
       <AssistantWorkGroup
+        active={segment.active ?? false}
         modelLabel={modelLabel}
         profileId={profileId}
         thinking={showThinking ? segment.thinking : undefined}
@@ -213,11 +214,13 @@ function PluginToolRow({ message }: { message: ChatListItem }) {
 }
 
 function AssistantWorkGroup({
+  active,
   thinking,
   tools,
   modelLabel,
   profileId,
 }: {
+  active: boolean;
   thinking?: ChatListItem;
   tools: ChatListItem[];
   modelLabel?: string | null;
@@ -227,12 +230,13 @@ function AssistantWorkGroup({
     (tool) => !isArtifactMetaSidecarTool(tool) && tool.tool !== "create_profile"
   );
 
-  if (visibleTools.length === 0 && !thinking) {
+  if (visibleTools.length === 0 && !thinking && !active) {
     return null;
   }
 
   return (
     <OtherWorkGroup
+      active={active}
       modelLabel={modelLabel}
       profileId={profileId}
       thinking={thinking}
@@ -242,27 +246,24 @@ function AssistantWorkGroup({
 }
 
 function OtherWorkGroup({
+  active,
   thinking,
   tools,
   modelLabel,
   profileId,
 }: {
+  active: boolean;
   thinking?: ChatListItem;
   tools: ChatListItem[];
   modelLabel?: string | null;
   profileId?: string | null;
 }) {
-  const isThinkingStreaming = Boolean(thinking?.thinkingStreaming);
-  const hasRunningTools = tools.some((tool) => tool.toolStatus === "running");
-  const isWorkActive = isThinkingStreaming || hasRunningTools;
-
-  if (tools.length === 0) {
-    return thinking ? <ThinkingBlock message={thinking} /> : null;
-  }
+  const isThinkingStreaming = active && Boolean(thinking?.thinkingStreaming);
 
   if (!thinking) {
     return (
       <ToolOnlyWorkGroup
+        isWorkActive={active}
         modelLabel={modelLabel}
         profileId={profileId}
         tools={tools}
@@ -274,14 +275,16 @@ function OtherWorkGroup({
     <ThinkingReasoning
       className="w-full max-w-full"
       isThinkingStreaming={isThinkingStreaming}
-      isWorkActive={isWorkActive}
+      isWorkActive={active}
       startedAt={thinking.createdAt}
       text={thinking.thinking ?? ""}
+      thinkingDurationMs={
+        tools.length === 0 && !active ? thinking.thinkingDurationMs : undefined
+      }
     >
       {tools.map((tool, index) => (
         <TimelineStep isLast={index === tools.length - 1} key={tool.id}>
           <ToolRow
-            defaultDetailsOpen={tools.length === 1}
             message={tool}
             modelLabel={modelLabel}
             profileId={profileId}
@@ -293,16 +296,16 @@ function OtherWorkGroup({
 }
 
 function ToolOnlyWorkGroup({
+  isWorkActive,
   tools,
   modelLabel,
   profileId,
 }: {
+  isWorkActive: boolean;
   tools: ChatListItem[];
   modelLabel?: string | null;
   profileId?: string | null;
 }) {
-  const hasRunningTools = tools.some((tool) => tool.toolStatus === "running");
-  const isWorkActive = hasRunningTools;
   const [open, setOpen] = useState(isWorkActive);
   const elapsedSeconds = useWorkDuration(isWorkActive, tools);
 
@@ -312,17 +315,13 @@ function ToolOnlyWorkGroup({
       return;
     }
 
-    if (tools.length === 1) {
-      return;
-    }
-
     const reducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)"
     ).matches;
     const delay = reducedMotion ? 0 : 360;
     const timerId = window.setTimeout(() => setOpen(false), delay);
     return () => window.clearTimeout(timerId);
-  }, [isWorkActive, tools.length]);
+  }, [isWorkActive]);
 
   const done = !isWorkActive;
   const expanded = done ? open : true;
@@ -388,7 +387,6 @@ function ToolOnlyWorkGroup({
               {tools.map((tool, index) => (
                 <TimelineStep isLast={index === tools.length - 1} key={tool.id}>
                   <ToolRow
-                    defaultDetailsOpen={tools.length === 1}
                     message={tool}
                     modelLabel={modelLabel}
                     profileId={profileId}
@@ -407,12 +405,10 @@ function ToolRow({
   message,
   modelLabel,
   profileId,
-  defaultDetailsOpen = false,
 }: {
   message: ChatListItem;
   modelLabel?: string | null;
   profileId?: string | null;
-  defaultDetailsOpen?: boolean;
 }) {
   if (message.tool?.startsWith("plugin_")) {
     return <PluginToolRow message={message} />;
@@ -432,12 +428,7 @@ function ToolRow({
     );
   }
 
-  return (
-    <ToolTimelineItem
-      defaultDetailsOpen={defaultDetailsOpen}
-      message={message}
-    />
-  );
+  return <ToolTimelineItem message={message} />;
 }
 
 function ThinkingBlock({ message }: { message: ChatListItem }) {
@@ -469,7 +460,7 @@ function useWorkDuration(
     const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(intervalId);
   }, [active]);
-  return toolGroupElapsedSeconds(tools, now);
+  return toolGroupElapsedSeconds(tools, now, active);
 }
 
 function isDedicatedTool(tool: ChatListItem): boolean {
@@ -793,20 +784,6 @@ function SubAgentMark({
   );
 }
 
-function useToolDetailsOpen(isRunning: boolean, defaultDetailsOpen: boolean) {
-  const [detailsOpen, setDetailsOpen] = useState(defaultDetailsOpen);
-  const [prevIsRunning, setPrevIsRunning] = useState(isRunning);
-
-  if (isRunning !== prevIsRunning) {
-    setPrevIsRunning(isRunning);
-    if (isRunning) {
-      setDetailsOpen(true);
-    }
-  }
-
-  return { detailsOpen, setDetailsOpen };
-}
-
 function ToolTimelineOutput({
   command,
   isError,
@@ -873,13 +850,7 @@ function ToolTimelineDetails({
   );
 }
 
-function ToolTimelineItem({
-  message,
-  defaultDetailsOpen = false,
-}: {
-  message: ChatListItem;
-  defaultDetailsOpen?: boolean;
-}) {
+function ToolTimelineItem({ message }: { message: ChatListItem }) {
   const isRunning = message.toolStatus === "running";
   const command =
     message.tool === "bash"
@@ -893,10 +864,7 @@ function ToolTimelineItem({
     message.toolStatus === "done" &&
     isToolResultError(message.toolResult, output);
   const hasDetails = Boolean(isRunning || command || output);
-  const { detailsOpen, setDetailsOpen } = useToolDetailsOpen(
-    isRunning,
-    defaultDetailsOpen
-  );
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   return (
     <div>

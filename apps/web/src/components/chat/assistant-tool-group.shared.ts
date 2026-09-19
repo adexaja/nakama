@@ -2,7 +2,8 @@ import type { ChatListItem } from "@/lib/chat-history";
 
 export function toolGroupElapsedSeconds(
   tools: ChatListItem[],
-  now: number
+  now: number,
+  active = false
 ): number | null {
   if (tools.length === 0) {
     return null;
@@ -24,85 +25,80 @@ export function toolGroupElapsedSeconds(
     startedAt = Math.min(startedAt, start);
     completedAt = Math.max(completedAt, end);
   }
-  return Math.max(1, Math.floor((completedAt - startedAt) / 1000));
+  return Math.max(
+    1,
+    Math.floor(((active ? now : completedAt) - startedAt) / 1000)
+  );
 }
 
 export type AssistantTurnSegment =
-  | { kind: "work"; thinking?: ChatListItem; tools: ChatListItem[] }
+  | {
+      groupId?: string;
+      active?: boolean;
+      kind: "work";
+      thinking?: ChatListItem;
+      tools: ChatListItem[];
+    }
   | { kind: "text"; message: ChatListItem; thinking?: ChatListItem };
 
 export function segmentAssistantTurn(
-  messages: ChatListItem[]
+  messages: ChatListItem[],
+  streamActive = false
 ): AssistantTurnSegment[] {
   const segments: AssistantTurnSegment[] = [];
-
-  for (let index = 0; index < messages.length; index += 1) {
-    const message = messages[index]!;
-
-    if (message.role === "tool") {
-      const thinking = findThinkingForToolRun(messages, index);
-      const tools: ChatListItem[] = [];
-
-      while (index < messages.length && messages[index]?.role === "tool") {
-        tools.push(messages[index]!);
-        index += 1;
+  for (const message of messages) {
+    if (
+      message.role === "tool" ||
+      (message.role === "assistant" && hasThinkingContent(message))
+    ) {
+      const previous = segments.at(-1);
+      const work: Extract<AssistantTurnSegment, { kind: "work" }> =
+        previous?.kind === "work"
+          ? previous
+          : {
+              groupId: message.id,
+              kind: "work",
+              tools: [],
+            };
+      if (work !== previous) {
+        segments.push(work);
       }
 
-      segments.push({ kind: "work", thinking, tools });
-      index -= 1;
-      continue;
+      if (message.role === "tool") {
+        work.tools.push(message);
+        if (work.thinking) {
+          work.thinking = { ...work.thinking, thinkingStreaming: false };
+        }
+      } else {
+        const prior = work.thinking;
+        work.thinking = prior
+          ? {
+              ...message,
+              createdAt: prior.createdAt,
+              id: prior.id,
+              thinking: [prior.thinking, message.thinking]
+                .filter(Boolean)
+                .join("\n\n"),
+              thinkingDurationMs:
+                prior.thinkingDurationMs !== undefined &&
+                message.thinkingDurationMs !== undefined
+                  ? prior.thinkingDurationMs + message.thinkingDurationMs
+                  : undefined,
+            }
+          : message;
+      }
     }
 
-    if (message.role === "assistant") {
-      const hasThinking = hasThinkingContent(message);
-      const hasText = hasAssistantText(message);
-      const nextIsTool = messages[index + 1]?.role === "tool";
-
-      if (hasThinking && nextIsTool) {
-        continue;
-      }
-
-      if (hasThinking && !hasText) {
-        segments.push({ kind: "work", thinking: message, tools: [] });
-        continue;
-      }
-
-      if (hasText) {
-        segments.push({
-          kind: "text",
-          message,
-          ...(hasThinking ? { thinking: message } : {}),
-        });
-      }
+    if (message.role === "assistant" && hasAssistantText(message)) {
+      segments.push({ kind: "text", message });
     }
   }
 
+  const latestWork = segments.findLast((segment) => segment.kind === "work");
+  if (latestWork?.kind === "work") {
+    latestWork.active = streamActive;
+  }
   return segments;
-}
-
-function findThinkingForToolRun(
-  messages: ChatListItem[],
-  toolIndex: number
-): ChatListItem | undefined {
-  for (let index = toolIndex - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-
-    if (!message || message.role === "tool") {
-      continue;
-    }
-
-    if (message.role === "user") {
-      break;
-    }
-
-    if (hasThinkingContent(message)) {
-      return message;
-    }
-
-    if (hasAssistantText(message)) {
-      break;
-    }
-  }
 }
 
 function hasThinkingContent(message: ChatListItem): boolean {
