@@ -695,20 +695,15 @@ async function runStickyChat(
         return "handled";
       }
 
-      const profileResponse = await options.client.updateProfile(
-        currentProfileId,
-        {
-          model: `${target.providerId}::${target.modelId}`,
-        }
-      );
-      currentProfile = profileResponse.profile;
+      const model = `${target.providerId}::${target.modelId}`;
       session = await options.client.createSession(options.channel, {
         codingWorkspaceRoot: options.codingWorkspaceRoot,
+        model,
         profileId: currentProfileId,
       });
+      currentProfile = { ...currentProfile, model };
       context.onSessionChange(session);
       lastUserMessage = null;
-      await refreshModelsCache();
       writeOutput(`Model switched to ${target.modelId}. Chat history reset.`);
     } catch (error) {
       writeError(error);

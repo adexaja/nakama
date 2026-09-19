@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import { NakamaClient } from "@nakama/client";
-import type { ProfileSummary } from "@nakama/core";
+import type { ModelsResponse, ProfileSummary } from "@nakama/core";
 import { runChat } from "./chat";
 import * as clipboard from "./clipboard-image";
 import * as imageInput from "./image-input";
@@ -246,3 +246,92 @@ test.each([
     }
   }
 );
+
+test("switches models without updating the profile", async () => {
+  const selected: ProfileSummary = {
+    createdAt: "",
+    hasAvatar: false,
+    id: "test",
+    isSuper: false,
+    mcpServerCount: 0,
+    model: "provider-a::old-model",
+    name: "Test",
+    soulActive: false,
+    toolCount: 0,
+    updatedAt: "",
+  };
+  const models: ModelsResponse = {
+    currentProviderId: "provider-a",
+    displayName: null,
+    models: [
+      {
+        id: "new-model",
+        name: "New model",
+        provider: "openai",
+        providerId: "provider-b",
+      },
+    ],
+    provider: "openai",
+    providers: [],
+  };
+  const client = new NakamaClient();
+  const initialSession = client.createChatSession("initial", "cli");
+  const switchedSession = client.createChatSession("switched", "cli");
+  const ready = Promise.withResolvers<(chunk: string) => void>();
+  const modelsRequested = Promise.withResolvers<void>();
+  const exit = new AbortController();
+  const createSession = spyOn(client, "createSession")
+    .mockResolvedValueOnce(initialSession)
+    .mockResolvedValueOnce(switchedSession);
+  const updateProfile = spyOn(client, "updateProfile").mockRejectedValue(
+    new Error("Forbidden")
+  );
+  const spies = [
+    createSession,
+    updateProfile,
+    spyOn(client, "getModels").mockImplementation(async () => {
+      modelsRequested.resolve();
+      return models;
+    }),
+    spyOn(profile, "resolveStartupProfile").mockResolvedValue({
+      profile: selected,
+      profileId: selected.id,
+    }),
+    spyOn(TerminalRenderer.prototype, "apply").mockReturnValue(true),
+    spyOn(TerminalRenderer.prototype, "anchorFromCursor").mockResolvedValue(),
+    spyOn(TerminalInput.prototype, "start").mockImplementation(() => {}),
+    spyOn(TerminalInput.prototype, "stop").mockImplementation(() => {}),
+    spyOn(TerminalInput.prototype, "onInput").mockImplementation((listener) => {
+      ready.resolve(listener);
+      return () => {};
+    }),
+    spyOn(process.stdout, "write").mockReturnValue(true),
+  ];
+  const chat = runChat({
+    channel: "cli",
+    client,
+    offline: true,
+    signal: exit.signal,
+  });
+
+  try {
+    const emit = await ready.promise;
+    emit("/model provider-b::new-model");
+    emit("\r");
+    await modelsRequested.promise;
+    await Bun.sleep(0);
+
+    expect(updateProfile).not.toHaveBeenCalled();
+    expect(createSession).toHaveBeenLastCalledWith("cli", {
+      codingWorkspaceRoot: undefined,
+      model: "provider-b::new-model",
+      profileId: "test",
+    });
+  } finally {
+    exit.abort();
+    await chat;
+    for (const spy of spies) {
+      spy.mockRestore();
+    }
+  }
+});
