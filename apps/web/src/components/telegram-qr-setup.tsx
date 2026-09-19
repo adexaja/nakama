@@ -1,3 +1,4 @@
+import type { TelegramPairingStartResponse } from "@nakama/core";
 import { Button } from "@nakama/ui/button";
 import { Spinner } from "@nakama/ui/spinner";
 import { QrCodeScanIcon } from "hugeicons-react";
@@ -19,15 +20,12 @@ export function TelegramQrSetup({
   profileId: string;
   running: boolean;
 }) {
-  const [pairingId, setPairingId] = useState<string | null>(null);
-  const [pairing, setPairing] = useState<{
-    deepLink: string;
-    expiresAt: string;
-    qrPayload: string;
-  } | null>(null);
+  const [pairing, setPairing] = useState<TelegramPairingStartResponse | null>(
+    null
+  );
   const [error, setError] = useState<string | null>(null);
   const start = useStartTelegramPairing();
-  const status = useTelegramPairingStatus(pairingId);
+  const status = useTelegramPairingStatus(pairing?.pairingId ?? null);
   const cancel = useCancelTelegramPairing();
   const apply = useApplyTelegramPairing();
   const currentStatus = status.data?.status;
@@ -41,7 +39,6 @@ export function TelegramQrSetup({
       {
         onError: (reason) => setError(formatError(reason)),
         onSuccess: (result) => {
-          setPairingId(result.pairingId);
           setPairing(result);
         },
       }
@@ -49,24 +46,23 @@ export function TelegramQrSetup({
   }
 
   function cancelPairing() {
-    if (!pairingId) {
+    if (!pairing?.pairingId) {
       return;
     }
-    cancel.mutate(pairingId, {
+    cancel.mutate(pairing?.pairingId, {
       onError: (reason) => setError(formatError(reason)),
       onSuccess: () => {
-        setPairingId(null);
         setPairing(null);
       },
     });
   }
 
   function applyPairing() {
-    if (!pairingId) {
+    if (!pairing?.pairingId) {
       return;
     }
     apply.mutate(
-      { pairingId, profileId },
+      { pairingId: pairing?.pairingId ?? null, profileId },
       {
         onError: (reason) => setError(formatError(reason)),
         onSuccess: () => {
@@ -74,7 +70,6 @@ export function TelegramQrSetup({
           workerMutation.mutate("telegram", {
             onError: (reason) => setError(formatError(reason)),
             onSuccess: () => {
-              setPairingId(null);
               setPairing(null);
             },
           });
@@ -83,7 +78,7 @@ export function TelegramQrSetup({
     );
   }
 
-  if (!(pairingId && pairing)) {
+  if (!pairing) {
     return (
       <div className="px-4 py-3">
         <div className="flex items-center justify-between gap-3">

@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
 
+import type {
+  TelegramPairingStartResponse,
+  TelegramPairingStatusResponse,
+} from "@nakama/core";
+
 const PAIRING_TTL_MS = 10 * 60 * 1000;
 const API_BASE = "https://api.telegram.org";
 
@@ -19,23 +24,6 @@ type Pairing = {
   token?: string;
 };
 
-export interface TelegramPairingStartResponse {
-  deepLink: string;
-  expiresAt: string;
-  pairingId: string;
-  qrPayload: string;
-  suggestedUsername: string;
-}
-
-export interface TelegramPairingStatusResponse {
-  botUsername: string | null;
-  expiresAt: string;
-  ownerUserId: number | null;
-  pairingId: string;
-  profileId: string;
-  status: "waiting" | "ready" | "expired" | "cancelled" | "applied";
-}
-
 export class TelegramManagedBotPairingService {
   private readonly pairings = new Map<string, Pairing>();
   private offset = 0;
@@ -46,6 +34,7 @@ export class TelegramManagedBotPairingService {
       void this.sync().catch(() => undefined);
     }
   }, 2000);
+  private syncPromise: Promise<void> | null = null;
 
   constructor(
     private readonly managerToken = process.env
@@ -173,6 +162,7 @@ export class TelegramManagedBotPairingService {
     };
   }
 
+  // This make sure pullUpdates run multiple times at once
   private async sync(): Promise<void> {
     if (this.syncPromise) {
       return this.syncPromise;
@@ -233,7 +223,9 @@ export class TelegramManagedBotPairingService {
     body?: Record<string, unknown>
   ): Promise<T> {
     if (!this.managerToken) {
-      throw new Error("Telegram manager bot is not configured.");
+      throw new Error(
+        "Telegram manager bot is not configured, please include NAKAMA_TELEGRAM_MANAGER_BOT_TOKEN in environment variable."
+      );
     }
     const response = await this.request(
       `${API_BASE}/bot${encodeURIComponent(this.managerToken)}/${method}`,
