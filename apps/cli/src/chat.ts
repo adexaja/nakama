@@ -40,8 +40,10 @@ import {
 import { sendStreamCancellable } from "./stream-abort";
 import { styledLine } from "./styled-text";
 import { TerminalInput } from "./terminal-input";
+import { getTerminalColumns } from "./terminal-layout";
 import { TerminalRenderer } from "./terminal-renderer";
 import { printLine } from "./terminal-safe";
+import { stripAnsi, truncateText } from "./text-measure";
 import { ThinkingIndicator } from "./thinking-indicator";
 
 const HELP_TEXT = `${formatSlashCommands()}\n\n@/path/to/image.png [message]   attach an image from file\n/paste                            attach image from clipboard (recommended)\nCtrl+V / Cmd+V (empty paste)      attach image when terminal supports it\nPageUp/PageDown                   scroll conversation history\nHome/End                          jump to oldest/newest visible history`;
@@ -77,6 +79,28 @@ export function toolResultFailed(result: unknown): boolean {
 
   const value = result as Record<string, unknown>;
   return value.isError === true || value.error != null;
+}
+
+export function formatToolCall(
+  tool: string,
+  input: Record<string, unknown>,
+  status: "running" | "done" | "error",
+  elapsedMs?: number,
+  width = getTerminalColumns()
+): string {
+  const detail = input.path ?? input.file_path ?? input.command ?? input.query;
+  const summary =
+    typeof detail === "string" ? formatCliDisplayPath(detail) : "";
+  const marker = status === "running" ? "⠋" : status === "error" ? "✗" : "✓";
+  const duration =
+    elapsedMs === undefined ? "" : `  ${(elapsedMs / 1000).toFixed(1)}s`;
+  const text = stripAnsi(`${marker} ${tool}${summary ? `  ${summary}` : ""}`)
+    .replace(/\s+/g, " ")
+    .trim();
+  return truncateText(
+    `${truncateText(text, Math.max(1, width - duration.length - 2))}${duration}`,
+    Math.max(1, width - 2)
+  );
 }
 
 interface RunChatOptions {
@@ -279,6 +303,20 @@ async function runStickyChat(
   }
 
   function createStreamHandlers(): StreamHandlers {
+    const activeTools = new Map<
+      string,
+      { tool: string; input: Record<string, unknown>; startedAt: number }
+    >();
+    const showRunningTool = () => {
+      const active = activeTools.values().next().value;
+      renderer.setStatusLine(
+        active
+          ? styledLine(formatToolCall(active.tool, active.input, "running"), {
+              dim: true,
+            })
+          : null
+      );
+    };
     return {
       onChunk: (delta) => {
         thinkingIndicator.stop();
@@ -288,36 +326,38 @@ async function runStickyChat(
         thinkingIndicator.start();
       },
       onToolEnd: (event) => {
-        renderer.setStatusLine(null);
+        const active = activeTools.get(event.toolCallId);
+        activeTools.delete(event.toolCallId);
+        const failed = toolResultFailed(event.result);
+        showRunningTool();
         renderer.appendToolLine(
           styledLine(
-            ` ${toolResultFailed(event.result) ? "✗" : "✓"} ${event.tool} ${previewToolValue(event.result)} `,
+            formatToolCall(
+              event.tool,
+              active?.input ?? {},
+              failed ? "error" : "done",
+              active ? performance.now() - active.startedAt : undefined
+            ),
             {
-              color: toolResultFailed(event.result) ? "red" : "green",
+              color: failed ? "red" : "green",
               dim: true,
             }
           )
         );
-      },
-      onToolInputDelta: (event) => {
-        renderer.setStatusLine(
-          styledLine(
-            `   ${event.tool} ${previewToolValue(event.accumulatedArguments ?? event.delta)}`,
-            { dim: true }
-          )
-        );
+        if (failed) {
+          renderer.appendToolLine(
+            styledLine(`  ${previewToolValue(event.result)}`, { color: "red" })
+          );
+        }
       },
       onToolStart: (event) => {
         thinkingIndicator.stop();
-        renderer.appendToolLine(
-          styledLine(` ⚙ ${event.tool} ${previewToolValue(event.input)} `, {
-            color: "cyan",
-            dim: true,
-          })
-        );
-        renderer.setStatusLine(
-          styledLine(`   ${event.tool} arguments…`, { dim: true })
-        );
+        activeTools.set(event.toolCallId, {
+          input: event.input,
+          startedAt: performance.now(),
+          tool: event.tool,
+        });
+        showRunningTool();
       },
     };
   }

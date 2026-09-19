@@ -275,7 +275,11 @@ export class VirtualMessageList {
       return false;
     }
 
-    return kind === "assistant" || kind === "user" || kind === "tool";
+    return (
+      kind === "assistant" ||
+      kind === "user" ||
+      (kind === "tool" && this.messages[index - 1]?.kind !== "tool")
+    );
   }
 
   private openMessageLines(width: number): StyledLine[] {

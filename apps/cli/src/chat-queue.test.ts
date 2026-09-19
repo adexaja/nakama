@@ -6,8 +6,110 @@ import * as clipboard from "./clipboard-image";
 import * as imageInput from "./image-input";
 import type { PendingMessage } from "./message-queue";
 import * as profile from "./profile";
+import { styledLineText } from "./styled-text";
 import { TerminalInput } from "./terminal-input";
 import { TerminalRenderer } from "./terminal-renderer";
+
+test("renders one completion per tool, hides successful output, and keeps pending tools visible", async () => {
+  const selected = { id: "test", model: null, name: "Test" } as ProfileSummary;
+  const client = new NakamaClient();
+  const session = client.createChatSession("test", "cli");
+  const ready = Promise.withResolvers<(chunk: string) => void>();
+  const finished = Promise.withResolvers<void>();
+  const exit = new AbortController();
+  const lines: string[] = [];
+  let status = "";
+  const states: string[] = [];
+  const spies = [
+    spyOn(profile, "resolveStartupProfile").mockResolvedValue({
+      profile: selected,
+      profileId: selected.id,
+    }),
+    spyOn(client, "listProfiles").mockResolvedValue({ profiles: [selected] }),
+    spyOn(client, "createSession").mockResolvedValue(session),
+    spyOn(TerminalRenderer.prototype, "apply").mockReturnValue(true),
+    spyOn(TerminalRenderer.prototype, "anchorFromCursor").mockResolvedValue(),
+    spyOn(TerminalRenderer.prototype, "appendToolLine").mockImplementation(
+      (line) => {
+        lines.push(typeof line === "string" ? line : styledLineText(line));
+      }
+    ),
+    spyOn(TerminalRenderer.prototype, "setStatusLine").mockImplementation(
+      (line) => {
+        status = line ? styledLineText(line) : "";
+      }
+    ),
+    spyOn(TerminalInput.prototype, "start").mockImplementation(() => {}),
+    spyOn(TerminalInput.prototype, "stop").mockImplementation(() => {}),
+    spyOn(TerminalInput.prototype, "onInput").mockImplementation((listener) => {
+      ready.resolve(listener);
+      return () => {};
+    }),
+    spyOn(process.stdout, "write").mockReturnValue(true),
+    spyOn(session, "sendStream").mockImplementation(
+      async (_input, handlers) => {
+        if (typeof handlers === "function") {
+          throw new Error("Expected tool stream handlers");
+        }
+        handlers.onToolStart?.({
+          input: { path: "src/chat.ts" },
+          tool: "read_file",
+          toolCallId: "a",
+        });
+        handlers.onToolInputDelta?.({
+          delta: "raw arguments",
+          tool: "read_file",
+          toolCallId: "a",
+        });
+        states.push(status);
+        handlers.onToolStart?.({
+          input: { command: "bun test" },
+          tool: "bash",
+          toolCallId: "b",
+        });
+        handlers.onToolEnd?.({
+          result: { content: "hidden output" },
+          tool: "read_file",
+          toolCallId: "a",
+        });
+        states.push(status);
+        handlers.onToolEnd?.({
+          result: { error: "Test failed" },
+          tool: "bash",
+          toolCallId: "b",
+        });
+        states.push(status);
+        finished.resolve();
+        return "Done";
+      }
+    ),
+  ];
+  const chat = runChat({
+    channel: "cli",
+    client,
+    offline: true,
+    signal: exit.signal,
+  });
+  try {
+    const emit = await ready.promise;
+    emit("hello");
+    emit("\r");
+    await finished.promise;
+    expect(states).toEqual(["⠋ read_file src/chat.ts", "⠋ bash bun test", ""]);
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toStartWith("✓ read_file src/chat.ts");
+    expect(lines[1]).toStartWith("✗ bash bun test");
+    expect(lines[2]).toContain("Test failed");
+    expect(lines.join("\n")).not.toContain("hidden output");
+    expect(lines.join("\n")).not.toContain("raw arguments");
+  } finally {
+    exit.abort();
+    await chat;
+    for (const spy of spies) {
+      spy.mockRestore();
+    }
+  }
+});
 
 test.each([
   {
