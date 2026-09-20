@@ -1,5 +1,5 @@
 import type { UpdateTelegramSettingsRequest } from "@nakama/core/contract";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SETTINGS_CARD_LOADING_SKELETON } from "@/components/integration-settings.shared";
 import { TelegramAllowedUsersDialog } from "@/components/TelegramAllowedUsersDialog";
 import { TelegramSettingsCardContent } from "@/components/telegram-settings-card-content";
@@ -10,6 +10,7 @@ import {
   useTelegramSettings,
 } from "@/hooks/use-app-queries";
 import { useSystemStatusQuery } from "@/hooks/use-system-status";
+import { useStartWorker } from "@/hooks/use-worker-actions";
 import { formatError } from "@/lib/client";
 import type { AllowedTelegramUser } from "@/lib/parse-allowed-telegram-users";
 
@@ -124,9 +125,16 @@ function TelegramSettingsLoading({ embedded }: { embedded: boolean }) {
 
 function useTelegramSettingsCard(onSaveSuccess?: () => void) {
   const ownerProfileId = useChannelProfileId();
-  const { data: settings, isLoading, error: loadError } = useTelegramSettings();
+  const {
+    data: settings,
+    isLoading,
+    error: loadError,
+    refetch,
+  } = useTelegramSettings();
   const { data: status } = useSystemStatusQuery();
   const saveMutation = useSaveTelegramSettings();
+  const startMutation = useStartWorker();
+  const savingRef = useRef(false);
   const regenerateMutation = useRegenerateTelegramHandshake();
 
   const [botToken, setBotToken] = useState("");
@@ -156,6 +164,11 @@ function useTelegramSettingsCard(onSaveSuccess?: () => void) {
   const pairingCode = settings?.handshakeCode ?? null;
   const worker = status?.telegramWorker;
   const running = worker?.running === true;
+  useEffect(() => {
+    if (worker?.paired && !hasLinkedUsers) {
+      void refetch();
+    }
+  }, [worker?.paired, hasLinkedUsers, refetch]);
 
   async function copyHandshakeCode() {
     if (!pairingCode) {
@@ -170,24 +183,29 @@ function useTelegramSettingsCard(onSaveSuccess?: () => void) {
     }
   }
 
-  function handleSave(afterSuccess?: () => void) {
+  async function handleSave(token = botToken) {
+    if (savingRef.current || !token.trim()) {
+      return;
+    }
+    savingRef.current = true;
     setFormError(null);
     setHint(null);
 
-    saveMutation.mutate(
-      buildTelegramSaveRequest(allowedUsers, profileId, botToken),
-      {
-        onError: (err) => {
-          setFormError(formatError(err));
-        },
-        onSuccess: (saved) => {
-          setBotToken("");
-          setHint(channelSaveHint(saved));
-          afterSuccess?.();
-          onSaveSuccess?.();
-        },
+    try {
+      const saved = await saveMutation.mutateAsync(
+        buildTelegramSaveRequest(allowedUsers, profileId, token)
+      );
+      setBotToken("");
+      if (!configured && worker?.process?.managed) {
+        await startMutation.mutateAsync("telegram");
       }
-    );
+      setHint(channelSaveHint(saved));
+      onSaveSuccess?.();
+    } catch (err) {
+      setFormError(formatError(err));
+    } finally {
+      savingRef.current = false;
+    }
   }
 
   function handleRegenerateHandshake() {
@@ -223,7 +241,7 @@ function useTelegramSettingsCard(onSaveSuccess?: () => void) {
     profileId,
     regeneratePending: regenerateMutation.isPending,
     running,
-    savePending: saveMutation.isPending,
+    savePending: saveMutation.isPending || startMutation.isPending,
     setAllowedUsers,
     setAllowedUsersOpen,
     setBotToken,
@@ -265,10 +283,14 @@ function TelegramSettingsCardLoaded({
             card.setFormError(null);
           }
         }}
+        onBotTokenPaste={(value) => {
+          card.setBotToken(value);
+          void card.handleSave(value);
+        }}
         onCopyHandshakeCode={() => void card.copyHandshakeCode()}
         onManageAllowedUsers={() => card.setAllowedUsersOpen(true)}
         onRegenerateHandshake={card.handleRegenerateHandshake}
-        onSave={() => card.handleSave()}
+        onSave={() => void card.handleSave()}
         onToggleShowBotToken={() => card.setShowBotToken((current) => !current)}
         pairingCode={card.pairingCode}
         profileId={card.profileId}

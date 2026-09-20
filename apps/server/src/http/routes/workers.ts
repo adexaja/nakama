@@ -192,46 +192,49 @@ export function registerWorkerRoutes(
     }
   );
 
-  app.post("/v1/workers/:name/:action{start|stop|restart}", async (c) => {
-    const name = decodeURIComponent(c.req.param("name"));
-    const action = c.req.param("action");
-    requireWorkerAuthorization(c, name, workerManager);
+  app.post(
+    "/v1/workers/:name/:action{start|stop|restart|disconnect}",
+    async (c) => {
+      const name = decodeURIComponent(c.req.param("name"));
+      const action = c.req.param("action");
+      requireWorkerAuthorization(c, name, workerManager);
 
-    if (!workerManager.isValidWorker(name)) {
-      return errorResponse(`Unknown worker: ${name}`, 400);
-    }
+      if (!workerManager.isValidWorker(name)) {
+        return errorResponse(`Unknown worker: ${name}`, 400);
+      }
 
-    try {
-      if (action === "disconnect") {
-        const owner = await workerScope(c, name);
-        if (!owner) {
-          throw new NakamaApiError(
-            "Only agent channels can be disconnected",
-            400
+      try {
+        if (action === "disconnect") {
+          const owner = await workerScope(c, name);
+          if (!owner) {
+            throw new NakamaApiError(
+              "Only agent channels can be disconnected",
+              400
+            );
+          }
+          await workerManager.disconnectChannel(
+            name as "telegram" | "discord" | "whatsapp",
+            owner
           );
+        } else if (action === "start") {
+          await workerManager.startWorker(name, await workerScope(c, name));
+        } else if (action === "stop") {
+          await workerManager.stopWorker(name, await workerScope(c, name));
+        } else {
+          await workerManager.restartWorker(name, await workerScope(c, name));
         }
-        await workerManager.disconnectChannel(
-          name as "telegram" | "discord" | "whatsapp",
-          owner
-        );
-      } else if (action === "start") {
-        await workerManager.startWorker(name, await workerScope(c, name));
-      } else if (action === "stop") {
-        await workerManager.stopWorker(name, await workerScope(c, name));
-      } else {
-        await workerManager.restartWorker(name, await workerScope(c, name));
-      }
 
-      return json({ ok: true });
-    } catch (err) {
-      if (err instanceof NakamaApiError) {
-        return errorResponse(err.message, err.status);
+        return json({ ok: true });
+      } catch (err) {
+        if (err instanceof NakamaApiError) {
+          return errorResponse(err.message, err.status);
+        }
+        void reportError(err, { kind: "http", source: "server" });
+        const message = err instanceof Error ? err.message : String(err);
+        return errorResponse(message, 500);
       }
-      void reportError(err, { kind: "http", source: "server" });
-      const message = err instanceof Error ? err.message : String(err);
-      return errorResponse(message, 500);
     }
-  });
+  );
 
   app.get("/v1/workers/:name/logs", async (c) => {
     const name = decodeURIComponent(c.req.param("name"));

@@ -937,6 +937,48 @@ describe("createHonoApp", () => {
     ).toBe(true);
   });
 
+  test("disconnect routes all agent channels to their scoped connection", async () => {
+    const options = createServerOptions();
+    const calls: Array<{
+      name: string;
+      owner: { orgId: string; profileId: string };
+    }> = [];
+    options.workerManager.disconnectChannel = async (
+      name: string,
+      owner: { orgId: string; profileId: string }
+    ) => {
+      calls.push({ name, owner });
+    };
+    const app = createHonoApp(options);
+    const session = await setupFreshInstallSession(
+      app,
+      options.databaseAdapter
+    );
+    const disconnect = (path: string) =>
+      app.fetch(
+        new Request(`http://localhost:4310/v1/workers/${path}`, {
+          headers: session.headers({ "X-CSRF-Token": session.csrfToken }),
+          method: "POST",
+        })
+      );
+    for (const name of ["telegram", "discord", "whatsapp"]) {
+      const response = await disconnect(`${name}/disconnect?profileId=default`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true });
+    }
+    expect(calls).toEqual(
+      ["telegram", "discord", "whatsapp"].map((name) => ({
+        name,
+        owner: { orgId: session.orgId, profileId: "default" },
+      }))
+    );
+    expect((await disconnect("discord/disconnect")).status).toBe(400);
+    expect(
+      (await disconnect("automation/disconnect?profileId=default")).status
+    ).toBe(400);
+    expect(calls).toHaveLength(3);
+  });
+
   test("allows org admins to control their WhatsApp worker", async () => {
     const options = createServerOptions();
     const calls: string[] = [];

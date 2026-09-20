@@ -1,22 +1,20 @@
-import { Button } from "@nakama/ui/button";
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
   InputGroupInput,
 } from "@nakama/ui/input-group";
-import { Spinner } from "@nakama/ui/spinner";
-import { CheckmarkCircle01Icon, ViewIcon, ViewOffIcon } from "hugeicons-react";
-import type { ReactNode } from "react";
+import { ViewIcon, ViewOffIcon } from "hugeicons-react";
 import { SettingsRow } from "@/components/discord-settings-card.shared";
 import { DiscordSettingsPairingSection } from "@/components/discord-settings-pairing-section";
 import {
   ChannelAccessSettings,
+  ChannelConnectionStep,
+  ChannelSettings,
+  ChannelSetupChecklist,
   IntegrationSettingsFooter,
 } from "@/components/integration-settings.shared";
 import { WorkerActionBar } from "@/components/WorkerActionBar";
-import { useStartWorker } from "@/hooks/use-worker-actions";
-import { formatError } from "@/lib/client";
 import {
   DISCORD_DEVELOPER_PORTAL_URL,
   DISCORD_SETUP_GUIDE_URL,
@@ -27,6 +25,7 @@ function DiscordBotTokenFields({
   settings,
   botToken,
   onBotTokenChange,
+  onBotTokenPaste,
   onToggleShowBotToken,
   savePending,
   showBotToken,
@@ -35,39 +34,55 @@ function DiscordBotTokenFields({
   settings: { botTokenMasked?: string | null } | null | undefined;
   botToken: string;
   onBotTokenChange: (value: string) => void;
+  onBotTokenPaste: (value: string) => void;
   onToggleShowBotToken: () => void;
   savePending: boolean;
   showBotToken: boolean;
 }) {
   return (
-    <SettingsRow
-      className="px-4 py-3"
-      description={
-        <>
-          Create a bot in the{" "}
+    <SettingsRow className="px-4 py-3" label="Bot token" layout="stacked">
+      <details className="mb-3 text-sm">
+        <summary className="cursor-pointer text-muted-foreground hover:text-foreground focus-visible:outline-ring">
+          How to get your bot token
+        </summary>
+        <div className="space-y-3 pt-3 text-muted-foreground">
+          <ol className="list-decimal space-y-2 pl-5">
+            <li>
+              <a
+                className="font-medium text-primary underline-offset-2 hover:underline"
+                href={DISCORD_DEVELOPER_PORTAL_URL}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Open Discord Developer Portal ↗
+                <span className="sr-only"> (opens in a new tab)</span>
+              </a>
+              .
+            </li>
+            <li>
+              Choose your application, or click <strong>New Application</strong>
+              .
+            </li>
+            <li>
+              Open <strong>Bot → Reset Token</strong>, then copy the token.
+            </li>
+            <li>Return here and paste it below.</li>
+          </ol>
+          <p className="text-xs">
+            Resetting a token replaces the old one. Update any other apps using
+            this bot.
+          </p>
           <a
-            className="font-medium text-primary underline-offset-2 hover:underline"
-            href={DISCORD_DEVELOPER_PORTAL_URL}
-            rel="noreferrer"
-            target="_blank"
-          >
-            Discord Developer Portal
-          </a>
-          . Follow the{" "}
-          <a
-            className="font-medium text-primary underline-offset-2 hover:underline"
+            className="text-primary text-xs underline-offset-2 hover:underline"
             href={DISCORD_SETUP_GUIDE_URL}
             rel="noreferrer"
             target="_blank"
           >
-            setup guide
-          </a>{" "}
-          for token, intents, and invite steps.
-        </>
-      }
-      label="Bot token"
-      layout="stacked"
-    >
+            Full setup guide
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        </div>
+      </details>
       <InputGroup className="w-full">
         <InputGroupInput
           aria-label="Bot token"
@@ -75,6 +90,16 @@ function DiscordBotTokenFields({
           disabled={savePending}
           id="discord-bot-token"
           onChange={(event) => onBotTokenChange(event.target.value)}
+          onPaste={(event) => {
+            if (configured) {
+              return;
+            }
+            const token = event.clipboardData.getData("text").trim();
+            if (token) {
+              event.preventDefault();
+              onBotTokenPaste(token);
+            }
+          }}
           placeholder={
             configured && settings?.botTokenMasked
               ? `Saved (${settings.botTokenMasked})`
@@ -102,49 +127,6 @@ function DiscordBotTokenFields({
   );
 }
 
-function DiscordConnectionStep({
-  running,
-  managed,
-  children,
-}: {
-  running: boolean;
-  managed: boolean;
-  children: ReactNode;
-}) {
-  const start = useStartWorker();
-  return (
-    <div className="space-y-4 px-4 py-3">
-      <p className="text-muted-foreground text-sm">
-        {running
-          ? "Connecting to Discord…"
-          : "Start the connection so your agent can receive messages."}
-      </p>
-      {running ? (
-        <Spinner aria-label="Connecting to Discord" />
-      ) : (
-        <Button
-          disabled={start.isPending || !managed}
-          onClick={() => start.mutate("discord")}
-          size="sm"
-        >
-          {start.isPending ? "Starting…" : "Start connection"}
-        </Button>
-      )}
-      {start.error ? (
-        <p className="text-destructive text-sm" role="alert">
-          {formatError(start.error)}
-        </p>
-      ) : null}
-      <details>
-        <summary className="cursor-pointer text-muted-foreground text-sm">
-          Having trouble?
-        </summary>
-        <div className="space-y-4 pt-3">{children}</div>
-      </details>
-    </div>
-  );
-}
-
 export type DiscordSettingsCardView = {
   embedded: boolean;
   configured: boolean;
@@ -157,48 +139,6 @@ export type DiscordSettingsCardView = {
   regeneratePending: boolean;
   canSave: boolean;
 };
-
-function DiscordSetupChecklist({
-  step,
-  children,
-}: {
-  step: number;
-  children: ReactNode;
-}) {
-  return (
-    <ol
-      aria-label="Discord setup progress"
-      className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card"
-    >
-      {["Add bot", "Start connection", "Link account"].map((label, index) => (
-        <li aria-current={index === step ? "step" : undefined} key={label}>
-          <div className="flex items-center gap-3 px-4 py-4">
-            {index < step ? (
-              <CheckmarkCircle01Icon
-                aria-hidden
-                className="size-5 shrink-0 text-emerald-600"
-              />
-            ) : (
-              <span
-                aria-hidden
-                className="flex size-5 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground text-xs"
-              >
-                {index + 1}
-              </span>
-            )}
-            <h2 className="font-medium text-sm">{label}</h2>
-            {index < step ? <span className="sr-only">Complete</span> : null}
-          </div>
-          {index === step ? (
-            <div aria-label={label} className="pb-2" role="region">
-              {children}
-            </div>
-          ) : null}
-        </li>
-      ))}
-    </ol>
-  );
-}
 
 function discordSetupStep(
   configured: boolean,
@@ -221,6 +161,7 @@ export function DiscordSettingsCardContent({
   settings,
   botToken,
   onBotTokenChange,
+  onBotTokenPaste,
   onToggleShowBotToken,
   pairingCode,
   onCopyHandshakeCode,
@@ -245,6 +186,7 @@ export function DiscordSettingsCardContent({
     | undefined;
   botToken: string;
   onBotTokenChange: (value: string) => void;
+  onBotTokenPaste: (value: string) => void;
   onToggleShowBotToken: () => void;
   pairingCode: string | null;
   onCopyHandshakeCode: () => void;
@@ -286,6 +228,7 @@ export function DiscordSettingsCardContent({
       botToken={botToken}
       configured={configured}
       onBotTokenChange={onBotTokenChange}
+      onBotTokenPaste={onBotTokenPaste}
       onToggleShowBotToken={onToggleShowBotToken}
       savePending={savePending}
       settings={settings}
@@ -330,20 +273,26 @@ export function DiscordSettingsCardContent({
   );
 
   const checklist = (
-    <DiscordSetupChecklist step={step}>
+    <ChannelSetupChecklist
+      label="Discord setup progress"
+      step={step}
+      steps={["Add bot", "Start connection", "Link account"]}
+    >
       {step === 0 ? tokenEditor : null}
       {step === 1 ? (
-        <DiscordConnectionStep
+        <ChannelConnectionStep
           managed={worker?.process?.managed === true}
+          platform="discord"
           running={running}
+          starting={savePending}
         >
           {workerActions}
           {tokenEditor}
-        </DiscordConnectionStep>
+        </ChannelConnectionStep>
       ) : null}
       {step === 2 ? <div className="px-4 pb-3">{pairing}</div> : null}
       {footer}
-    </DiscordSetupChecklist>
+    </ChannelSetupChecklist>
   );
   if (step < 3) {
     return checklist;
@@ -360,24 +309,10 @@ export function DiscordSettingsCardContent({
         statusBadge={statusBadge}
         summary={allowedUserSummary}
       />
-      <details className="group overflow-hidden rounded-xl border border-border bg-card">
-        <summary className="cursor-pointer list-none px-4 py-3 font-medium text-sm outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-ring">
-          <span className="flex items-center justify-between gap-3">
-            Settings
-            <span className="text-muted-foreground text-xs group-open:hidden">
-              Show
-            </span>
-            <span className="hidden text-muted-foreground text-xs group-open:inline">
-              Hide
-            </span>
-          </span>
-        </summary>
-        <div className="divide-y divide-border border-border border-t">
-          {tokenEditor}
-
-          {pairing}
-        </div>
-      </details>
+      <ChannelSettings>
+        {tokenEditor}
+        {pairing}
+      </ChannelSettings>
 
       {footer}
     </div>

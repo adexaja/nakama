@@ -20,7 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@nakama/ui/select";
-import { Spinner } from "@nakama/ui/spinner";
 import { toast } from "@nakama/ui/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -32,13 +31,9 @@ import {
   Delete02Icon,
   MoreHorizontalIcon,
 } from "hugeicons-react";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { DiscordSettingsCard } from "@/components/DiscordSettingsCard";
-import {
-  IntegrationCardShell,
-  SettingsRow,
-} from "@/components/integration-settings.shared";
 import { ExportProfileButton } from "@/components/profiles/ExportProfileButton";
 import { ProfileSkillsSettingsSection } from "@/components/profiles/ProfileSkillsSettingsSection";
 import { SoulTab } from "@/components/soul-tools/SoulTab";
@@ -230,98 +225,6 @@ export function ProfileConnections() {
   );
 }
 
-function LegacyChannelSetup({
-  platform,
-  profile,
-  name,
-  children,
-}: {
-  platform: "telegram" | "discord" | "whatsapp";
-  profile: ProfileSummary;
-  name: string;
-  children: ReactNode;
-}) {
-  const { activeOrg } = useAuth();
-  const api = client.forOrg(activeOrg?.id ?? null);
-  const queryClient = useQueryClient();
-  const legacy = useQuery({
-    enabled: Boolean(activeOrg),
-    queryFn: () => api.listLegacyChannels(),
-    queryKey: ["legacy-channels", activeOrg?.id],
-  });
-  const claim = useMutation({
-    mutationFn: (global: boolean) =>
-      api.claimLegacyChannel(platform, global, profile.id),
-    onSuccess: () => queryClient.invalidateQueries(),
-  });
-  const pending =
-    legacy.data?.filter((item) => item.platform === platform) ?? [];
-  if (!(legacy.isPending || legacy.error || pending.length)) {
-    return children;
-  }
-  return (
-    <>
-      <IntegrationCardShell>
-        <div className="divide-y divide-border">
-          {legacy.isPending ? (
-            <div
-              className="flex items-center gap-2 px-4 py-3 text-muted-foreground text-sm"
-              role="status"
-            >
-              <Spinner className="size-4" /> Loading connections…
-            </div>
-          ) : pending.length ? (
-            <section aria-label="Connection setup">
-              <div className="divide-y divide-border">
-                {pending.map((item) => (
-                  <SettingsRow
-                    key={String(item.global)}
-                    label={
-                      pending.length === 1
-                        ? `A ${name} connection is available.`
-                        : `${item.global ? "Shared" : "Organization"} ${name} connection`
-                    }
-                  >
-                    <Button
-                      disabled={claim.isPending}
-                      onClick={() => claim.mutate(item.global)}
-                      size="sm"
-                      type="button"
-                    >
-                      {claim.isPending && claim.variables === item.global ? (
-                        <>
-                          <Spinner className="size-3" /> Assigning…
-                        </>
-                      ) : (
-                        "Use this connection"
-                      )}
-                    </Button>
-                  </SettingsRow>
-                ))}
-              </div>
-            </section>
-          ) : null}
-          {claim.error || legacy.error ? (
-            <p className="px-4 py-3 text-destructive text-sm" role="alert">
-              {formatError(claim.error ?? legacy.error)}
-            </p>
-          ) : null}
-        </div>
-      </IntegrationCardShell>
-      {pending.length ? (
-        <details className="space-y-4" key={platform}>
-          <summary className="cursor-pointer text-muted-foreground text-sm">
-            Connect a different {platform === "whatsapp" ? "account" : "bot"}
-          </summary>
-          {children}
-        </details>
-      ) : legacy.isPending ? null : (
-        children
-      )}
-    </>
-  );
-}
-
 export function ProfileChannelSettingsPage() {
   const { profileId, channel } = useParams();
   const { activeOrg } = useAuth();
@@ -364,13 +267,7 @@ export function ProfileChannelSettingsPage() {
         key={`${activeOrg?.id}:${profile.id}:${channel}`}
         value={profile.id}
       >
-        <LegacyChannelSetup
-          name={selected.name}
-          platform={channel as "telegram" | "discord" | "whatsapp"}
-          profile={profile}
-        >
-          <Settings embedded />
-        </LegacyChannelSetup>
+        <Settings embedded />
       </ChannelProfileContext.Provider>
     </div>
   );

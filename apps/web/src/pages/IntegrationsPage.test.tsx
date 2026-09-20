@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { TelegramSettingsCard } from "@/components/TelegramSettingsCard";
+import { WhatsAppSettingsCard } from "@/components/WhatsAppSettingsCard";
 import { WorkerActionBar } from "@/components/WorkerActionBar";
 import { useActiveChatProfileStore } from "@/context/active-chat-profile-store";
 import {
@@ -60,32 +61,67 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
   queryClient.setQueryData(queryKeys.profiles.all, profiles);
   const api = client.forOrg("org-setup");
   const scope = spyOn(client, "forOrg").mockReturnValue(api);
-  let assigned = false;
-  const list = spyOn(api, "listLegacyChannels").mockImplementation(async () =>
-    assigned ? [] : [{ global: true, platform: "telegram" }]
-  );
+  const list = spyOn(api, "listLegacyChannels").mockResolvedValue([
+    { global: true, platform: "telegram" },
+  ]);
   const listProfiles = spyOn(client, "listProfiles").mockResolvedValue({
     profiles,
   } as Awaited<ReturnType<typeof client.listProfiles>>);
-  const claim = spyOn(api, "claimLegacyChannel")
-    .mockRejectedValueOnce(new Error("Assignment failed"))
-    .mockImplementationOnce(async () => {
-      assigned = true;
-      return { ok: true };
-    });
+  const claim = spyOn(api, "claimLegacyChannel");
   const start = spyOn(api, "startWorker").mockResolvedValue({ ok: true });
   const restart = spyOn(api, "restartWorker").mockResolvedValue({ ok: true });
   const settings = spyOn(api, "getDiscordSettings").mockRejectedValue(
     new Error("Unavailable")
   );
+  const saveDiscord = spyOn(api, "setDiscordSettings")
+    .mockRejectedValueOnce(new Error("Invalid token"))
+    .mockResolvedValue({
+      allowedUserIds: [],
+      botTokenMasked: "***",
+      configured: true,
+      handshakeCode: null,
+      inviteUrl: null,
+      pairedUserIds: [],
+      profileId: "agent-b",
+    });
+  const telegramSettings = {
+    allowedUserIds: [],
+    botTokenMasked: "***",
+    configured: true,
+    handshakeCode: "link-code",
+    pairedUserIds: [],
+    profileId: "agent-b",
+  };
+  const saveTelegram = spyOn(api, "setTelegramSettings")
+    .mockRejectedValueOnce(new Error("Invalid token"))
+    .mockResolvedValue(telegramSettings);
+  const getTelegram = spyOn(api, "getTelegramSettings")
+    .mockResolvedValueOnce({
+      ...telegramSettings,
+      botTokenMasked: null,
+      configured: false,
+    })
+    .mockResolvedValue({
+      ...telegramSettings,
+      pairedUserIds: [123],
+    });
+  const whatsappSettings = {
+    allowedPhones: [],
+    configured: false,
+    pairedJid: null,
+    pairingCode: null,
+    phoneNumberMasked: null,
+    profileId: "agent-b",
+    requireGroupMention: true,
+  };
+  const saveWhatsApp = spyOn(api, "setWhatsAppSettings").mockResolvedValue({
+    ...whatsappSettings,
+    configured: true,
+  });
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
   const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
-  const assignButton = () =>
-    [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Use this connection"
-    )!;
   try {
     await act(async () => {
       root.render(
@@ -109,25 +145,11 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
     await act(settle);
     expect(container.querySelector("select")).toBeNull();
     expect(container.querySelector("details")?.open).toBe(false);
-    expect(assignButton()).toBeDefined();
-    await act(async () =>
-      useActiveChatProfileStore.setState({ profileId: "agent-a" })
-    );
-    expect(assignButton()).toBeDefined();
-    await act(async () => {
-      assignButton().click();
-      await settle();
-    });
-    expect(claim).toHaveBeenLastCalledWith("telegram", true, "agent-b");
-    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(list).not.toHaveBeenCalled();
+    expect(claim).not.toHaveBeenCalled();
     expect(
-      container.querySelector('[aria-label="Connection setup"]')
-    ).not.toBeNull();
-    await act(async () => {
-      assignButton().click();
-      await settle();
-    });
-    await act(settle);
+      container.querySelector('[aria-current="step"] h2')?.textContent
+    ).toBe("Add bot");
     expect(
       container.querySelector('[aria-label="Connection setup"]')
     ).toBeNull();
@@ -220,21 +242,42 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
         '[aria-label="Discord setup progress"] [role="region"]'
       )
     ).toHaveLength(1);
-    await act(async () => {
-      queryClient.setQueryData(
-        [...queryKeys.discord.settings, "org-setup", "agent-b"],
-        {
-          allowedUserIds: [],
-          botTokenMasked: "***",
-          configured: true,
-          handshakeCode: null,
-          inviteUrl: null,
-          pairedUserIds: [],
-          profileId: "agent-b",
-        }
-      );
-      await settle();
-    });
+    const pasteToken = async (token: string) => {
+      await act(async () => {
+        const event = new window.Event("paste", {
+          bubbles: true,
+          cancelable: true,
+        });
+        Object.defineProperty(event, "clipboardData", {
+          value: { getData: () => token },
+        });
+        container
+          .querySelector('[aria-label="Bot token"]')!
+          .dispatchEvent(event);
+        await settle();
+      });
+      await act(settle);
+    };
+    await pasteToken("invalid-token");
+    expect(saveDiscord).toHaveBeenCalledTimes(1);
+    expect(start).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(
+      container.querySelector('[aria-current="step"] h2')?.textContent
+    ).toBe("Add bot");
+    start.mockRejectedValueOnce(new Error("Could not start connection"));
+    await pasteToken("  valid-test-token  ");
+    expect(saveDiscord).toHaveBeenLastCalledWith(
+      {
+        allowedUserIds: "",
+        botToken: "valid-test-token",
+        profileId: "agent-b",
+      },
+      "agent-b"
+    );
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledWith("discord", "agent-b");
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
     await act(settle);
     expect(container.querySelector("details")?.open).toBe(false);
     expect(container.querySelector("#discord-profile")).toBeNull();
@@ -317,14 +360,20 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
     queryClient.setQueryData(
       [...queryKeys.telegram.settings, "org-setup", "agent-b"],
       {
-        allowedUserIds: [],
-        botTokenMasked: "***",
-        configured: true,
-        handshakeCode: null,
-        pairedUserIds: [123],
-        profileId: "agent-b",
+        ...telegramSettings,
+        botTokenMasked: null,
+        configured: false,
       }
     );
+    queryClient.setQueryData(statusKey, {
+      ...previousStatus,
+      telegramWorker: {
+        configured: false,
+        paired: false,
+        process: { managed: true },
+        running: false,
+      },
+    });
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -338,6 +387,57 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
       await settle();
     });
     await act(settle);
+    expect(
+      container.querySelector('[aria-current="step"] h2')?.textContent
+    ).toBe("Add bot");
+    start.mockClear();
+    await pasteToken("invalid-telegram-token");
+    expect(start).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    await pasteToken(" telegram-test-token ");
+    expect(saveTelegram).toHaveBeenLastCalledWith(
+      {
+        allowedUserIds: "",
+        botToken: "telegram-test-token",
+        profileId: "agent-b",
+      },
+      "agent-b"
+    );
+    expect(start).toHaveBeenCalledWith("telegram", "agent-b");
+    await act(async () => {
+      queryClient.setQueryData(statusKey, {
+        ...previousStatus,
+        telegramWorker: {
+          configured: true,
+          paired: false,
+          process: { managed: true },
+          running: true,
+        },
+      });
+      await settle();
+    });
+    expect(
+      container.querySelector('[aria-current="step"] h2')?.textContent
+    ).toBe("Link account");
+    expect(
+      container.querySelectorAll(
+        '[aria-label="Telegram setup progress"] [role="region"]'
+      )
+    ).toHaveLength(1);
+    await act(async () => {
+      queryClient.setQueryData(statusKey, {
+        ...previousStatus,
+        telegramWorker: {
+          configured: true,
+          paired: true,
+          process: { managed: true },
+          running: true,
+        },
+      });
+      await settle();
+    });
+    await act(settle);
+    expect(container.querySelector('[aria-current="step"]')).toBeNull();
     expect(container.querySelector("details")?.open).toBe(false);
     expect(container.querySelector("#telegram-profile")).toBeNull();
     expect(container.querySelector('[aria-label="Bot token"]')).not.toBeNull();
@@ -351,6 +451,120 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
         .find((button) => button.textContent === "Edit")
         ?.closest("details")
     ).toBeNull();
+
+    queryClient.setQueryData(
+      [...queryKeys.whatsapp.settings, "org-setup", "agent-b"],
+      whatsappSettings
+    );
+    queryClient.setQueryData(statusKey, {
+      ...previousStatus,
+      whatsappWorker: {
+        configured: false,
+        paired: false,
+        process: { managed: true },
+        running: false,
+      },
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AuthContext.Provider value={auth}>
+            <ChannelProfileContext.Provider value="agent-b">
+              <WhatsAppSettingsCard embedded />
+            </ChannelProfileContext.Provider>
+          </AuthContext.Provider>
+        </QueryClientProvider>
+      );
+      await settle();
+    });
+    await act(settle);
+    expect(
+      container.querySelector('[aria-current="step"] h2')?.textContent
+    ).toBe("Start connection");
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Connect WhatsApp")!
+        .click();
+      await settle();
+    });
+    await act(settle);
+    expect(saveWhatsApp).toHaveBeenCalledWith(
+      { profileId: "agent-b", requireGroupMention: true },
+      "agent-b"
+    );
+    expect(start).toHaveBeenCalledWith("whatsapp", "agent-b");
+    await act(async () => {
+      queryClient.setQueryData(statusKey, {
+        ...previousStatus,
+        whatsappWorker: {
+          configured: true,
+          connected: false,
+          paired: false,
+          process: { managed: true },
+          qrCode: "test-qr",
+          running: true,
+        },
+      });
+      await settle();
+    });
+    expect(
+      container.querySelector('[aria-current="step"] h2')?.textContent
+    ).toBe("Link account");
+    expect(
+      container
+        .querySelector('[aria-label="Steps to connect WhatsApp"]')
+        ?.closest("details")
+    ).toBeNull();
+    expect(
+      container.querySelectorAll(
+        '[aria-label="WhatsApp setup progress"] [role="region"]'
+      )
+    ).toHaveLength(1);
+    await act(async () => {
+      queryClient.setQueryData(
+        [...queryKeys.whatsapp.settings, "org-setup", "agent-b"],
+        {
+          ...whatsappSettings,
+          configured: true,
+          pairedJid: "123@s.whatsapp.net",
+        }
+      );
+      queryClient.setQueryData(statusKey, {
+        ...previousStatus,
+        whatsappWorker: {
+          configured: true,
+          connected: true,
+          paired: true,
+          process: { managed: true },
+          running: true,
+        },
+      });
+      await settle();
+    });
+    expect(container.querySelector('[aria-current="step"]')).toBeNull();
+    expect(container.querySelector("details")?.open).toBe(false);
+    await act(async () => {
+      queryClient.setQueryData(statusKey, {
+        ...previousStatus,
+        whatsappWorker: {
+          configured: true,
+          connected: false,
+          paired: true,
+          process: { managed: true },
+          running: false,
+        },
+      });
+      await settle();
+    });
+    const whatsappStart = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Start connection"
+    )!;
+    expect(whatsappStart.closest("details")).toBeNull();
+    await act(async () => {
+      whatsappStart.click();
+      await settle();
+    });
+    expect(start).toHaveBeenLastCalledWith("whatsapp", "agent-b");
 
     await act(async () =>
       root.render(
@@ -433,6 +647,10 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
     claim.mockRestore();
     listProfiles.mockRestore();
     settings.mockRestore();
+    saveDiscord.mockRestore();
+    saveTelegram.mockRestore();
+    getTelegram.mockRestore();
+    saveWhatsApp.mockRestore();
     restart.mockRestore();
     start.mockRestore();
     useActiveChatProfileStore.setState(previous);

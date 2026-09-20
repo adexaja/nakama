@@ -324,44 +324,6 @@ export function WhatsAppSettingsLinkingSection({
           title="Relink WhatsApp?"
         />
       ) : null}
-      <SettingsRow
-        className={rowClassName}
-        description={pairingCodeDescription(pairingCode, paired)}
-        label="Link with a code"
-      >
-        <WhatsAppPairingCodeControls
-          copied={copied}
-          onCopyPairingCode={onCopyPairingCode}
-          onRegeneratePairingCode={() =>
-            paired ? setRelinkMethod("code") : onRegeneratePairingCode()
-          }
-          paired={paired}
-          pairingCode={pairingCode}
-          regeneratePending={regeneratePending}
-          savePending={savePending}
-        />
-      </SettingsRow>
-
-      {pairingCode ? (
-        <ol
-          aria-label="Steps to connect WhatsApp with a pairing code"
-          className={cn(
-            "list-decimal space-y-1 pl-5 text-muted-foreground text-xs",
-            !compact && "px-4 py-3 pl-8"
-          )}
-        >
-          <li>
-            <strong>Open WhatsApp</strong> on your phone
-          </li>
-          <li>
-            Open <strong>Settings</strong>, then <strong>Linked Devices</strong>
-          </li>
-          <li>
-            Choose <strong>Link with phone number</strong> and enter this code
-          </li>
-        </ol>
-      ) : null}
-
       <WhatsAppLinkStatus
         awaitingQr={awaitingQr}
         bridgeStarting={bridgeStarting}
@@ -371,6 +333,52 @@ export function WhatsAppSettingsLinkingSection({
         rowClassName={rowClassName}
         showQr={showQr}
       />
+      <details
+        className="px-4 py-3 text-sm"
+        open={paired || Boolean(pairingCode)}
+      >
+        <summary className="cursor-pointer text-muted-foreground">
+          Link with a code instead
+        </summary>
+        <SettingsRow
+          className={rowClassName}
+          description={pairingCodeDescription(pairingCode, paired)}
+          label="Link with a code"
+        >
+          <WhatsAppPairingCodeControls
+            copied={copied}
+            onCopyPairingCode={onCopyPairingCode}
+            onRegeneratePairingCode={() =>
+              paired ? setRelinkMethod("code") : onRegeneratePairingCode()
+            }
+            paired={paired}
+            pairingCode={pairingCode}
+            regeneratePending={regeneratePending}
+            savePending={savePending}
+          />
+        </SettingsRow>
+
+        {pairingCode ? (
+          <ol
+            aria-label="Steps to connect WhatsApp with a pairing code"
+            className={cn(
+              "list-decimal space-y-1 pl-5 text-muted-foreground text-xs",
+              !compact && "px-4 py-3 pl-8"
+            )}
+          >
+            <li>
+              <strong>Open WhatsApp</strong> on your phone
+            </li>
+            <li>
+              Open <strong>Settings</strong>, then{" "}
+              <strong>Linked Devices</strong>
+            </li>
+            <li>
+              Choose <strong>Link with phone number</strong> and enter this code
+            </li>
+          </ol>
+        ) : null}
+      </details>
 
       {showReconnect ? (
         <WhatsAppReconnectRow

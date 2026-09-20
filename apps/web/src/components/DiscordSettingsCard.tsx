@@ -13,6 +13,7 @@ import {
   useSaveDiscordSettings,
 } from "@/hooks/use-app-queries";
 import { useSystemStatusQuery } from "@/hooks/use-system-status";
+import { useStartWorker } from "@/hooks/use-worker-actions";
 import { formatError } from "@/lib/client";
 
 interface DiscordSettingsCardProps {
@@ -135,6 +136,8 @@ function useDiscordSettingsCard(onSaveSuccess?: () => void) {
   } = useDiscordSettings();
   const { data: status } = useSystemStatusQuery();
   const saveMutation = useSaveDiscordSettings();
+  const startMutation = useStartWorker();
+  const savingRef = useRef(false);
   const regenerateMutation = useRegenerateDiscordHandshake();
 
   const [botToken, setBotToken] = useState("");
@@ -206,24 +209,29 @@ function useDiscordSettingsCard(onSaveSuccess?: () => void) {
     }
   }
 
-  function handleSave(afterSuccess?: () => void) {
+  async function handleSave(token = botToken) {
+    if (savingRef.current || !token.trim()) {
+      return;
+    }
+    savingRef.current = true;
     setFormError(null);
     setHint(null);
 
-    saveMutation.mutate(
-      buildDiscordSaveRequest(allowedUsers, profileId, botToken),
-      {
-        onError: (err) => {
-          setFormError(formatError(err));
-        },
-        onSuccess: (saved) => {
-          setBotToken("");
-          setHint(channelSaveHint(saved));
-          afterSuccess?.();
-          onSaveSuccess?.();
-        },
+    try {
+      const saved = await saveMutation.mutateAsync(
+        buildDiscordSaveRequest(allowedUsers, profileId, token)
+      );
+      setBotToken("");
+      if (!configured && worker?.process?.managed) {
+        await startMutation.mutateAsync("discord");
       }
-    );
+      setHint(channelSaveHint(saved));
+      onSaveSuccess?.();
+    } catch (err) {
+      setFormError(formatError(err));
+    } finally {
+      savingRef.current = false;
+    }
   }
 
   function handleRegenerateHandshake() {
@@ -260,7 +268,7 @@ function useDiscordSettingsCard(onSaveSuccess?: () => void) {
     profileId,
     regeneratePending: regenerateMutation.isPending,
     running,
-    savePending: saveMutation.isPending,
+    savePending: saveMutation.isPending || startMutation.isPending,
     setAllowedUsers,
     setAllowedUsersOpen,
     setBotToken,
@@ -302,10 +310,14 @@ function DiscordSettingsCardLoaded({
           card.setFormError(null);
         }
       }}
+      onBotTokenPaste={(value) => {
+        card.setBotToken(value);
+        void card.handleSave(value);
+      }}
       onCopyHandshakeCode={() => void card.copyHandshakeCode()}
       onManageAllowedUsers={() => card.setAllowedUsersOpen(true)}
       onRegenerateHandshake={card.handleRegenerateHandshake}
-      onSave={() => card.handleSave()}
+      onSave={() => void card.handleSave()}
       onToggleShowBotToken={() => card.setShowBotToken((current) => !current)}
       pairingCode={card.pairingCode}
       settings={card.settings}

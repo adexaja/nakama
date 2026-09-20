@@ -14,6 +14,9 @@ import {
 } from "hugeicons-react";
 import {
   ChannelAccessSettings,
+  ChannelConnectionStep,
+  ChannelSettings,
+  ChannelSetupChecklist,
   IntegrationSettingsFooter,
   PairingStepTile,
   SettingsRow,
@@ -133,6 +136,7 @@ function TelegramBotTokenRow({
   botToken,
   configured,
   onBotTokenChange,
+  onBotTokenPaste,
   onToggleShowBotToken,
   paneItemClass,
   savePending,
@@ -142,6 +146,7 @@ function TelegramBotTokenRow({
   botToken: string;
   configured: boolean;
   onBotTokenChange: (value: string) => void;
+  onBotTokenPaste: (value: string) => void;
   onToggleShowBotToken: () => void;
   paneItemClass: string | undefined;
   savePending: boolean;
@@ -149,18 +154,48 @@ function TelegramBotTokenRow({
   showBotToken: boolean;
 }) {
   return (
-    <SettingsRow
-      className={paneItemClass}
-      description="Paste token from @BotFather"
-      label="Bot token"
-    >
-      <InputGroup className="w-full min-w-[12rem] sm:w-[16rem]">
+    <SettingsRow className={paneItemClass} label="Bot token" layout="stacked">
+      <details className="mb-3 text-sm">
+        <summary className="cursor-pointer text-muted-foreground hover:text-foreground focus-visible:outline-ring">
+          How to get your bot token
+        </summary>
+        <ol className="list-decimal space-y-2 pt-3 pl-5 text-muted-foreground">
+          <li>
+            <a
+              className="font-medium text-primary hover:underline"
+              href="https://t.me/BotFather"
+              rel="noreferrer"
+              target="_blank"
+            >
+              Open @BotFather ↗
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>{" "}
+            in Telegram.
+          </li>
+          <li>
+            Send <strong>/newbot</strong> and follow the instructions to choose
+            a name and username.
+          </li>
+          <li>Copy the token BotFather sends you, then paste it below.</li>
+        </ol>
+      </details>
+      <InputGroup className="w-full">
         <InputGroupInput
           aria-label="Bot token"
           autoComplete="off"
           disabled={savePending}
           id="telegram-bot-token"
           onChange={(event) => onBotTokenChange(event.target.value)}
+          onPaste={(event) => {
+            if (configured) {
+              return;
+            }
+            const token = event.clipboardData.getData("text").trim();
+            if (token) {
+              event.preventDefault();
+              onBotTokenPaste(token);
+            }
+          }}
           placeholder={
             configured && settings?.botTokenMasked
               ? `Saved (${settings.botTokenMasked})`
@@ -275,6 +310,7 @@ export function TelegramSettingsCardContent({
   settings,
   botToken,
   onBotTokenChange,
+  onBotTokenPaste,
   onToggleShowBotToken,
   pairingCode,
   onCopyHandshakeCode,
@@ -292,6 +328,7 @@ export function TelegramSettingsCardContent({
   settings: { botTokenMasked?: string | null } | null | undefined;
   botToken: string;
   onBotTokenChange: (value: string) => void;
+  onBotTokenPaste: (value: string) => void;
   onToggleShowBotToken: () => void;
   view: TelegramSettingsCardView;
   statusBadge: string;
@@ -321,93 +358,118 @@ export function TelegramSettingsCardContent({
 
   const paneItemClass = "px-4 py-3";
 
+  const step = configured ? (running ? (hasLinkedUsers ? 3 : 2) : 1) : 0;
+  const workerActions = (
+    <WorkerActionBar
+      compact
+      pm2Managed={worker?.process?.managed ?? false}
+      running={running}
+      workerName="telegram"
+    />
+  );
+  const tokenEditor = (
+    <TelegramBotTokenRow
+      botToken={botToken}
+      configured={configured}
+      onBotTokenChange={onBotTokenChange}
+      onBotTokenPaste={onBotTokenPaste}
+      onToggleShowBotToken={onToggleShowBotToken}
+      paneItemClass={paneItemClass}
+      savePending={savePending}
+      settings={settings}
+      showBotToken={showBotToken}
+    />
+  );
+  const pairing = (
+    <div className="space-y-3">
+      <SettingsRow
+        description={pairingCodeDescription(pairingCode, isPaired)}
+        label="Link with a code"
+        layout="stacked"
+      >
+        <TelegramPairingCodeControls
+          isPaired={isPaired}
+          onCopyHandshakeCode={onCopyHandshakeCode}
+          onRegenerateHandshake={onRegenerateHandshake}
+          pairingCode={pairingCode}
+          regeneratePending={regeneratePending}
+          savePending={savePending}
+        />
+      </SettingsRow>
+      <details className="px-4 pb-3 text-sm">
+        <summary className="cursor-pointer text-muted-foreground">
+          Need help?
+        </summary>
+        <div className="pt-3">
+          <TelegramPairingGuide />
+        </div>
+      </details>
+    </div>
+  );
+  const footer = (
+    <IntegrationSettingsFooter
+      canSave={canSave}
+      className={paneItemClass}
+      formError={formError}
+      loadError={loadError}
+      onSave={onSave}
+      savePending={savePending}
+      showSave={canSave || savePending || !configured}
+      statusLine={statusLine}
+      submitLabel={configured ? submitLabel : "Continue"}
+    />
+  );
+  const checklist = (
+    <ChannelSetupChecklist
+      label="Telegram setup progress"
+      step={step}
+      steps={["Add bot", "Start connection", "Link account"]}
+    >
+      {step === 0 ? (
+        <div className="grid gap-4 px-4 pb-3 md:grid-cols-2">
+          <div className="min-w-0 rounded-xl border border-primary/20 bg-primary/5">
+            <TelegramQrSetup profileId={profileId} running={running} />
+          </div>
+          <div className="flex min-w-0 flex-col justify-between rounded-xl border border-border">
+            {tokenEditor}
+            {footer}
+          </div>
+        </div>
+      ) : null}
+      {step === 1 ? (
+        <ChannelConnectionStep
+          managed={worker?.process?.managed === true}
+          platform="telegram"
+          running={running}
+          starting={savePending}
+        >
+          {workerActions}
+          {tokenEditor}
+        </ChannelConnectionStep>
+      ) : null}
+      {step === 2 ? pairing : null}
+      {step === 0 ? null : footer}
+    </ChannelSetupChecklist>
+  );
+  if (step < 3) {
+    return checklist;
+  }
   return (
     <div className="space-y-4">
+      {checklist}
       <ChannelAccessSettings
-        actions={
-          configured ? (
-            <WorkerActionBar
-              compact
-              pm2Managed={worker?.process?.managed ?? false}
-              running={running}
-              workerName="telegram"
-            />
-          ) : null
-        }
+        actions={workerActions}
         configured={configured}
         onEdit={onManageAllowedUsers}
         pending={savePending}
         statusBadge={statusBadge}
         summary={allowedUserSummary}
       />
-      <details
-        className="group overflow-hidden rounded-xl border border-border bg-card"
-        key={String(hasLinkedUsers)}
-        open={!hasLinkedUsers}
-      >
-        <summary className="cursor-pointer list-none px-4 py-3 font-medium text-sm outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-ring">
-          <span className="flex items-center justify-between gap-3">
-            Settings
-            <span className="text-muted-foreground text-xs group-open:hidden">
-              Show
-            </span>
-            <span className="hidden text-muted-foreground text-xs group-open:inline">
-              Hide
-            </span>
-          </span>
-        </summary>
-        <div className="divide-y divide-border border-border border-t">
-          <div>
-            <TelegramQrSetup profileId={profileId} running={running} />
-            <div className="flex items-center gap-3 px-4 py-2 text-muted-foreground text-xs">
-              <div className="h-px flex-1 bg-border" />
-              <span>OR</span>
-              <div className="h-px flex-1 bg-border" />
-            </div>
-            <TelegramBotTokenRow
-              botToken={botToken}
-              configured={configured}
-              onBotTokenChange={onBotTokenChange}
-              onToggleShowBotToken={onToggleShowBotToken}
-              paneItemClass={paneItemClass}
-              savePending={savePending}
-              settings={settings}
-              showBotToken={showBotToken}
-            />
-          </div>
-
-          {configured ? (
-            <div className="divide-y divide-border">
-              <SettingsRow
-                description={pairingCodeDescription(pairingCode, isPaired)}
-                label="Link with a code"
-              >
-                <TelegramPairingCodeControls
-                  isPaired={isPaired}
-                  onCopyHandshakeCode={onCopyHandshakeCode}
-                  onRegenerateHandshake={onRegenerateHandshake}
-                  pairingCode={pairingCode}
-                  regeneratePending={regeneratePending}
-                  savePending={savePending}
-                />
-              </SettingsRow>
-              {pairingCode ? <TelegramPairingGuide /> : null}
-            </div>
-          ) : null}
-        </div>
-      </details>
-
-      <IntegrationSettingsFooter
-        canSave={canSave}
-        className={paneItemClass}
-        formError={formError}
-        loadError={loadError}
-        onSave={onSave}
-        savePending={savePending}
-        showSave={canSave || savePending || !configured}
-        statusLine={statusLine}
-        submitLabel={submitLabel}
-      />
+      <ChannelSettings>
+        {tokenEditor}
+        {pairing}
+      </ChannelSettings>
+      {footer}
     </div>
   );
 }
