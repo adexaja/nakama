@@ -12,17 +12,22 @@ import {
   TelegramIcon,
   WhatsappIcon,
 } from "hugeicons-react";
-import { useState } from "react";
-import { Navigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { CodingAgentsSettingsCard } from "@/components/CodingAgentsSettingsCard";
 import { ComposioConnectionsCard } from "@/components/ComposioConnectionsCard";
 import { ComposioSettingsCard } from "@/components/ComposioSettingsCard";
 import { ErrorTrackingSettingsCard } from "@/components/ErrorTrackingSettingsCard";
+import {
+  IntegrationCardShell,
+  SettingsRow,
+} from "@/components/integration-settings.shared";
 import { NotificationDestinationsCard } from "@/components/NotificationDestinationsCard";
 import { TokenOptimizationCard } from "@/components/TokenOptimizationCard";
+import { useActiveChatProfile } from "@/context/use-active-chat-profile";
 import { useAuth } from "@/context/use-auth";
 import { useProfilesQuery } from "@/hooks/use-app-queries";
 import { client, formatError } from "@/lib/client";
+import { profilePath } from "@/lib/navigation";
 
 function AgentChannelLocation({
   platform,
@@ -32,54 +37,103 @@ function AgentChannelLocation({
   const { activeOrg } = useAuth();
   const api = client.forOrg(activeOrg?.id ?? null);
   const { data: profiles = [] } = useProfilesQuery();
-  const [profileId, setProfileId] = useState("");
+  const { profileId, orgId } = useActiveChatProfile();
+  const profile =
+    orgId === activeOrg?.id
+      ? profiles.find((item) => item.id === profileId)
+      : undefined;
   const queryClient = useQueryClient();
   const legacy = useQuery({
+    enabled: Boolean(activeOrg),
     queryFn: () => api.listLegacyChannels(),
     queryKey: ["legacy-channels", activeOrg?.id],
   });
   const claim = useMutation({
-    mutationFn: (global: boolean) =>
-      api.claimLegacyChannel(platform, global, profileId),
+    mutationFn: (global: boolean) => {
+      if (!profile) {
+        throw new Error("Select an agent in the sidebar first.");
+      }
+      return api.claimLegacyChannel(platform, global, profile.id);
+    },
     onSuccess: () => queryClient.invalidateQueries(),
   });
   const pending =
     legacy.data?.filter((item) => item.platform === platform) ?? [];
   return (
-    <div className="space-y-3">
-      <p>Manage this connection in your agent’s Connections settings.</p>
-      {pending.length ? (
-        <>
-          <label className="flex flex-col gap-2 text-sm">
-            Assign existing connection to
-            <select
-              className="rounded-md border bg-background p-2"
-              onChange={(event) => setProfileId(event.target.value)}
-              value={profileId}
-            >
-              <option value="">Choose an agent</option>
-              {profiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.name}
-                </option>
+    <IntegrationCardShell>
+      <div className="divide-y divide-border">
+        {legacy.isPending ? (
+          <div
+            className="flex items-center gap-2 px-4 py-3 text-muted-foreground text-sm"
+            role="status"
+          >
+            <Spinner className="size-4" /> Loading connections…
+          </div>
+        ) : pending.length ? (
+          <section aria-label="Connection setup">
+            <div className="px-4 py-3">
+              <h2 className="font-medium text-foreground text-sm">
+                Finish connection setup
+              </h2>
+              <p className="mt-1 text-muted-foreground text-xs">
+                Assign your existing connection to an agent once to keep using
+                it.
+              </p>
+            </div>
+            <div className="divide-y divide-border border-border border-t">
+              {pending.map((item) => (
+                <SettingsRow
+                  key={String(item.global)}
+                  label={`${item.global ? "Installation" : "Organization"} connection`}
+                >
+                  <Button
+                    disabled={!profile || claim.isPending}
+                    onClick={() => claim.mutate(item.global)}
+                    size="sm"
+                    type="button"
+                  >
+                    {claim.isPending && claim.variables === item.global ? (
+                      <>
+                        <Spinner className="size-3" /> Assigning…
+                      </>
+                    ) : profile ? (
+                      `Assign to ${profile.name}`
+                    ) : (
+                      "Select an agent in the sidebar"
+                    )}
+                  </Button>
+                </SettingsRow>
               ))}
-            </select>
-          </label>
-          {pending.map((item) => (
+            </div>
+          </section>
+        ) : null}
+        <SettingsRow
+          label={profile ? `${profile.name} connections` : "Agent connections"}
+        >
+          {profile ? (
             <Button
-              disabled={!profileId || claim.isPending}
-              key={String(item.global)}
-              onClick={() => claim.mutate(item.global)}
+              nativeButton={false}
+              render={
+                <Link to={`${profilePath(profile.id)}#profile-connections`} />
+              }
+              size="sm"
+              variant="outline"
             >
-              Claim {item.global ? "installation" : "organization"} connection
+              Manage connections
             </Button>
-          ))}
-        </>
-      ) : null}
-      {claim.error || legacy.error ? (
-        <p role="alert">{formatError(claim.error ?? legacy.error)}</p>
-      ) : null}
-    </div>
+          ) : (
+            <p className="text-muted-foreground text-xs">
+              Select an agent in the sidebar.
+            </p>
+          )}
+        </SettingsRow>
+        {claim.error || legacy.error ? (
+          <p className="px-4 py-3 text-destructive text-sm" role="alert">
+            {formatError(claim.error ?? legacy.error)}
+          </p>
+        ) : null}
+      </div>
+    </IntegrationCardShell>
   );
 }
 

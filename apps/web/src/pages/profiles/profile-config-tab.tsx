@@ -6,6 +6,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@nakama/ui/dialog";
 import {
   DropdownMenu,
@@ -39,6 +40,7 @@ import { TelegramSettingsCard } from "@/components/TelegramSettingsCard";
 import { WhatsAppSettingsCard } from "@/components/WhatsAppSettingsCard";
 import { useAuth } from "@/context/use-auth";
 import { ChannelProfileContext } from "@/hooks/use-app-queries";
+import { useSystemStatusQuery } from "@/hooks/use-system-status";
 import { client, formatError } from "@/lib/client";
 import { queryKeys } from "@/lib/query-keys";
 import { ProfileConfigAssignmentsSection } from "@/pages/profiles/profile-config-assignments-section";
@@ -91,12 +93,7 @@ export function ProfileConfigTab({ state }: { state: ProfilesPageState }) {
           key={`${activeOrg?.id}:${detail.id}`}
           value={detail.id}
         >
-          <section className="space-y-4">
-            <h2 className="font-medium">Connections</h2>
-            <TelegramSettingsCard />
-            <DiscordSettingsCard />
-            <WhatsAppSettingsCard />
-          </section>
+          <ProfileConnections />
         </ChannelProfileContext.Provider>
       ) : null}
       {canPack ? (
@@ -119,6 +116,97 @@ export function ProfileConfigTab({ state }: { state: ProfilesPageState }) {
       <ProfileSkillsSettingsSection disabled={busy} profile={detail} />
       <ProfileConfigAssignmentsSection key={detail.id} state={state} />
     </div>
+  );
+}
+
+export function ProfileConnections() {
+  const { data: status, isPending, error } = useSystemStatusQuery();
+  // Brand SVGs: Simple Icons v16 (CC0), https://simpleicons.org.
+  const channels = [
+    {
+      id: "telegram",
+      name: "Telegram",
+      settings: TelegramSettingsCard,
+      worker: status?.telegramWorker,
+    },
+    {
+      id: "whatsapp",
+      name: "WhatsApp",
+      settings: WhatsAppSettingsCard,
+      worker: status?.whatsappWorker,
+    },
+    {
+      id: "discord",
+      name: "Discord",
+      settings: DiscordSettingsCard,
+      worker: status?.discordWorker,
+    },
+  ].map((channel) => ({
+    ...channel,
+    connected: Boolean(
+      !error &&
+        channel.worker?.running &&
+        channel.worker.paired &&
+        ("connected" in channel.worker ? channel.worker.connected : true)
+    ),
+  }));
+
+  return (
+    <section className="space-y-2" id="profile-connections">
+      <h2 className="font-medium text-sm">Connections</h2>
+      {isPending ? (
+        <p className="text-muted-foreground text-sm" role="status">
+          Loading connections…
+        </p>
+      ) : null}
+      {error ? (
+        <p className="text-destructive text-sm" role="alert">
+          Connection status is unavailable. Open an app to check its setup.
+        </p>
+      ) : null}
+      <div className="divide-y divide-border rounded-xl border border-border bg-card">
+        {channels.map(({ id, name, connected, settings: Settings }) => (
+          <Dialog key={id}>
+            <DialogTrigger
+              render={
+                <button
+                  aria-label={`${connected ? "Manage" : "Connect"} ${name}`}
+                  className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-left outline-none transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                  type="button"
+                />
+              }
+            >
+              <span className="flex flex-wrap items-center gap-2">
+                <img
+                  alt=""
+                  className="size-5 shrink-0"
+                  height={20}
+                  src={`/icons/${id}.svg`}
+                  width={20}
+                />
+                <span className="font-medium text-sm">{name}</span>
+                {connected ? (
+                  <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-700 text-xs dark:text-emerald-300">
+                    Connected
+                  </span>
+                ) : null}
+              </span>
+              <span className="inline-flex h-7 shrink-0 items-center rounded-lg border border-border bg-background px-2 font-medium text-[0.8rem]">
+                {connected ? "Manage" : "Connect"}
+              </span>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>
+                  {connected ? name : `Connect ${name}`}
+                </DialogTitle>
+              </DialogHeader>
+              <Settings embedded />
+            </DialogContent>
+          </Dialog>
+        ))}
+      </div>
+    </section>
   );
 }
 

@@ -127,7 +127,7 @@ function AppShellHeader({
   label: string | undefined;
   page: PageId;
 }) {
-  const hideTitle = page === "soul" || page === "profiles";
+  const hideTitle = page === "soul";
   const showCustomizeBack =
     page !== "notifications" && !SIDEBAR_PAGE_IDS.includes(page);
   const backLabel = page === "customize" ? "Back to Chat" : "Back to Workspace";
@@ -165,7 +165,9 @@ function AppShellHeader({
         </Button>
       )}
       {hideTitle ? null : (
-        <h1 className="type-brand min-w-0 truncate">{label}</h1>
+        <h1 className="min-w-0 truncate font-normal text-base text-foreground tracking-tight">
+          {label}
+        </h1>
       )}
       <div
         className={cn(
