@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@nakama/ui/select";
+import { Spinner } from "@nakama/ui/spinner";
 import { toast } from "@nakama/ui/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -34,6 +35,10 @@ import {
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { DiscordSettingsCard } from "@/components/DiscordSettingsCard";
+import {
+  IntegrationCardShell,
+  SettingsRow,
+} from "@/components/integration-settings.shared";
 import { ExportProfileButton } from "@/components/profiles/ExportProfileButton";
 import { ProfileSkillsSettingsSection } from "@/components/profiles/ProfileSkillsSettingsSection";
 import { SoulTab } from "@/components/soul-tools/SoulTab";
@@ -225,6 +230,93 @@ export function ProfileConnections({ agentName }: { agentName: string }) {
   );
 }
 
+function LegacyChannelSetup({
+  platform,
+  profile,
+}: {
+  platform: "telegram" | "discord" | "whatsapp";
+  profile: ProfileSummary;
+}) {
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
+  const queryClient = useQueryClient();
+  const legacy = useQuery({
+    enabled: Boolean(activeOrg),
+    queryFn: () => api.listLegacyChannels(),
+    queryKey: ["legacy-channels", activeOrg?.id],
+  });
+  const claim = useMutation({
+    mutationFn: (global: boolean) => {
+      if (!profile) {
+        throw new Error("Select an agent in the sidebar first.");
+      }
+      return api.claimLegacyChannel(platform, global, profile.id);
+    },
+    onSuccess: () => queryClient.invalidateQueries(),
+  });
+  const pending =
+    legacy.data?.filter((item) => item.platform === platform) ?? [];
+  if (!(legacy.isPending || legacy.error || pending.length)) {
+    return null;
+  }
+  return (
+    <IntegrationCardShell>
+      <div className="divide-y divide-border">
+        {legacy.isPending ? (
+          <div
+            className="flex items-center gap-2 px-4 py-3 text-muted-foreground text-sm"
+            role="status"
+          >
+            <Spinner className="size-4" /> Loading connections…
+          </div>
+        ) : pending.length ? (
+          <section aria-label="Connection setup">
+            <div className="px-4 py-3">
+              <h2 className="font-medium text-foreground text-sm">
+                Finish connection setup
+              </h2>
+              <p className="mt-1 text-muted-foreground text-xs">
+                Assign your existing connection to an agent once to keep using
+                it.
+              </p>
+            </div>
+            <div className="divide-y divide-border border-border border-t">
+              {pending.map((item) => (
+                <SettingsRow
+                  key={String(item.global)}
+                  label={`${item.global ? "Installation" : "Organization"} connection`}
+                >
+                  <Button
+                    disabled={!profile || claim.isPending}
+                    onClick={() => claim.mutate(item.global)}
+                    size="sm"
+                    type="button"
+                  >
+                    {claim.isPending && claim.variables === item.global ? (
+                      <>
+                        <Spinner className="size-3" /> Assigning…
+                      </>
+                    ) : profile ? (
+                      `Assign to ${profile.name}`
+                    ) : (
+                      "Select an agent in the sidebar"
+                    )}
+                  </Button>
+                </SettingsRow>
+              ))}
+            </div>
+          </section>
+        ) : null}
+        {claim.error || legacy.error ? (
+          <p className="px-4 py-3 text-destructive text-sm" role="alert">
+            {formatError(claim.error ?? legacy.error)}
+          </p>
+        ) : null}
+      </div>
+    </IntegrationCardShell>
+  );
+}
+
 export function ProfileChannelSettingsPage() {
   const { profileId, channel } = useParams();
   const { activeOrg } = useAuth();
@@ -267,6 +359,10 @@ export function ProfileChannelSettingsPage() {
         key={`${activeOrg?.id}:${profile.id}:${channel}`}
         value={profile.id}
       >
+        <LegacyChannelSetup
+          platform={channel as "telegram" | "discord" | "whatsapp"}
+          profile={profile}
+        />
         <Settings embedded />
       </ChannelProfileContext.Provider>
     </div>

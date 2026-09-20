@@ -1,7 +1,10 @@
 import {
   BrainIcon,
+  Bug01Icon,
   Building03Icon,
+  CodeIcon,
   Coins01Icon,
+  CpuChargeIcon,
   DashboardSquare01Icon,
   Folder01Icon,
   LayoutGridIcon,
@@ -11,8 +14,8 @@ import {
   PlusSignSquareIcon,
   Settings01Icon,
   SharedWifiIcon,
+  SlidersHorizontalIcon,
   UserSquareIcon,
-  WebhookIcon,
   WorkflowSquare01Icon,
 } from "hugeicons-react";
 
@@ -29,7 +32,6 @@ export type PageId =
   | "skills"
   | "mcp"
   | "automations"
-  | "integrations"
   | "organization"
   | "settings"
   | "providers"
@@ -100,16 +102,10 @@ export const NAV_GROUPS: NavGroup[] = [
         SharedWifiIcon
       ),
       navItem(
-        "integrations",
-        "Connect apps",
-        "Bridges and Composio",
-        WebhookIcon
-      ),
-      navItem(
         "customize",
-        "Workspace",
-        "Customize your workspace",
-        DashboardSquare01Icon
+        "Control center",
+        "Manage Nakama settings, tools, and integrations",
+        SlidersHorizontalIcon
       ),
     ],
     label: "Agent",
@@ -165,7 +161,6 @@ export const SIDEBAR_PAGE_IDS: readonly PageId[] = [
   "profiles",
   "files",
   "automations",
-  "integrations",
   "customize",
 ];
 
@@ -231,10 +226,6 @@ export function visibleNavGroups(access: {
         item.id === "workers"
       ) {
         return canAccessSystemPage(access.isPlatformAdmin, access.orgRole);
-      }
-
-      if (item.id === "integrations") {
-        return canAccessIntegrationsPage(access.orgRole);
       }
 
       return !PLATFORM_ADMIN_PAGE_IDS.has(item.id) || access.isPlatformAdmin;
@@ -403,7 +394,6 @@ export const PAGE_PATHS: Record<PageId, string> = {
   chat: "/chat",
   customize: "/customize",
   files: "/files",
-  integrations: "/integrations",
   mcp: "/customize/mcp",
   notifications: "/notifications",
   organization: "/organization",
@@ -420,6 +410,7 @@ export const PAGE_PATHS: Record<PageId, string> = {
 };
 
 const PREFIX_PAGE_IDS: readonly [string, PageId][] = [
+  ["/customize/connections", "customize"],
   [PAGE_PATHS["plugin-management"], "plugin-management"],
   [PAGE_PATHS.chat, "chat"],
   [PAGE_PATHS.soul, "soul"],
@@ -470,4 +461,49 @@ export function pageIdFromPath(pathname: string): PageId | null {
       ([, path]) => pathname === path
     )?.[0] ?? null
   );
+}
+
+const INTEGRATION_SECTIONS = [
+  {
+    icon: Notification01Icon,
+    id: "notifications",
+    label: "Notifications",
+  },
+  {
+    icon: Plug01Icon,
+    id: "composio",
+    label: "Composio",
+  },
+  {
+    icon: CodeIcon,
+    id: "coding-agents",
+    label: "Coding agents",
+  },
+  {
+    icon: CpuChargeIcon,
+    id: "optimization",
+    label: "Context savings",
+  },
+  {
+    icon: Bug01Icon,
+    id: "error-tracking",
+    label: "Error tracking",
+  },
+] as const;
+
+export type IntegrationSectionId = (typeof INTEGRATION_SECTIONS)[number]["id"];
+
+export function visibleIntegrationSections(
+  isPlatformAdmin: boolean,
+  orgRole: string | undefined
+) {
+  return INTEGRATION_SECTIONS.filter((item) => {
+    if (item.id === "composio") {
+      return isPlatformAdmin || orgRole === "admin" || orgRole === "member";
+    }
+    if (item.id === "error-tracking") {
+      return isPlatformAdmin;
+    }
+    return isPlatformAdmin || orgRole === "admin";
+  });
 }

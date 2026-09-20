@@ -1,192 +1,21 @@
-import { Button } from "@nakama/ui/button";
 import { Spinner } from "@nakama/ui/spinner";
 import { cn } from "@nakama/ui/utils";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Bug01Icon,
-  CodeIcon,
-  CpuChargeIcon,
-  HashtagIcon,
-  Notification01Icon,
-  Plug01Icon,
-  TelegramIcon,
-  WhatsappIcon,
-} from "hugeicons-react";
-import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { CodingAgentsSettingsCard } from "@/components/CodingAgentsSettingsCard";
 import { ComposioConnectionsCard } from "@/components/ComposioConnectionsCard";
 import { ComposioSettingsCard } from "@/components/ComposioSettingsCard";
 import { ErrorTrackingSettingsCard } from "@/components/ErrorTrackingSettingsCard";
-import {
-  IntegrationCardShell,
-  SettingsRow,
-} from "@/components/integration-settings.shared";
 import { NotificationDestinationsCard } from "@/components/NotificationDestinationsCard";
 import { TokenOptimizationCard } from "@/components/TokenOptimizationCard";
-import { useActiveChatProfile } from "@/context/use-active-chat-profile";
 import { useAuth } from "@/context/use-auth";
-import { useProfilesQuery } from "@/hooks/use-app-queries";
-import { client, formatError } from "@/lib/client";
-import { profilePath } from "@/lib/navigation";
-
-function AgentChannelLocation({
-  platform,
-}: {
-  platform: "telegram" | "discord" | "whatsapp";
-}) {
-  const { activeOrg } = useAuth();
-  const api = client.forOrg(activeOrg?.id ?? null);
-  const { data: profiles = [] } = useProfilesQuery();
-  const { profileId, orgId } = useActiveChatProfile();
-  const profile =
-    orgId === activeOrg?.id
-      ? profiles.find((item) => item.id === profileId)
-      : undefined;
-  const queryClient = useQueryClient();
-  const legacy = useQuery({
-    enabled: Boolean(activeOrg),
-    queryFn: () => api.listLegacyChannels(),
-    queryKey: ["legacy-channels", activeOrg?.id],
-  });
-  const claim = useMutation({
-    mutationFn: (global: boolean) => {
-      if (!profile) {
-        throw new Error("Select an agent in the sidebar first.");
-      }
-      return api.claimLegacyChannel(platform, global, profile.id);
-    },
-    onSuccess: () => queryClient.invalidateQueries(),
-  });
-  const pending =
-    legacy.data?.filter((item) => item.platform === platform) ?? [];
-  return (
-    <IntegrationCardShell>
-      <div className="divide-y divide-border">
-        {legacy.isPending ? (
-          <div
-            className="flex items-center gap-2 px-4 py-3 text-muted-foreground text-sm"
-            role="status"
-          >
-            <Spinner className="size-4" /> Loading connections…
-          </div>
-        ) : pending.length ? (
-          <section aria-label="Connection setup">
-            <div className="px-4 py-3">
-              <h2 className="font-medium text-foreground text-sm">
-                Finish connection setup
-              </h2>
-              <p className="mt-1 text-muted-foreground text-xs">
-                Assign your existing connection to an agent once to keep using
-                it.
-              </p>
-            </div>
-            <div className="divide-y divide-border border-border border-t">
-              {pending.map((item) => (
-                <SettingsRow
-                  key={String(item.global)}
-                  label={`${item.global ? "Installation" : "Organization"} connection`}
-                >
-                  <Button
-                    disabled={!profile || claim.isPending}
-                    onClick={() => claim.mutate(item.global)}
-                    size="sm"
-                    type="button"
-                  >
-                    {claim.isPending && claim.variables === item.global ? (
-                      <>
-                        <Spinner className="size-3" /> Assigning…
-                      </>
-                    ) : profile ? (
-                      `Assign to ${profile.name}`
-                    ) : (
-                      "Select an agent in the sidebar"
-                    )}
-                  </Button>
-                </SettingsRow>
-              ))}
-            </div>
-          </section>
-        ) : null}
-        <SettingsRow
-          label={profile ? `${profile.name} connections` : "Agent connections"}
-        >
-          {profile ? (
-            <Button
-              nativeButton={false}
-              render={
-                <Link to={`${profilePath(profile.id)}#profile-connections`} />
-              }
-              size="sm"
-              variant="outline"
-            >
-              Manage connections
-            </Button>
-          ) : (
-            <p className="text-muted-foreground text-xs">
-              Select an agent in the sidebar.
-            </p>
-          )}
-        </SettingsRow>
-        {claim.error || legacy.error ? (
-          <p className="px-4 py-3 text-destructive text-sm" role="alert">
-            {formatError(claim.error ?? legacy.error)}
-          </p>
-        ) : null}
-      </div>
-    </IntegrationCardShell>
-  );
-}
-
-const INTEGRATION_SECTIONS = [
-  {
-    icon: TelegramIcon,
-    id: "telegram",
-    label: "Telegram",
-  },
-  {
-    icon: WhatsappIcon,
-    id: "whatsapp",
-    label: "WhatsApp",
-  },
-  {
-    icon: HashtagIcon,
-    id: "discord",
-    label: "Discord",
-  },
-  {
-    icon: Notification01Icon,
-    id: "notifications",
-    label: "Notifications",
-  },
-  {
-    icon: Plug01Icon,
-    id: "composio",
-    label: "Composio",
-  },
-  {
-    icon: CodeIcon,
-    id: "coding-agents",
-    label: "Coding agents",
-  },
-  {
-    icon: CpuChargeIcon,
-    id: "optimization",
-    label: "Context savings",
-  },
-  {
-    icon: Bug01Icon,
-    id: "error-tracking",
-    label: "Error tracking",
-  },
-] as const;
-
-type IntegrationSectionId = (typeof INTEGRATION_SECTIONS)[number]["id"];
+import {
+  type IntegrationSectionId,
+  visibleIntegrationSections,
+} from "@/lib/navigation";
 
 function resolveSection(value: string | null): IntegrationSectionId {
   if (
     value === "notifications" ||
-    value === "whatsapp" ||
-    value === "discord" ||
     value === "composio" ||
     value === "optimization" ||
     value === "error-tracking" ||
@@ -195,7 +24,7 @@ function resolveSection(value: string | null): IntegrationSectionId {
     return value;
   }
 
-  return "telegram";
+  return "composio";
 }
 
 function IntegrationSectionPanel({
@@ -226,14 +55,6 @@ function IntegrationSectionPanel({
     );
   }
 
-  if (section === "telegram") {
-    return <AgentChannelLocation platform="telegram" />;
-  }
-
-  if (section === "discord") {
-    return <AgentChannelLocation platform="discord" />;
-  }
-
   if (section === "notifications") {
     return <NotificationDestinationsCard />;
   }
@@ -242,146 +63,54 @@ function IntegrationSectionPanel({
     return <ErrorTrackingSettingsCard />;
   }
 
-  return <AgentChannelLocation platform="whatsapp" />;
-}
-
-function IntegrationsPageBody({
-  canUseOrgIntegrations,
-  isOrgAdmin,
-  isPlatformAdmin,
-}: {
-  canUseOrgIntegrations: boolean;
-  isOrgAdmin: boolean;
-  isPlatformAdmin: boolean;
-}) {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const requestedSection = resolveSection(searchParams.get("section"));
-  const visibleSections = INTEGRATION_SECTIONS.filter((item) => {
-    if (item.id === "composio") {
-      return true;
-    }
-    if (item.id === "error-tracking") {
-      return isPlatformAdmin;
-    }
-    return isOrgAdmin || isPlatformAdmin;
-  });
-  const section = visibleSections.some((item) => item.id === requestedSection)
-    ? requestedSection
-    : visibleSections[0].id;
-
-  function setSection(nextSection: IntegrationSectionId) {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        if (nextSection === "telegram") {
-          next.delete("section");
-        } else {
-          next.set("section", nextSection);
-        }
-        return next;
-      },
-      { replace: true }
-    );
-  }
-
-  return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
-        <aside className="shrink-0 overflow-y-auto border-border md:w-60 md:border-r">
-          <nav
-            aria-label="Integration settings"
-            className="flex overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] md:flex-col md:overflow-visible [&::-webkit-scrollbar]:hidden"
-          >
-            {visibleSections.map((item) => (
-              <SidebarButton
-                active={section === item.id}
-                icon={item.icon}
-                key={item.id}
-                label={item.label}
-                onClick={() => setSection(item.id)}
-              />
-            ))}
-          </nav>
-        </aside>
-
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-5">
-          <div className="mx-auto w-full max-w-3xl space-y-8">
-            <IntegrationSectionPanel
-              canUseOrgIntegrations={canUseOrgIntegrations}
-              isPlatformAdmin={isPlatformAdmin}
-              section={section}
-            />
-          </div>
-        </div>
-      </div>
-    </section>
-  );
+  return null;
 }
 
 export function IntegrationsPage() {
   const [searchParams] = useSearchParams();
+  const { section } = useParams();
   const { activeOrg, isLoading, user } = useAuth();
   const isPlatformAdmin = user?.isPlatformAdmin === true;
-
   if (isLoading) {
+    return <Spinner className="size-5" />;
+  }
+  if (!section) {
+    if (searchParams.get("section") === "token") {
+      return <Navigate replace to="/settings#local-token" />;
+    }
+    const target = resolveSection(searchParams.get("section"));
+    const remaining = new URLSearchParams(searchParams);
+    remaining.delete("section");
     return (
-      <div className="flex min-h-64 items-center justify-center text-muted-foreground text-sm">
-        <Spinner className="size-5" />
-      </div>
+      <Navigate
+        replace
+        to={`/customize/connections/${target}${remaining.size ? `?${remaining}` : ""}`}
+      />
     );
   }
-
-  if (activeOrg?.role === "viewer" && !isPlatformAdmin) {
-    return <Navigate replace to="/chat" />;
+  const selected = visibleIntegrationSections(
+    isPlatformAdmin,
+    activeOrg?.role
+  ).find((item) => item.id === section);
+  if (!selected) {
+    return <Navigate replace to="/customize" />;
   }
-
-  if (searchParams.get("section") === "token") {
-    return <Navigate replace to="/settings#local-token" />;
-  }
-
   return (
-    <IntegrationsPageBody
-      canUseOrgIntegrations={Boolean(activeOrg && activeOrg.role !== "viewer")}
-      isOrgAdmin={activeOrg?.role === "admin"}
-      isPlatformAdmin={isPlatformAdmin}
-    />
-  );
-}
-
-function SidebarButton({
-  label,
-  icon: Icon,
-  active,
-  onClick,
-}: {
-  label: string;
-  icon: typeof TelegramIcon;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "flex shrink-0 items-center gap-3 px-4 py-3 text-left outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset md:w-full md:shrink",
-        active
-          ? "bg-muted text-foreground dark:bg-muted/50"
-          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-      )}
-      onClick={onClick}
-      type="button"
-    >
-      <Icon
-        aria-hidden
-        className={cn(
-          "size-4 shrink-0",
-          active ? "text-primary" : "text-muted-foreground"
+    <div className="mx-auto max-w-3xl space-y-6">
+      <Link
+        className="block w-fit text-muted-foreground text-sm hover:text-foreground"
+        to="/customize"
+      >
+        ← Back to Control center
+      </Link>
+      <h1 className="font-medium text-xl">{selected.label}</h1>
+      <IntegrationSectionPanel
+        canUseOrgIntegrations={Boolean(
+          activeOrg && activeOrg.role !== "viewer"
         )}
-        strokeWidth={1.75}
+        isPlatformAdmin={isPlatformAdmin}
+        section={selected.id}
       />
-      <span className="min-w-0 whitespace-nowrap font-normal text-sm leading-tight [text-wrap:balance] md:whitespace-normal">
-        {label}
-      </span>
-    </button>
+    </div>
   );
 }

@@ -74,10 +74,7 @@ export function ProfileRail({ onNavigate }: { onNavigate?: () => void } = {}) {
       return;
     }
 
-    if (
-      location.pathname === PAGE_PATHS.files ||
-      location.pathname === PAGE_PATHS.integrations
-    ) {
+    if (location.pathname === PAGE_PATHS.files) {
       setLiveChatProfileId(profileId);
       return;
     }

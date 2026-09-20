@@ -12,6 +12,7 @@ import {
 } from "@/context/auth-context-shared";
 import { ChannelProfileContext } from "@/hooks/use-app-queries";
 import { client } from "@/lib/client";
+import { visibleIntegrationSections } from "@/lib/navigation";
 import { queryKeys } from "@/lib/query-keys";
 import { IntegrationsPage } from "./IntegrationsPage";
 import {
@@ -19,7 +20,7 @@ import {
   ProfileConnections,
 } from "./profiles/profile-config-tab";
 
-test("connection setup uses the sidebar agent, preserves failures, and disappears after assignment", async () => {
+test("channel setup stays on the agent page and Connect apps excludes messaging channels", async () => {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
@@ -89,8 +90,15 @@ test("connection setup uses the sidebar agent, preserves failures, and disappear
       root.render(
         <QueryClientProvider client={queryClient}>
           <AuthContext.Provider value={auth}>
-            <MemoryRouter>
-              <IntegrationsPage />
+            <MemoryRouter
+              initialEntries={["/profiles/agent-b/channels/telegram"]}
+            >
+              <Routes>
+                <Route
+                  element={<ProfileChannelSettingsPage />}
+                  path="/profiles/:profileId/channels/:channel"
+                />
+              </Routes>
             </MemoryRouter>
           </AuthContext.Provider>
         </QueryClientProvider>
@@ -99,9 +107,9 @@ test("connection setup uses the sidebar agent, preserves failures, and disappear
     });
     await act(settle);
     expect(container.querySelector("select")).toBeNull();
-    expect(assignButton().textContent).toContain("Alpha");
+    expect(assignButton().textContent).toContain("Beta");
     await act(async () =>
-      useActiveChatProfileStore.setState({ profileId: "agent-b" })
+      useActiveChatProfileStore.setState({ profileId: "agent-a" })
     );
     expect(assignButton().textContent).toContain("Beta");
     await act(async () => {
@@ -124,11 +132,6 @@ test("connection setup uses the sidebar agent, preserves failures, and disappear
     expect(container.querySelector("a")?.getAttribute("href")).toContain(
       "agent-b"
     );
-    await act(async () =>
-      useActiveChatProfileStore.setState({ orgId: "other-org" })
-    );
-    expect(container.querySelector("a")).toBeNull();
-
     queryClient.setQueryData(
       [...queryKeys.systemStatus, "org-setup", "agent-b"],
       {
@@ -151,7 +154,7 @@ test("connection setup uses the sidebar agent, preserves failures, and disappear
       root.render(
         <QueryClientProvider client={queryClient}>
           <AuthContext.Provider value={auth}>
-            <MemoryRouter>
+            <MemoryRouter key="connections">
               <Routes>
                 <Route
                   element={
@@ -304,6 +307,45 @@ test("connection setup uses the sidebar agent, preserves failures, and disappear
       await settle();
     });
     expect(restart).toHaveBeenCalledWith("whatsapp", "agent-b");
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <AuthContext.Provider value={auth}>
+            <MemoryRouter initialEntries={["/integrations?section=telegram"]}>
+              <Routes>
+                <Route element={<IntegrationsPage />} path="/integrations" />
+                <Route
+                  element={<IntegrationsPage />}
+                  path="/customize/connections/:section"
+                />
+              </Routes>
+            </MemoryRouter>
+          </AuthContext.Provider>
+        </QueryClientProvider>
+      );
+      await settle();
+    });
+    await act(settle);
+    expect(
+      container.querySelector('[aria-label="Integration settings"]')
+    ).toBeNull();
+    expect(container.querySelector("h1")?.textContent).toBe("Composio");
+    expect(container.querySelector("a")?.getAttribute("href")).toBe(
+      "/customize"
+    );
+    expect(
+      visibleIntegrationSections(true, "admin").map((item) => item.id)
+    ).toEqual([
+      "notifications",
+      "composio",
+      "coding-agents",
+      "optimization",
+      "error-tracking",
+    ]);
+    expect(
+      visibleIntegrationSections(false, "member").map((item) => item.id)
+    ).toEqual(["composio"]);
+    expect(visibleIntegrationSections(false, "viewer")).toEqual([]);
   } finally {
     await act(async () => root.unmount());
     container.remove();

@@ -66,6 +66,38 @@ function ActionGlyph({
   );
 }
 
+function WorkerActionsMenu({
+  busy,
+  running,
+  showLogs,
+  onAction,
+  onViewLogs,
+}: {
+  busy: boolean;
+  running: boolean;
+  showLogs: boolean;
+  onAction: () => void;
+  onViewLogs: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<Button disabled={busy} size="sm" variant="outline" />}
+      >
+        {busy ? "Working…" : "More"}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={onAction}>
+          {running ? "Restart" : "Start"}
+        </DropdownMenuItem>
+        {showLogs ? (
+          <DropdownMenuItem onClick={onViewLogs}>View logs</DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function WorkerActionBar({
   running,
   pm2Managed,
@@ -88,11 +120,9 @@ export function WorkerActionBar({
   const stopWorker = useStopWorker();
   const restartWorker = useRestartWorker();
 
-  const starting =
-    startWorker.isPending && startWorker.variables === workerName;
-  const stopping = stopWorker.isPending && stopWorker.variables === workerName;
-  const restarting =
-    restartWorker.isPending && restartWorker.variables === workerName;
+  const starting = startWorker.isPending;
+  const stopping = stopWorker.isPending;
+  const restarting = restartWorker.isPending;
   const isBusy = starting || stopping || restarting || disconnect.isPending;
 
   if (!pm2Managed) {
@@ -164,30 +194,18 @@ export function WorkerActionBar({
           </Button>
         ) : null}
         {compact ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button disabled={isBusy} size="sm" variant="outline" />}
-            >
-              {isBusy ? "Working…" : "More"}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => {
-                  const mutation = running ? restartWorker : startWorker;
-                  mutation.mutate(workerName, {
-                    onError: (error) => toast(error.message),
-                  });
-                }}
-              >
-                {running ? "Restart" : "Start"}
-              </DropdownMenuItem>
-              {showLogs ? (
-                <DropdownMenuItem onClick={() => setLogDialogOpen(true)}>
-                  View logs
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <WorkerActionsMenu
+            busy={isBusy}
+            onAction={() => {
+              const mutation = running ? restartWorker : startWorker;
+              mutation.mutate(workerName, {
+                onError: (error) => toast(error.message),
+              });
+            }}
+            onViewLogs={() => setLogDialogOpen(true)}
+            running={running}
+            showLogs={showLogs}
+          />
         ) : showLogs ? (
           <Button
             className="ml-auto"

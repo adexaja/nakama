@@ -159,6 +159,49 @@ export function IntegrationStatusHeader({
   );
 }
 
+export function ChannelAccessSettings({
+  configured,
+  statusBadge,
+  summary,
+  pending,
+  onEdit,
+}: {
+  configured: boolean;
+  statusBadge: string;
+  summary: string;
+  pending: boolean;
+  onEdit: () => void;
+}) {
+  return (
+    <Card className="w-full overflow-hidden shadow-none">
+      <CardContent className="divide-y divide-border p-0">
+        <IntegrationStatusHeader
+          configured={configured}
+          connected={statusBadge === "Connected"}
+          statusBadge={statusBadge}
+          title="Connection"
+        />
+        {configured ? (
+          <SettingsRow label="Who can message this agent?">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="text-muted-foreground text-xs">{summary}</span>
+              <Button
+                disabled={pending}
+                onClick={onEdit}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Edit
+              </Button>
+            </div>
+          </SettingsRow>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function IntegrationSettingsFooter({
   statusLine,
   formError,
@@ -167,6 +210,7 @@ export function IntegrationSettingsFooter({
   canSave,
   submitLabel,
   onSave,
+  showSave = true,
   className,
 }: {
   statusLine: string | null;
@@ -176,6 +220,7 @@ export function IntegrationSettingsFooter({
   canSave: boolean;
   submitLabel: string;
   onSave: () => void;
+  showSave?: boolean;
   className?: string;
 }) {
   return (
@@ -200,21 +245,23 @@ export function IntegrationSettingsFooter({
       ) : (
         <span />
       )}
-      <Button
-        disabled={savePending || !canSave}
-        onClick={onSave}
-        size="sm"
-        type="button"
-      >
-        {savePending ? (
-          <>
-            <Spinner className="size-3" />
-            Saving…
-          </>
-        ) : (
-          submitLabel
-        )}
-      </Button>
+      {showSave ? (
+        <Button
+          disabled={savePending || !canSave}
+          onClick={onSave}
+          size="sm"
+          type="button"
+        >
+          {savePending ? (
+            <>
+              <Spinner className="size-3" />
+              Saving…
+            </>
+          ) : (
+            submitLabel
+          )}
+        </Button>
+      ) : null}
     </div>
   );
 }

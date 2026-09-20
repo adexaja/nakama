@@ -1,5 +1,4 @@
 import { Button } from "@nakama/ui/button";
-import { Card, CardContent } from "@nakama/ui/card";
 import {
   InputGroup,
   InputGroupAddon,
@@ -14,8 +13,8 @@ import {
   ViewOffIcon,
 } from "hugeicons-react";
 import {
+  ChannelAccessSettings,
   IntegrationSettingsFooter,
-  IntegrationStatusHeader,
   PairingStepTile,
   SettingsRow,
 } from "@/components/integration-settings.shared";
@@ -324,34 +323,13 @@ export function TelegramSettingsCardContent({
 
   return (
     <div className="space-y-4">
-      <Card className="w-full overflow-hidden shadow-none">
-        <CardContent className="divide-y divide-border p-0">
-          <IntegrationStatusHeader
-            configured={configured}
-            connected={statusBadge === "Connected"}
-            statusBadge={statusBadge}
-            title="Connection"
-          />
-          {configured ? (
-            <SettingsRow label="Who can message this agent?">
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <span className="text-muted-foreground text-xs">
-                  {allowedUserSummary}
-                </span>
-                <Button
-                  disabled={savePending}
-                  onClick={onManageAllowedUsers}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  Edit
-                </Button>
-              </div>
-            </SettingsRow>
-          ) : null}
-        </CardContent>
-      </Card>
+      <ChannelAccessSettings
+        configured={configured}
+        onEdit={onManageAllowedUsers}
+        pending={savePending}
+        statusBadge={statusBadge}
+        summary={allowedUserSummary}
+      />
       <details
         className="group overflow-hidden rounded-xl border border-border bg-card"
         key={String(hasLinkedUsers)}
@@ -422,29 +400,17 @@ export function TelegramSettingsCardContent({
         </div>
       </details>
 
-      {canSave || savePending || !configured ? (
-        <IntegrationSettingsFooter
-          canSave={canSave}
-          className={paneItemClass}
-          formError={formError}
-          loadError={loadError}
-          onSave={onSave}
-          savePending={savePending}
-          statusLine={statusLine}
-          submitLabel={submitLabel}
-        />
-      ) : (
-        <p
-          className={
-            formError || loadError
-              ? "text-destructive text-xs"
-              : "text-muted-foreground text-xs"
-          }
-          role={formError || loadError ? "alert" : "status"}
-        >
-          {statusLine}
-        </p>
-      )}
+      <IntegrationSettingsFooter
+        canSave={canSave}
+        className={paneItemClass}
+        formError={formError}
+        loadError={loadError}
+        onSave={onSave}
+        savePending={savePending}
+        showSave={canSave || savePending || !configured}
+        statusLine={statusLine}
+        submitLabel={submitLabel}
+      />
     </div>
   );
 }
