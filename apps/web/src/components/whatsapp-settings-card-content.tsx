@@ -86,6 +86,16 @@ export function WhatsAppSettingsCardContent({
       <Card className="w-full overflow-hidden shadow-none">
         <CardContent className="divide-y divide-border p-0">
           <IntegrationStatusHeader
+            actions={
+              configured ? (
+                <WorkerActionBar
+                  compact
+                  pm2Managed={worker?.process?.managed ?? false}
+                  running={running}
+                  workerName="whatsapp"
+                />
+              ) : null
+            }
             className={paneItemClass}
             configured={configured}
             connected={statusBadge === "Connected"}
@@ -139,7 +149,7 @@ export function WhatsAppSettingsCardContent({
         >
           <summary className="cursor-pointer list-none px-4 py-3 font-medium text-sm outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-ring">
             <span className="flex items-center justify-between gap-3">
-              Connection options
+              Settings
               <span className="text-muted-foreground text-xs group-open:hidden">
                 Show
               </span>
@@ -148,19 +158,7 @@ export function WhatsAppSettingsCardContent({
               </span>
             </span>
           </summary>
-          <div className="divide-y divide-border border-border border-t">
-            <SettingsRow
-              description={running ? "Active" : "Stopped"}
-              label="WhatsApp connection"
-            >
-              <WorkerActionBar
-                compact
-                pm2Managed={worker?.process?.managed ?? false}
-                running={running}
-                workerName="whatsapp"
-              />
-            </SettingsRow>
-          </div>
+
           <WhatsAppSettingsLinkingSection
             awaitingQr={awaitingQr}
             bridgeStarting={bridgeStarting}

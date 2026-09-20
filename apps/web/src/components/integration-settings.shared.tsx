@@ -115,6 +115,7 @@ export function IntegrationStatusHeader({
   configured,
   connected,
   className,
+  actions,
 }: {
   title: string;
   /** Omit it when the title already says everything, per the AGENTS.md React rule. */
@@ -123,6 +124,7 @@ export function IntegrationStatusHeader({
   configured: boolean;
   connected: boolean;
   className?: string;
+  actions?: ReactNode;
 }) {
   return (
     <div
@@ -155,6 +157,7 @@ export function IntegrationStatusHeader({
           </p>
         ) : null}
       </div>
+      {actions}
     </div>
   );
 }
@@ -165,17 +168,20 @@ export function ChannelAccessSettings({
   summary,
   pending,
   onEdit,
+  actions,
 }: {
   configured: boolean;
   statusBadge: string;
   summary: string;
   pending: boolean;
   onEdit: () => void;
+  actions?: ReactNode;
 }) {
   return (
     <Card className="w-full overflow-hidden shadow-none">
       <CardContent className="divide-y divide-border p-0">
         <IntegrationStatusHeader
+          actions={actions}
           configured={configured}
           connected={statusBadge === "Connected"}
           statusBadge={statusBadge}

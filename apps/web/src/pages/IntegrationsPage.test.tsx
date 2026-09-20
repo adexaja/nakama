@@ -73,6 +73,7 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
       assigned = true;
       return { ok: true };
     });
+  const start = spyOn(api, "startWorker").mockResolvedValue({ ok: true });
   const restart = spyOn(api, "restartWorker").mockResolvedValue({ ok: true });
   const settings = spyOn(api, "getDiscordSettings").mockRejectedValue(
     new Error("Unavailable")
@@ -82,8 +83,8 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
   const root = createRoot(container);
   const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
   const assignButton = () =>
-    [...container.querySelectorAll("button")].find((button) =>
-      button.textContent?.startsWith("Assign to")
+    [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Use this connection"
     )!;
   try {
     await act(async () => {
@@ -107,11 +108,12 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
     });
     await act(settle);
     expect(container.querySelector("select")).toBeNull();
-    expect(assignButton().textContent).toContain("Beta");
+    expect(container.querySelector("details")?.open).toBe(false);
+    expect(assignButton()).toBeDefined();
     await act(async () =>
       useActiveChatProfileStore.setState({ profileId: "agent-a" })
     );
-    expect(assignButton().textContent).toContain("Beta");
+    expect(assignButton()).toBeDefined();
     await act(async () => {
       assignButton().click();
       await settle();
@@ -139,6 +141,7 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
           configured: false,
           connected: false,
           paired: false,
+          process: { managed: true },
           running: false,
         },
         telegramWorker: { configured: true, paired: true, running: true },
@@ -159,7 +162,7 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
                 <Route
                   element={
                     <ChannelProfileContext.Provider value="agent-b">
-                      <ProfileConnections agentName="Beta" />
+                      <ProfileConnections />
                     </ChannelProfileContext.Provider>
                   }
                   path="/"
@@ -206,7 +209,17 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
       "/profiles?profile=agent-b#profile-connections"
     );
     expect(settings).toHaveBeenCalledWith("agent-b");
-    expect(container.querySelector("details")?.open).toBe(true);
+    expect(
+      container.querySelector('[aria-current="step"] h2')?.textContent
+    ).toBe("Add bot");
+    expect(
+      container.querySelectorAll('[aria-label="Discord setup progress"] > li')
+    ).toHaveLength(3);
+    expect(
+      container.querySelectorAll(
+        '[aria-label="Discord setup progress"] [role="region"]'
+      )
+    ).toHaveLength(1);
     await act(async () => {
       queryClient.setQueryData(
         [...queryKeys.discord.settings, "org-setup", "agent-b"],
@@ -216,7 +229,7 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
           configured: true,
           handshakeCode: null,
           inviteUrl: null,
-          pairedUserIds: ["123"],
+          pairedUserIds: [],
           profileId: "agent-b",
         }
       );
@@ -231,11 +244,76 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
         (button) => button.textContent === "Save changes"
       )
     ).toBe(false);
+    const startButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Start connection"
+    );
+    expect(startButton).toBeDefined();
+    expect(startButton?.closest("details")).toBeNull();
+    await act(async () => {
+      startButton!.click();
+      await settle();
+    });
+    expect(start).toHaveBeenCalledWith("discord", "agent-b");
+    const statusKey = [...queryKeys.systemStatus, "org-setup", "agent-b"];
+    const previousStatus = queryClient.getQueryData(statusKey) as Record<
+      string,
+      unknown
+    >;
+    await act(async () => {
+      queryClient.setQueryData(statusKey, {
+        ...previousStatus,
+        discordWorker: {
+          configured: true,
+          connected: true,
+          paired: false,
+          process: { managed: true },
+          running: true,
+        },
+      });
+      await settle();
+    });
+    expect(
+      container.querySelector('[aria-current="step"] h2')?.textContent
+    ).toBe("Link account");
+    expect(container.querySelector('[aria-label="Bot token"]')).toBeNull();
+    settings.mockResolvedValue({
+      allowedUserIds: [],
+      botTokenMasked: "***",
+      configured: true,
+      handshakeCode: null,
+      inviteUrl: null,
+      pairedUserIds: ["123"],
+      profileId: "agent-b",
+    });
+    await act(async () => {
+      queryClient.setQueryData(statusKey, {
+        ...previousStatus,
+        discordWorker: {
+          configured: true,
+          connected: true,
+          paired: true,
+          process: { managed: true },
+          running: true,
+        },
+      });
+      await settle();
+    });
+    await act(settle);
+    expect(container.querySelector('[aria-current="step"]')).toBeNull();
+    expect(
+      container.querySelectorAll('[aria-label="Discord setup progress"] > li')
+    ).toHaveLength(3);
+    expect(
+      container.querySelectorAll(
+        '[aria-label="Discord setup progress"] [role="region"]'
+      )
+    ).toHaveLength(0);
     const editUsers = [...container.querySelectorAll("button")].find(
       (button) => button.textContent === "Edit"
     );
     expect(editUsers?.closest("details")).toBeNull();
     expect(editUsers).toBeDefined();
+
     queryClient.setQueryData(
       [...queryKeys.telegram.settings, "org-setup", "agent-b"],
       {
@@ -356,6 +434,7 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
     listProfiles.mockRestore();
     settings.mockRestore();
     restart.mockRestore();
+    start.mockRestore();
     useActiveChatProfileStore.setState(previous);
   }
 });

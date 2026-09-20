@@ -127,7 +127,12 @@ function DiscordSettingsLoading({ embedded }: { embedded: boolean }) {
 
 function useDiscordSettingsCard(onSaveSuccess?: () => void) {
   const ownerProfileId = useChannelProfileId();
-  const { data: settings, isLoading, error: loadError } = useDiscordSettings();
+  const {
+    data: settings,
+    isLoading,
+    error: loadError,
+    refetch,
+  } = useDiscordSettings();
   const { data: status } = useSystemStatusQuery();
   const saveMutation = useSaveDiscordSettings();
   const regenerateMutation = useRegenerateDiscordHandshake();
@@ -175,6 +180,11 @@ function useDiscordSettingsCard(onSaveSuccess?: () => void) {
   const hasLinkedUsers = isPaired || hasAllowedUsers;
   const worker = status?.discordWorker;
   const running = worker?.running === true;
+  useEffect(() => {
+    if (worker?.paired && !hasLinkedUsers) {
+      void refetch();
+    }
+  }, [worker?.paired, hasLinkedUsers, refetch]);
 
   async function copyHandshakeCode() {
     if (!pairingCode) {
@@ -356,7 +366,7 @@ export function DiscordSettingsCard({
     <DiscordSettingsCardLoaded
       card={card}
       embedded={embedded}
-      submitLabel={submitLabel}
+      submitLabel={card.configured ? submitLabel : "Connect Discord"}
     />
   );
 }

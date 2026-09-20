@@ -324,6 +324,16 @@ export function TelegramSettingsCardContent({
   return (
     <div className="space-y-4">
       <ChannelAccessSettings
+        actions={
+          configured ? (
+            <WorkerActionBar
+              compact
+              pm2Managed={worker?.process?.managed ?? false}
+              running={running}
+              workerName="telegram"
+            />
+          ) : null
+        }
         configured={configured}
         onEdit={onManageAllowedUsers}
         pending={savePending}
@@ -337,7 +347,7 @@ export function TelegramSettingsCardContent({
       >
         <summary className="cursor-pointer list-none px-4 py-3 font-medium text-sm outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-ring">
           <span className="flex items-center justify-between gap-3">
-            Connection options
+            Settings
             <span className="text-muted-foreground text-xs group-open:hidden">
               Show
             </span>
@@ -347,19 +357,6 @@ export function TelegramSettingsCardContent({
           </span>
         </summary>
         <div className="divide-y divide-border border-border border-t">
-          {configured ? (
-            <SettingsRow
-              description={running ? "Active" : "Stopped"}
-              label="Telegram connection"
-            >
-              <WorkerActionBar
-                compact
-                pm2Managed={worker?.process?.managed ?? false}
-                running={running}
-                workerName="telegram"
-              />
-            </SettingsRow>
-          ) : null}
           <div>
             <TelegramQrSetup profileId={profileId} running={running} />
             <div className="flex items-center gap-3 px-4 py-2 text-muted-foreground text-xs">

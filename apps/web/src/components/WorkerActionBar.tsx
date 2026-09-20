@@ -79,6 +79,9 @@ function WorkerActionsMenu({
   onAction: () => void;
   onViewLogs: () => void;
 }) {
+  if (!(running || showLogs)) {
+    return null;
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -87,9 +90,9 @@ function WorkerActionsMenu({
         {busy ? "Working…" : "More"}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onAction}>
-          {running ? "Restart" : "Start"}
-        </DropdownMenuItem>
+        {running ? (
+          <DropdownMenuItem onClick={onAction}>Restart</DropdownMenuItem>
+        ) : null}
         {showLogs ? (
           <DropdownMenuItem onClick={onViewLogs}>View logs</DropdownMenuItem>
         ) : null}
@@ -136,40 +139,46 @@ export function WorkerActionBar({
   return (
     <>
       <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
-        {compact ? null : running ? (
-          <>
-            <Button
-              aria-busy={stopping}
-              className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-              disabled={isBusy}
-              onClick={() => stopWorker.mutate(workerName)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <ActionGlyph busy={stopping} icon={StopIcon} />
-              Stop
-            </Button>
-            <Button
-              aria-busy={restarting}
-              disabled={isBusy}
-              onClick={() => restartWorker.mutate(workerName)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <ActionGlyph busy={restarting} icon={Rotate02Icon} />
-              Restart
-            </Button>
-          </>
+        {running ? (
+          compact ? null : (
+            <>
+              <Button
+                aria-busy={stopping}
+                className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                disabled={isBusy}
+                onClick={() => stopWorker.mutate(workerName)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <ActionGlyph busy={stopping} icon={StopIcon} />
+                Stop
+              </Button>
+              <Button
+                aria-busy={restarting}
+                disabled={isBusy}
+                onClick={() => restartWorker.mutate(workerName)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <ActionGlyph busy={restarting} icon={Rotate02Icon} />
+                Restart
+              </Button>
+            </>
+          )
         ) : (
           <Button
             aria-busy={starting}
             disabled={isBusy}
-            onClick={() => startWorker.mutate(workerName)}
+            onClick={() =>
+              startWorker.mutate(workerName, {
+                onError: (error) => toast(error.message),
+              })
+            }
             size="sm"
             type="button"
-            variant="outline"
+            variant={compact ? "default" : "outline"}
           >
             <ActionGlyph
               busy={starting}

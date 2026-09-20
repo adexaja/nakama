@@ -131,7 +131,7 @@ function resolveWhatsAppStatusCopy(input: {
   if (input.paired && !(input.running && input.connected)) {
     return {
       headerSubtitle:
-        "WhatsApp is offline. Open Connection options to reconnect.",
+        "WhatsApp is offline. Use the connection controls to reconnect.",
       statusBadge: "Offline",
     };
   }

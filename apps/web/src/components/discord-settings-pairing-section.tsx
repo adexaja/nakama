@@ -129,6 +129,70 @@ function DiscordPairingCodeControls({
   );
 }
 
+function DiscordLinkAccount({
+  inviteUrl,
+  pairingCode,
+  copied,
+  regeneratePending,
+  savePending,
+  onCopyHandshakeCode,
+  onRegenerateHandshake,
+}: {
+  inviteUrl: string | null;
+  pairingCode: string | null;
+  copied: boolean;
+  regeneratePending: boolean;
+  savePending: boolean;
+  onCopyHandshakeCode: () => void;
+  onRegenerateHandshake: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <p className="text-muted-foreground text-sm">
+        Send this code to your bot in a private Discord message.
+      </p>
+      {inviteUrl ? (
+        <a
+          className="block text-primary text-sm underline"
+          href={inviteUrl}
+          rel="noreferrer"
+          target="_blank"
+        >
+          Invite the bot to your server
+        </a>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-3">
+        {pairingCode ? (
+          <code className="rounded-lg bg-muted px-3 py-2 text-lg tracking-widest">
+            {pairingCode}
+          </code>
+        ) : null}
+        <Button
+          disabled={regeneratePending || savePending}
+          onClick={pairingCode ? onCopyHandshakeCode : onRegenerateHandshake}
+          size="sm"
+        >
+          {pairingCode
+            ? copied
+              ? "Copied"
+              : "Copy code"
+            : regeneratePending
+              ? "Generating…"
+              : "Get linking code"}
+        </Button>
+      </div>
+      <details>
+        <summary className="cursor-pointer text-muted-foreground text-sm">
+          Need help?
+        </summary>
+        <div className="pt-3">
+          <DiscordPairingGuide compact inviteUrl={inviteUrl} />
+        </div>
+      </details>
+    </div>
+  );
+}
+
 export function DiscordSettingsPairingSection({
   isPaired,
   pairingCode,
@@ -140,6 +204,7 @@ export function DiscordSettingsPairingSection({
   onRegenerateHandshake,
   rowClassName,
   compact = false,
+  guided = false,
 }: {
   isPaired: boolean;
   pairingCode: string | null;
@@ -151,7 +216,22 @@ export function DiscordSettingsPairingSection({
   onRegenerateHandshake: () => void;
   rowClassName?: string;
   compact?: boolean;
+  guided?: boolean;
 }) {
+  if (guided) {
+    return (
+      <DiscordLinkAccount
+        copied={copied}
+        inviteUrl={inviteUrl}
+        onCopyHandshakeCode={onCopyHandshakeCode}
+        onRegenerateHandshake={onRegenerateHandshake}
+        pairingCode={pairingCode}
+        regeneratePending={regeneratePending}
+        savePending={savePending}
+      />
+    );
+  }
+
   return (
     <div className="divide-y divide-border">
       <SettingsRow

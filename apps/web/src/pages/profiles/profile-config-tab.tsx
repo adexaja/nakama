@@ -32,7 +32,7 @@ import {
   Delete02Icon,
   MoreHorizontalIcon,
 } from "hugeicons-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { DiscordSettingsCard } from "@/components/DiscordSettingsCard";
 import {
@@ -104,7 +104,7 @@ export function ProfileConfigTab({ state }: { state: ProfilesPageState }) {
           key={`${activeOrg?.id}:${detail.id}`}
           value={detail.id}
         >
-          <ProfileConnections agentName={detail.name} />
+          <ProfileConnections />
         </ChannelProfileContext.Provider>
       ) : null}
       {canPack ? (
@@ -130,7 +130,7 @@ export function ProfileConfigTab({ state }: { state: ProfilesPageState }) {
   );
 }
 
-export function ProfileConnections({ agentName }: { agentName: string }) {
+export function ProfileConnections() {
   const profileId = useChannelProfileId();
   const { data: status, isPending, error } = useSystemStatusQuery();
   // Brand SVGs: Simple Icons v16 (CC0), https://simpleicons.org.
@@ -179,7 +179,7 @@ export function ProfileConnections({ agentName }: { agentName: string }) {
 
   return (
     <section className="space-y-2" id="profile-connections">
-      <h2 className="font-medium text-sm">Channels for {agentName}</h2>
+      <h2 className="font-medium text-sm">Channels</h2>
       {isPending ? (
         <p className="text-muted-foreground text-sm" role="status">
           Loading connections…
@@ -233,9 +233,13 @@ export function ProfileConnections({ agentName }: { agentName: string }) {
 function LegacyChannelSetup({
   platform,
   profile,
+  name,
+  children,
 }: {
   platform: "telegram" | "discord" | "whatsapp";
   profile: ProfileSummary;
+  name: string;
+  children: ReactNode;
 }) {
   const { activeOrg } = useAuth();
   const api = client.forOrg(activeOrg?.id ?? null);
@@ -246,74 +250,75 @@ function LegacyChannelSetup({
     queryKey: ["legacy-channels", activeOrg?.id],
   });
   const claim = useMutation({
-    mutationFn: (global: boolean) => {
-      if (!profile) {
-        throw new Error("Select an agent in the sidebar first.");
-      }
-      return api.claimLegacyChannel(platform, global, profile.id);
-    },
+    mutationFn: (global: boolean) =>
+      api.claimLegacyChannel(platform, global, profile.id),
     onSuccess: () => queryClient.invalidateQueries(),
   });
   const pending =
     legacy.data?.filter((item) => item.platform === platform) ?? [];
   if (!(legacy.isPending || legacy.error || pending.length)) {
-    return null;
+    return children;
   }
   return (
-    <IntegrationCardShell>
-      <div className="divide-y divide-border">
-        {legacy.isPending ? (
-          <div
-            className="flex items-center gap-2 px-4 py-3 text-muted-foreground text-sm"
-            role="status"
-          >
-            <Spinner className="size-4" /> Loading connections…
-          </div>
-        ) : pending.length ? (
-          <section aria-label="Connection setup">
-            <div className="px-4 py-3">
-              <h2 className="font-medium text-foreground text-sm">
-                Finish connection setup
-              </h2>
-              <p className="mt-1 text-muted-foreground text-xs">
-                Assign your existing connection to an agent once to keep using
-                it.
-              </p>
+    <>
+      <IntegrationCardShell>
+        <div className="divide-y divide-border">
+          {legacy.isPending ? (
+            <div
+              className="flex items-center gap-2 px-4 py-3 text-muted-foreground text-sm"
+              role="status"
+            >
+              <Spinner className="size-4" /> Loading connections…
             </div>
-            <div className="divide-y divide-border border-border border-t">
-              {pending.map((item) => (
-                <SettingsRow
-                  key={String(item.global)}
-                  label={`${item.global ? "Installation" : "Organization"} connection`}
-                >
-                  <Button
-                    disabled={!profile || claim.isPending}
-                    onClick={() => claim.mutate(item.global)}
-                    size="sm"
-                    type="button"
+          ) : pending.length ? (
+            <section aria-label="Connection setup">
+              <div className="divide-y divide-border">
+                {pending.map((item) => (
+                  <SettingsRow
+                    key={String(item.global)}
+                    label={
+                      pending.length === 1
+                        ? `A ${name} connection is available.`
+                        : `${item.global ? "Shared" : "Organization"} ${name} connection`
+                    }
                   >
-                    {claim.isPending && claim.variables === item.global ? (
-                      <>
-                        <Spinner className="size-3" /> Assigning…
-                      </>
-                    ) : profile ? (
-                      `Assign to ${profile.name}`
-                    ) : (
-                      "Select an agent in the sidebar"
-                    )}
-                  </Button>
-                </SettingsRow>
-              ))}
-            </div>
-          </section>
-        ) : null}
-        {claim.error || legacy.error ? (
-          <p className="px-4 py-3 text-destructive text-sm" role="alert">
-            {formatError(claim.error ?? legacy.error)}
-          </p>
-        ) : null}
-      </div>
-    </IntegrationCardShell>
+                    <Button
+                      disabled={claim.isPending}
+                      onClick={() => claim.mutate(item.global)}
+                      size="sm"
+                      type="button"
+                    >
+                      {claim.isPending && claim.variables === item.global ? (
+                        <>
+                          <Spinner className="size-3" /> Assigning…
+                        </>
+                      ) : (
+                        "Use this connection"
+                      )}
+                    </Button>
+                  </SettingsRow>
+                ))}
+              </div>
+            </section>
+          ) : null}
+          {claim.error || legacy.error ? (
+            <p className="px-4 py-3 text-destructive text-sm" role="alert">
+              {formatError(claim.error ?? legacy.error)}
+            </p>
+          ) : null}
+        </div>
+      </IntegrationCardShell>
+      {pending.length ? (
+        <details className="space-y-4" key={platform}>
+          <summary className="cursor-pointer text-muted-foreground text-sm">
+            Connect a different {platform === "whatsapp" ? "account" : "bot"}
+          </summary>
+          {children}
+        </details>
+      ) : legacy.isPending ? null : (
+        children
+      )}
+    </>
   );
 }
 
@@ -360,10 +365,12 @@ export function ProfileChannelSettingsPage() {
         value={profile.id}
       >
         <LegacyChannelSetup
+          name={selected.name}
           platform={channel as "telegram" | "discord" | "whatsapp"}
           profile={profile}
-        />
-        <Settings embedded />
+        >
+          <Settings embedded />
+        </LegacyChannelSetup>
       </ChannelProfileContext.Provider>
     </div>
   );
