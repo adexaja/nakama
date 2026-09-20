@@ -9,11 +9,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { TranscriptSegment } from "./transcription";
+import { formatTranscript, type TranscriptSegment } from "./transcript-format";
 
 export type MeetingState =
   | "queued"
   | "joining"
+  | "recording"
   | "transcribing"
   | "finished"
   | "failed";
@@ -23,6 +24,7 @@ export interface Meeting {
   durationMinutes: number;
   error: string | null;
   id: string;
+  pendingSeconds?: number;
   preview?: string | null;
   profileId: string | null;
   sourceName?: string | null;
@@ -68,9 +70,37 @@ export class MeetingStore {
     try {
       this.db
         .transaction(() => {
+          const segmentColumns = this.db
+            .query<{ name: string }, []>("PRAGMA table_info(segments)")
+            .all();
+          for (const [name, type] of [
+            ["speakerId", "TEXT"],
+            ["speakerName", "TEXT"],
+            ["startMs", "INTEGER"],
+            ["endMs", "INTEGER"],
+          ]) {
+            if (!segmentColumns.some((column) => column.name === name)) {
+              this.db.exec(`ALTER TABLE segments ADD COLUMN ${name} ${type}`);
+            }
+          }
+          const activeIndex = this.db
+            .query<{ sql: string }, []>(
+              "SELECT sql FROM sqlite_master WHERE name='one_active_meeting'"
+            )
+            .get();
+          if (!activeIndex?.sql.includes("'recording'")) {
+            this.db.exec(
+              "DROP INDEX IF EXISTS one_active_meeting; CREATE UNIQUE INDEX one_active_meeting ON meetings ((1)) WHERE state IN ('queued','joining','recording','transcribing')"
+            );
+          }
           const columns = this.db
             .query<{ name: string }, []>("PRAGMA table_info(meetings)")
             .all();
+          if (!columns.some((column) => column.name === "pendingSeconds")) {
+            this.db.exec(
+              "ALTER TABLE meetings ADD COLUMN pendingSeconds INTEGER NOT NULL DEFAULT 0"
+            );
+          }
           if (!columns.some((column) => column.name === "title")) {
             this.db.exec("ALTER TABLE meetings ADD COLUMN title TEXT");
           }
@@ -217,15 +247,25 @@ export class MeetingStore {
   recover() {
     this.db
       .query(
-        "UPDATE meetings SET state='failed', error='Meeting worker restarted; partial transcript saved',updatedAt=? WHERE state IN ('joining','transcribing')"
+        "UPDATE meetings SET state='failed', error='Meeting worker restarted; partial transcript saved',updatedAt=? WHERE state IN ('queued','joining','recording','transcribing')"
       )
       .run(Date.now());
+    this.db
+      .query(
+        "UPDATE meetings SET pendingSeconds=0 WHERE state IN ('finished','failed')"
+      )
+      .run();
     this.restoreTranscripts(true);
   }
   update(id: string, state: MeetingState, error: string | null = null) {
     this.db
       .query("UPDATE meetings SET state=?,error=?,updatedAt=? WHERE id=?")
       .run(state, error, Date.now(), id);
+  }
+  setPending(id: string, seconds: number) {
+    this.db
+      .query("UPDATE meetings SET pendingSeconds=? WHERE id=?")
+      .run(seconds, id);
   }
   stop(id: string) {
     this.db.query("UPDATE meetings SET stopRequested=1 WHERE id=?").run(id);
@@ -249,9 +289,18 @@ export class MeetingStore {
     }
     this.db
       .query(
-        "INSERT OR IGNORE INTO segments (meetingId,id,text,receivedAt) VALUES (?,?,?,?)"
+        "INSERT OR IGNORE INTO segments (meetingId,id,text,receivedAt,speakerId,speakerName,startMs,endMs) VALUES (?,?,?,?,?,?,?,?)"
       )
-      .run(meetingId, segment.id, segment.text, segment.receivedAt);
+      .run(
+        meetingId,
+        segment.id,
+        segment.text,
+        segment.receivedAt,
+        segment.speakerId ?? null,
+        segment.speakerName ?? null,
+        segment.startMs ?? null,
+        segment.endMs ?? null
+      );
     this.saveTranscript(meetingId);
   }
   private transcriptPath(id: string) {
@@ -275,8 +324,8 @@ export class MeetingStore {
     this.db
       .transaction(() => {
         const rows = this.db
-          .query<{ text: string }, [string]>(
-            "SELECT text FROM segments WHERE meetingId=? ORDER BY sequence"
+          .query<TranscriptSegment, [string]>(
+            "SELECT * FROM segments WHERE meetingId=? ORDER BY sequence"
           )
           .all(id);
         mkdirSync(join(this.directory, "transcripts"), {
@@ -287,11 +336,9 @@ export class MeetingStore {
         const imported = Boolean(this.get(id)?.sourceName);
         const temporary = `${path}.${randomUUID()}.tmp`;
         try {
-          writeFileSync(
-            temporary,
-            rows.map((row) => (imported ? row.text : `${row.text}\n`)).join(""),
-            { mode: 0o600 }
-          );
+          writeFileSync(temporary, formatTranscript(rows, imported), {
+            mode: 0o600,
+          });
           renameSync(temporary, path);
         } finally {
           rmSync(temporary, { force: true });
@@ -302,7 +349,7 @@ export class MeetingStore {
   transcript(id: string, after = 0) {
     const rows = this.db
       .query<TranscriptSegment & { sequence: number }, [string, number]>(
-        "SELECT sequence,id,text,receivedAt FROM segments WHERE meetingId=? AND sequence>? ORDER BY sequence LIMIT 2000"
+        "SELECT sequence,id,text,receivedAt,speakerId,speakerName,startMs,endMs FROM segments WHERE meetingId=? AND sequence>? ORDER BY sequence LIMIT 2000"
       )
       .all(id, after);
     let size = 0;

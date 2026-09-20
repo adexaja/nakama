@@ -52,6 +52,10 @@ async function callNakama(connection, action, input = {}) {
 }
 
 async function connect() {
+  const session = await getSession();
+  if (starting || ["starting", "recording"].includes(session?.status)) {
+    throw new Error("Stop the current recording before reconnecting.");
+  }
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const url = new URL(tab?.url || "about:blank");
   if (
@@ -61,7 +65,11 @@ async function connect() {
     throw new Error("Open the Google Meet page in Nakama, then click Connect.");
   }
   const connection = { tabId: tab.id, url: tab.url };
-  await callNakama(connection, "meetings");
+  const setup = await callNakama(connection, "meetings");
+  if (setup.captureProtocol !== 2) {
+    throw new Error("Update the Nakama Google Meet plugin first.");
+  }
+  await chrome.storage.session.remove(SESSION_KEY);
   await chrome.storage.session.set({ connection });
   return { ok: true };
 }
@@ -95,6 +103,10 @@ async function start() {
     const streamId = await chrome.tabCapture.getMediaStreamId({
       targetTabId: tab.id,
     });
+    const setup = await callNakama(connection, "meetings");
+    if (setup.captureProtocol !== 2) {
+      throw new Error("Update the Nakama Google Meet plugin first.");
+    }
     await ensureOffscreen();
     meeting = await callNakama(connection, "start-capture", {
       url: url.origin + url.pathname,
@@ -174,6 +186,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     work = start();
   } else if (message.type === "STOP") {
     work = chrome.runtime.sendMessage({ type: "STOP_CAPTURE" });
+  } else if (["TRANSCRIPT", "OPEN_TRANSCRIPT"].includes(message.type)) {
+    work = (async () => {
+      const session = await getSession();
+      const { connection } = await chrome.storage.session.get("connection");
+      if (
+        !session ||
+        connection?.tabId !== session.connection?.tabId ||
+        connection?.url !== session.connection?.url
+      ) {
+        return null;
+      }
+      const after = message.after ?? 0;
+      if (!Number.isSafeInteger(after) || after < 0) {
+        throw new Error("Invalid transcript cursor");
+      }
+      const result = await callNakama(
+        connection,
+        message.type === "OPEN_TRANSCRIPT" ? "show-transcript" : "transcript",
+        { after, meetingId: session.meetingId }
+      );
+      if (message.type === "OPEN_TRANSCRIPT") {
+        await chrome.tabs.update(connection.tabId, { active: true });
+      }
+      const current = await getSession();
+      const latest = (await chrome.storage.session.get("connection"))
+        .connection;
+      if (
+        current?.meetingId !== session.meetingId ||
+        latest?.tabId !== connection.tabId ||
+        latest?.url !== connection.url
+      ) {
+        return null;
+      }
+      return result;
+    })();
   } else if (message.type === "STATE") {
     work = chrome.storage.session
       .get(["connection", SESSION_KEY])

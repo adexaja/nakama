@@ -101,3 +101,123 @@ chrome.storage.onChanged.addListener((changes, area) => {
 refresh().catch((error) => {
   status.textContent = error.message;
 });
+
+const transcript = document.querySelector("#transcript");
+const fullTranscript = document.querySelector("#full-transcript");
+let transcriptMeeting;
+let cursor = 0;
+let transcriptRunning = false;
+let visible = true;
+let generation = 0;
+let terminal = false;
+const turnIds = new Set();
+function resetTranscript() {
+  generation++;
+  transcriptMeeting = undefined;
+  cursor = 0;
+  terminal = false;
+  turnIds.clear();
+  transcript.replaceChildren();
+  fullTranscript.hidden = true;
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (
+    area === "session" &&
+    (changes.connection ||
+      changes.captureSession?.newValue?.meetingId !==
+        changes.captureSession?.oldValue?.meetingId)
+  ) {
+    resetTranscript();
+    void refreshTranscript();
+  }
+});
+async function refreshTranscript() {
+  if (!visible || transcriptRunning || terminal) {
+    return;
+  }
+  transcriptRunning = true;
+  const requestGeneration = generation;
+  try {
+    const result = await chrome.runtime.sendMessage({
+      after: cursor,
+      type: "TRANSCRIPT",
+    });
+    if (!visible || requestGeneration !== generation) {
+      return;
+    }
+    if (result?.error) {
+      throw new Error(result.error);
+    }
+    if (!result) {
+      resetTranscript();
+      return;
+    }
+    if (result.meeting.id !== transcriptMeeting) {
+      const hadCursor = cursor > 0;
+      resetTranscript();
+      transcriptMeeting = result.meeting.id;
+      if (hadCursor) {
+        return;
+      }
+    }
+    fullTranscript.hidden = false;
+    const atBottom =
+      transcript.scrollTop + transcript.clientHeight >=
+      transcript.scrollHeight - 24;
+    for (const segment of result.segments) {
+      if (turnIds.has(segment.id)) {
+        continue;
+      }
+      turnIds.add(segment.id);
+      const turn = document.createElement("p");
+      turn.dataset.id = segment.id;
+      const label = document.createElement("strong");
+      label.textContent = segment.speakerName || "Unknown speaker";
+      turn.append(label, document.createTextNode(`\n${segment.text}`));
+      transcript.append(turn);
+    }
+    while (transcript.children.length > 200) {
+      turnIds.delete(transcript.firstElementChild.dataset.id);
+      transcript.firstElementChild.remove();
+    }
+    cursor = result.nextCursor;
+    terminal =
+      ["finished", "failed"].includes(result.meeting.state) &&
+      result.segments.length === 0;
+    if (atBottom) {
+      transcript.scrollTop = transcript.scrollHeight;
+    }
+    if (result.meeting.error) {
+      status.textContent = result.meeting.error;
+    } else if (result.meeting.pendingSeconds > 30) {
+      status.textContent = "Transcription is catching up…";
+    } else if (result.meeting.state === "transcribing") {
+      status.textContent = "Finishing transcript…";
+    } else if (result.meeting.state === "finished") {
+      status.textContent = "Transcript ready";
+    } else if (!cursor) {
+      status.textContent = "Waiting for the first transcript…";
+    }
+    if (result.segments.length) {
+      setTimeout(() => void refreshTranscript(), 0);
+    }
+  } catch (error) {
+    if (requestGeneration === generation) {
+      status.textContent = error.message;
+    }
+  } finally {
+    transcriptRunning = false;
+  }
+}
+fullTranscript.onclick = async () => {
+  const result = await chrome.runtime.sendMessage({ type: "OPEN_TRANSCRIPT" });
+  if (result?.error) {
+    status.textContent = result.error;
+  }
+};
+const transcriptTimer = setInterval(() => void refreshTranscript(), 2000);
+window.addEventListener("pagehide", () => {
+  visible = false;
+  clearInterval(transcriptTimer);
+});
+void refreshTranscript();

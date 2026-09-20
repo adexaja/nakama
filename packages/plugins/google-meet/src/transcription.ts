@@ -1,11 +1,15 @@
-export interface TranscriptSegment {
-  id: string;
-  receivedAt: number;
-  text: string;
-}
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import type { TranscriptSegment } from "./transcript-format";
 
 export interface TranscriptionSession {
-  close(): void;
+  close(): void | Promise<void>;
   finish(): Promise<void>;
   push(audio: Uint8Array): void;
 }
@@ -14,16 +18,23 @@ export interface TranscriptionProvider {
   connect(options: {
     apiKey: string;
     model: string;
+    directory: string;
     signal: AbortSignal;
     onSegment(segment: TranscriptSegment): void;
     onError(error: Error): void;
+    onProgress?(seconds: number): void;
   }): Promise<TranscriptionSession>;
 }
 
 export function transcriptionConfig(value: Record<string, unknown>) {
   const provider = value.provider ?? "openai";
-  const model = value.model ?? "gpt-transcribe";
-  if (provider !== "openai" || model !== "gpt-transcribe") {
+  if (
+    provider !== "openai" ||
+    (value.model != null &&
+      !["gpt-transcribe", "gpt-4o-transcribe-diarize"].includes(
+        String(value.model)
+      ))
+  ) {
     throw new Error("Unsupported transcription provider or model");
   }
   if (
@@ -33,234 +44,292 @@ export function transcriptionConfig(value: Record<string, unknown>) {
   ) {
     throw new Error("An OpenAI API key is required for transcription");
   }
-  return { apiKey: value.apiKey.trim(), model, provider };
+  return {
+    apiKey: value.apiKey.trim(),
+    model: "gpt-4o-transcribe-diarize",
+    provider,
+  };
 }
 
-// The API can complete later turns first. Keep audio order, not arrival order.
-export class OpenAITranscript {
-  private readonly order: string[] = [];
-  private readonly completed = new Map<string, TranscriptSegment>();
-  private readonly seen = new Set<string>();
+const BYTES_PER_SECOND = 48_000;
+const CHUNK_BYTES = 15 * BYTES_PER_SECOND;
 
-  accept(event: Record<string, unknown>) {
-    if (
-      event.type === "conversation.item.input_audio_transcription.failed" ||
-      event.type === "error"
-    ) {
-      throw new Error(
-        "Transcription failed; check the API key, model access, and API balance"
-      );
-    }
-    const id = typeof event.item_id === "string" ? event.item_id : undefined;
-    if (!id) {
-      return;
-    }
-    if (event.type === "input_audio_buffer.committed" && !this.seen.has(id)) {
-      this.seen.add(id);
-      this.order.push(id);
-    }
-    if (
-      event.type === "conversation.item.input_audio_transcription.completed" &&
-      typeof event.transcript === "string" &&
-      this.order.includes(id)
-    ) {
-      this.completed.set(id, {
-        id,
-        receivedAt: Date.now(),
-        text: event.transcript.trim(),
-      });
-    }
+function wav(pcm: Uint8Array) {
+  const header = Buffer.alloc(44);
+  header.write("RIFF");
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVEfmt ", 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(24_000, 24);
+  header.writeUInt32LE(BYTES_PER_SECOND, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
+}
+
+interface Turn {
+  end: number;
+  speaker: string | null;
+  start: number;
+  text: string;
+}
+function parseTurns(value: unknown, duration: number): Turn[] {
+  const segments = (value as { segments?: unknown })?.segments;
+  if (!Array.isArray(segments) || segments.length > 2000) {
+    throw new Error("Invalid transcription segments");
   }
-
-  drain(): TranscriptSegment[] {
-    const result: TranscriptSegment[] = [];
-    while (this.order[0] && this.completed.has(this.order[0])) {
-      const id = this.order.shift()!;
-      const segment = this.completed.get(id)!;
-      this.completed.delete(id);
-      if (segment.text) {
-        result.push(segment);
+  return segments
+    .map((segment) => {
+      if (
+        !segment ||
+        typeof segment.text !== "string" ||
+        segment.text.length > 32_000 ||
+        !Number.isFinite(segment.start) ||
+        !Number.isFinite(segment.end) ||
+        segment.start < 0 ||
+        segment.end < segment.start ||
+        segment.start > duration ||
+        segment.end > duration + 0.1 ||
+        (segment.speaker != null &&
+          (typeof segment.speaker !== "string" || segment.speaker.length > 128))
+      ) {
+        throw new Error("Invalid transcription segment");
       }
-    }
-    return result;
-  }
-
-  get pending() {
-    return this.order.length;
-  }
+      return {
+        end: Math.min(segment.end, duration),
+        speaker: segment.speaker || null,
+        start: segment.start,
+        text: segment.text,
+      };
+    })
+    .sort((a, b) => a.start - b.start);
 }
 
 const openai: TranscriptionProvider = {
-  async connect({ apiKey, model, signal, onSegment, onError }) {
+  async connect({
+    apiKey,
+    model,
+    directory,
+    signal,
+    onSegment,
+    onError,
+    onProgress,
+  }) {
     signal.throwIfAborted();
-    // DOM typings omit Bun's server-side headers option.
-    const Socket = WebSocket as unknown as {
-      new (url: string, options: Bun.WebSocketOptions): WebSocket;
-    };
-    const socket = new Socket(
-      "wss://api.openai.com/v1/realtime?intent=transcription",
-      {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      }
-    );
-    const transcript = new OpenAITranscript();
-    let closing = false;
-    let ready = false;
+    mkdirSync(directory, { mode: 0o700, recursive: true });
+    const abort = new AbortController();
+    const combined = AbortSignal.any([signal, abort.signal]);
+    // ponytail: four provider reference slots; add explicit speaker assignment if larger meetings need continuity.
+    const refs = new Map<string, string>();
+    let speakerCount = 0;
+    let chunkIndex = 0;
+    let bytes = 0;
+    let offset = 0;
+    let pendingBytes = 0;
+    let queue = Promise.resolve();
     let failure: Error | undefined;
-    let sentAudio = false;
-    let finalCommit = false;
-    let finishing = false;
-    let lastEvent = Date.now();
-    let resolveReady: () => void;
-    let rejectReady: (error: Error) => void;
-    const connected = new Promise<void>((resolve, reject) => {
-      resolveReady = resolve;
-      rejectReady = reject;
-    });
-    const fail = (error: Error) => {
-      if (failure || closing) {
-        return;
-      }
-      failure = error;
-      rejectReady(error);
-      if (ready) {
-        onError(error);
+    let finished = false;
+    let closed = false;
+    const path = () => join(directory, `${chunkIndex}.pcm`);
+    const fail = (error: unknown) => {
+      if (!failure) {
+        failure =
+          error instanceof Error ? error : new Error("Transcription failed");
+        onError(failure);
       }
     };
-    const timeout = setTimeout(
-      () => fail(new Error("Transcription connection timed out")),
-      15_000
-    );
-    const abort = () => fail(new Error("Transcription connection cancelled"));
-    signal.addEventListener("abort", abort, { once: true });
-    socket.addEventListener("open", () =>
-      socket.send(
-        JSON.stringify({
-          session: {
-            audio: {
-              input: {
-                format: { rate: 24_000, type: "audio/pcm" },
-                transcription: { model },
-                turn_detection: {
-                  prefix_padding_ms: 300,
-                  silence_duration_ms: 700,
-                  threshold: 0.5,
-                  type: "server_vad",
-                },
-              },
-            },
-            type: "transcription",
-          },
-          type: "session.update",
-        })
-      )
-    );
-    socket.addEventListener("message", (message) => {
-      try {
-        const event = JSON.parse(String(message.data));
-        lastEvent = Date.now();
-        if (event.type === "session.updated") {
-          ready = true;
-          resolveReady();
+    async function transcribe(
+      file: string,
+      index: number,
+      start: number,
+      length: number
+    ) {
+      combined.throwIfAborted();
+      const pcm = readFileSync(file);
+      const form = new FormData();
+      form.set("file", new Blob([wav(pcm)]), "meeting.wav");
+      form.set("model", model);
+      form.set("response_format", "diarized_json");
+      form.set("chunking_strategy", "auto");
+      for (const [name, reference] of refs) {
+        form.append("known_speaker_names[]", name);
+        form.append("known_speaker_references[]", reference);
+      }
+      let turns: Turn[] | undefined;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        let response: Response;
+        try {
+          response = await fetch(
+            "https://api.openai.com/v1/audio/transcriptions",
+            {
+              body: form,
+              headers: { Authorization: `Bearer ${apiKey}` },
+              method: "POST",
+              signal: AbortSignal.any([combined, AbortSignal.timeout(60_000)]),
+            }
+          );
+        } catch (error) {
+          if (combined.aborted || attempt === 2) {
+            throw error;
+          }
+          await Bun.sleep(250 * (attempt + 1));
+          continue;
         }
-        if (event.type === "input_audio_buffer.committed") {
-          finalCommit = false;
+        if (response.ok) {
+          turns = parseTurns(await response.json(), length / BYTES_PER_SECOND);
+          break;
         }
-        if (
-          event.type === "error" &&
-          finishing &&
-          event.error?.code === "input_audio_buffer_commit_empty"
-        ) {
-          finalCommit = false;
-          return;
+        await response.body?.cancel();
+        if (response.status !== 429 && response.status < 500) {
+          throw new Error(`Transcription request failed (${response.status})`);
         }
-        transcript.accept(event);
-        for (const segment of transcript.drain()) {
-          onSegment(segment);
+        if (attempt < 2) {
+          await Bun.sleep(250 * (attempt + 1));
         }
-      } catch (error) {
-        fail(
-          error instanceof Error
-            ? error
-            : new Error("Invalid transcription response")
+      }
+      if (!turns) {
+        throw new Error(
+          "Transcription temporarily unavailable; partial transcript saved"
         );
       }
-    });
-    socket.addEventListener("error", () =>
-      fail(new Error("Transcription connection failed"))
-    );
-    socket.addEventListener("close", () =>
-      fail(new Error("Transcription connection closed unexpectedly"))
-    );
-    try {
-      await connected;
-    } catch (error) {
-      closing = true;
-      socket.close();
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-      signal.removeEventListener("abort", abort);
+      combined.throwIfAborted();
+      const names = new Map<string, string>();
+      for (const turn of turns) {
+        if (turn.speaker && !names.has(turn.speaker)) {
+          names.set(
+            turn.speaker,
+            refs.has(turn.speaker) ? turn.speaker : `speaker_${++speakerCount}`
+          );
+        }
+      }
+      for (const [label, id] of names) {
+        if (refs.size >= 4 || refs.has(id)) {
+          continue;
+        }
+        const sample = turns
+          .filter(
+            (turn) =>
+              turn.speaker === label &&
+              turn.end - turn.start >= 2 &&
+              !turns.some(
+                (other) =>
+                  other !== turn &&
+                  other.start < turn.end &&
+                  other.end > turn.start
+              )
+          )
+          .sort((a, b) => b.end - b.start - (a.end - a.start))[0];
+        if (sample) {
+          const begin = Math.floor(sample.start * 24_000) * 2;
+          const end =
+            Math.floor(Math.min(sample.end, sample.start + 8) * 24_000) * 2;
+          refs.set(
+            id,
+            `data:audio/wav;base64,${wav(pcm.subarray(begin, end)).toString("base64")}`
+          );
+        }
+      }
+      for (const [i, turn] of turns.entries()) {
+        if (!turn.text.trim()) {
+          continue;
+        }
+        const id = turn.speaker ? names.get(turn.speaker)! : null;
+        onSegment({
+          endMs: Math.round(start / 48 + turn.end * 1000),
+          id: `${index}-${i}`,
+          receivedAt: Date.now(),
+          speakerId: id,
+          speakerName: id ? `Speaker ${id.slice(8)}` : "Unknown speaker",
+          startMs: Math.round(start / 48 + turn.start * 1000),
+          text: turn.text,
+        });
+      }
+    }
+    function flush() {
+      if (!bytes) {
+        return;
+      }
+      const file = path();
+      const index = chunkIndex++;
+      const length = bytes;
+      const start = offset;
+      offset += bytes;
+      bytes = 0;
+      onProgress?.(Math.ceil(pendingBytes / BYTES_PER_SECOND));
+      queue = queue.then(async () => {
+        if (failure || closed) {
+          return;
+        }
+        try {
+          await transcribe(file, index, start, length);
+        } catch (error) {
+          fail(error);
+        } finally {
+          pendingBytes -= length;
+          onProgress?.(Math.ceil(pendingBytes / BYTES_PER_SECOND));
+          rmSync(file, { force: true });
+        }
+      });
     }
     return {
-      close() {
-        closing = true;
-        socket.close();
+      async close() {
+        closed = true;
+        abort.abort();
+        refs.clear();
+        // Remove files after the outstanding request settles, including failed queued chunks.
+        await queue.catch(() => undefined);
+        rmSync(directory, { force: true, recursive: true });
       },
       async finish() {
+        if (!finished) {
+          finished = true;
+          flush();
+        }
+        await queue;
         if (failure) {
           throw failure;
         }
-        if (!sentAudio) {
-          return;
-        }
-        finishing = true;
-        finalCommit = true;
-        lastEvent = Date.now();
-        socket.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
-        const deadline = Date.now() + 5000;
-        while (Date.now() < deadline) {
-          if (failure) {
-            throw failure;
-          }
-          if (
-            !finalCommit &&
-            transcript.pending === 0 &&
-            Date.now() - lastEvent > 250
-          ) {
-            return;
-          }
-          await Bun.sleep(50);
-        }
-        throw new Error(
-          "Timed out waiting for the final transcript; partial transcript was saved"
-        );
+        combined.throwIfAborted();
       },
       push(audio) {
         if (failure) {
           throw failure;
         }
-        if (
-          socket.readyState !== WebSocket.OPEN ||
-          socket.bufferedAmount > 2_400_000
-        ) {
+        combined.throwIfAborted();
+        if (finished || closed) {
+          throw new Error("Recording has stopped");
+        }
+        if (audio.length % 2) {
+          throw new Error("Invalid PCM frame");
+        }
+        if (pendingBytes + audio.length > 300 * BYTES_PER_SECOND) {
           throw new Error(
-            "Transcription connection cannot keep up with meeting audio"
+            "Transcription cannot keep up; recording ended early"
           );
         }
-        sentAudio = true;
-        socket.send(
-          JSON.stringify({
-            audio: Buffer.from(audio).toString("base64"),
-            type: "input_audio_buffer.append",
-          })
-        );
+        let position = 0;
+        while (position < audio.length) {
+          const count = Math.min(CHUNK_BYTES - bytes, audio.length - position);
+          if (!bytes) {
+            writeFileSync(path(), new Uint8Array(), { mode: 0o600 });
+          }
+          appendFileSync(path(), audio.subarray(position, position + count));
+          bytes += count;
+          pendingBytes += count;
+          position += count;
+          if (bytes === CHUNK_BYTES) {
+            flush();
+          }
+        }
       },
     };
   },
 };
 
-// Add another adapter here; browser capture and meeting storage only use the interface.
 export const transcriptionProviders: Record<string, TranscriptionProvider> = {
   openai,
 };

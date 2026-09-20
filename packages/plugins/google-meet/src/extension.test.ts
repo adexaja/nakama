@@ -86,7 +86,7 @@ function extension() {
                   capture: { url: "wss://capture.example/capture?token=test" },
                   id: "meeting",
                 }
-              : { configured: true },
+              : { captureProtocol: 2, configured: true },
         };
       },
     },
@@ -231,6 +231,10 @@ test("audio worklet encodes every mono sample as PCM16 and tolerates empty input
   ]);
   processor.process([[new Float32Array([0.25])]]);
   expect(Array.from(new Int16Array(messages[1]!))).toEqual([8191]);
+  processor.port.onmessage({ data: "flush" });
+  expect(messages.at(-1)).toBe("flushed");
+  expect(processor.process([[new Float32Array([1])]])).toBe(false);
+  expect(messages).toHaveLength(3);
 });
 
 test.each(["connected", "throw", "reject", "invalidated"])(
@@ -326,10 +330,14 @@ test("popup shows setup progress and only the available capture action", async (
             },
           },
         },
+        clearInterval() {},
         document: { querySelector: element },
+        setInterval: () => 1,
         URL,
+        window: { addEventListener() {} },
       }
     );
+    await Bun.sleep(0);
     expect(element("#connect").hidden).toBe(onMeet || recording);
     expect(element("#start").hidden).toBe(!(connected && onMeet) || recording);
     expect(element("#stop").hidden).toBe(!recording);
@@ -387,7 +395,11 @@ test.each([false, true])(
           async close() {}
         },
         AudioWorkletNode: class {
-          port = { onmessage: null };
+          port = {
+            onmessage: null as any,
+            postMessage: () =>
+              queueMicrotask(() => this.port.onmessage({ data: "flushed" })),
+          };
           constructor() {
             processor = this;
           }
@@ -432,6 +444,13 @@ test.each([false, true])(
           }
           send(frame: unknown) {
             frames.push(frame);
+            if (typeof frame === "string") {
+              queueMicrotask(() =>
+                socket.onmessage({
+                  data: JSON.stringify({ type: "capture-finalized" }),
+                })
+              );
+            }
           }
           close() {
             this.readyState = 3;
@@ -461,8 +480,174 @@ test.each([false, true])(
     expect(frames).toEqual([frame]);
     expect(events).toEqual(["CAPTURE_STARTED"]);
     expect(stopped).toBe(0);
-    listener({ type: "STOP_CAPTURE" }, sender, () => undefined);
+    await new Promise((resolve) =>
+      listener({ type: "STOP_CAPTURE" }, sender, resolve)
+    );
     expect(events).toEqual(["CAPTURE_STARTED", "CAPTURE_STOPPED"]);
-    expect(stopped).toBe(2);
+    expect(stopped).toBeGreaterThanOrEqual(2);
   }
 );
+
+test("popup transcript access is bound to its captured meeting and unavailable to pages", async () => {
+  const ext = extension();
+  await ext.dispatch("CONNECT");
+  ext.activate(2);
+  await ext.dispatch("START");
+  await ext.dispatch("TRANSCRIPT");
+  expect(ext.calls.at(-1)).toMatchObject({
+    action: "transcript",
+    input: { after: 0, meetingId: "meeting" },
+  });
+  expect(ext.fromPage("TRANSCRIPT")).toBeUndefined();
+  await ext.captureEvent("CAPTURE_STOPPED");
+  await ext.dispatch("TRANSCRIPT");
+  expect(ext.calls.at(-1)?.action).toBe("transcript");
+  ext.state.connection = { tabId: 99, url: "https://other.example" };
+  expect(await ext.dispatch("TRANSCRIPT")).toBeNull();
+});
+
+test("popup renders live turns safely, restores on reopen and stops polling on close", async () => {
+  let recording = true;
+  const replies = [
+    {
+      id: "one",
+      sequence: 1,
+      speakerName: "Speaker 1",
+      text: "<script>hello</script>",
+    },
+  ];
+  let transcriptRequests = 0;
+  function popup() {
+    let interval!: () => void;
+    let close!: () => void;
+    let storageChanged!: (changes: unknown, area: string) => void;
+    class Element {
+      dataset: Record<string, string> = {};
+      children: Element[] = [];
+      parent?: Element;
+      textContent = "";
+      hidden = false;
+      scrollTop = 0;
+      clientHeight = 300;
+      scrollHeight = 300;
+      append(...children: Element[]) {
+        for (const child of children) {
+          child.parent = this;
+          this.children.push(child);
+        }
+      }
+      replaceChildren() {
+        this.children = [];
+      }
+      get firstElementChild() {
+        return this.children[0];
+      }
+      remove() {
+        this.parent!.children = this.parent!.children.filter(
+          (child) => child !== this
+        );
+      }
+    }
+    const elements = new Map<string, Element>();
+    const element = (selector: string) => {
+      if (!elements.has(selector)) {
+        elements.set(selector, new Element());
+      }
+      return elements.get(selector)!;
+    };
+    runInNewContext(
+      readFileSync(new URL("../extension/popup.js", import.meta.url), "utf8"),
+      {
+        chrome: {
+          runtime: {
+            async sendMessage(message: { type: string; after: number }) {
+              if (message.type === "TRANSCRIPT") {
+                transcriptRequests++;
+                return {
+                  meeting: {
+                    id: "meeting",
+                    state: recording ? "recording" : "finished",
+                  },
+                  nextCursor: 1,
+                  segments: message.after ? [] : replies,
+                };
+              }
+              return {
+                captureSession: { status: recording ? "recording" : "stopped" },
+                connection: { tabId: 1 },
+              };
+            },
+          },
+          storage: {
+            onChanged: {
+              addListener(listener: typeof storageChanged) {
+                storageChanged = listener;
+              },
+            },
+          },
+          tabs: {
+            async query() {
+              return [{ url: "https://meet.google.com/abc-defg-hij" }];
+            },
+          },
+        },
+        clearInterval() {},
+        document: {
+          createElement: () => new Element(),
+          createTextNode(text: string) {
+            const node = new Element();
+            node.textContent = text;
+            return node;
+          },
+          querySelector: element,
+        },
+        setInterval(callback: () => void) {
+          interval = callback;
+          return 1;
+        },
+        setTimeout() {},
+        URL,
+        window: {
+          addEventListener(_event: string, listener: () => void) {
+            close = listener;
+          },
+        },
+      }
+    );
+    return {
+      close: () => close(),
+      element,
+      poll: () => interval(),
+      reset: () => storageChanged({ connection: {} }, "session"),
+    };
+  }
+  const first = popup();
+  await Bun.sleep(0);
+  const turn = first.element("#transcript").children[0]!;
+  expect(turn.children.map((child) => child.textContent)).toEqual([
+    "Speaker 1",
+    "\n<script>hello</script>",
+  ]);
+  first.poll();
+  await Bun.sleep(0);
+  expect(first.element("#transcript").children).toHaveLength(1);
+  first.close();
+  const count = transcriptRequests;
+  first.poll();
+  await Bun.sleep(0);
+  expect(transcriptRequests).toBe(count);
+  const reopened = popup();
+  await Bun.sleep(0);
+  expect(reopened.element("#transcript").children).toHaveLength(1);
+  recording = false;
+  reopened.poll();
+  await Bun.sleep(0);
+  expect(reopened.element("#status").textContent).toBe("Transcript ready");
+  const finishedCount = transcriptRequests;
+  reopened.poll();
+  await Bun.sleep(0);
+  expect(transcriptRequests).toBe(finishedCount);
+  reopened.reset();
+  expect(reopened.element("#transcript").children).toHaveLength(0);
+  reopened.close();
+});

@@ -10,7 +10,7 @@ import {
 import type * as UI from "@nakama/ui";
 import type * as ReactType from "react";
 import type { Meeting } from "./store";
-import type { TranscriptSegment } from "./transcription";
+import { formatTranscript, type TranscriptSegment } from "./transcript-format";
 
 type Context = {
   React: typeof ReactType;
@@ -31,11 +31,21 @@ const message = (error: unknown) =>
 export const inject = ["slots", "host", "styles", "ui"];
 
 function meetingStatus(meeting: Meeting) {
-  if (["queued", "joining", "transcribing"].includes(meeting.state)) {
+  if (
+    ["queued", "joining", "recording", "transcribing"].includes(meeting.state)
+  ) {
+    if ((meeting.pendingSeconds ?? 0) > 30) {
+      return "Transcription is catching up…";
+    }
+    if (meeting.state === "recording") {
+      return meeting.stopRequested
+        ? "Stopping…"
+        : "Recording and transcribing…";
+    }
     return meeting.stopRequested
       ? "Stopping…"
       : meeting.state === "transcribing"
-        ? "Transcribing…"
+        ? "Finishing transcript…"
         : "Connecting…";
   }
   if (meeting.state === "failed") {
@@ -196,7 +206,8 @@ export function apply(ctx: Context) {
   }
 
   function Transcript({ meeting, close }: { meeting: Meeting; close(): void }) {
-    const [text, setText] = React.useState("");
+    const [segments, setSegments] = React.useState<TranscriptSegment[]>([]);
+    const text = formatTranscript(segments, Boolean(meeting.sourceName));
     const [error, setError] = React.useState("");
     const [loaded, setLoaded] = React.useState(false);
     const [copyStatus, setCopyStatus] = React.useState("");
@@ -221,15 +232,13 @@ export function apply(ctx: Context) {
           };
           if (alive && !ctx.signal.aborted) {
             cursor = value.nextCursor;
-            setText(
-              (previous) =>
-                previous +
-                value.segments
-                  .map(
-                    (segment) => segment.text + (meeting.sourceName ? "" : "\n")
-                  )
-                  .join("")
-            );
+            setSegments((previous) => {
+              const seen = new Set(previous.map((segment) => segment.id));
+              return [
+                ...previous,
+                ...value.segments.filter((segment) => !seen.has(segment.id)),
+              ];
+            });
             setError("");
             setLoaded(true);
           }
@@ -349,13 +358,27 @@ export function apply(ctx: Context) {
         {error && <p role="alert">{error}</p>}
         {text ? (
           <Card className="meet-card meet-document">
-            <div className="meet-document-text">{text}</div>
+            <div className="meet-document-text">
+              {meeting.sourceName
+                ? text
+                : segments.map((segment) => (
+                    <p key={segment.id}>
+                      <strong>
+                        {segment.speakerName || "Unknown speaker"}
+                      </strong>
+                      {"\n"}
+                      {segment.text}
+                    </p>
+                  ))}
+            </div>
           </Card>
         ) : (
           <Card className="meet-card">
             <p className="meet-empty" role="status">
               {loaded
-                ? ["queued", "joining", "transcribing"].includes(meeting.state)
+                ? ["queued", "joining", "recording", "transcribing"].includes(
+                    meeting.state
+                  )
                   ? "Waiting for speech…"
                   : "No speech was captured."
                 : "Loading transcript…"}
@@ -421,12 +444,24 @@ export function apply(ctx: Context) {
         if (
           data?.type !== "NAKAMA_MEET_ACTION" ||
           typeof data.id !== "string" ||
-          !["meetings", "start-capture", "leave"].includes(data.action)
+          ![
+            "meetings",
+            "start-capture",
+            "leave",
+            "transcript",
+            "show-transcript",
+          ].includes(data.action)
         ) {
           return;
         }
         try {
-          const result = await ctx.host.call(data.action, data.input);
+          const result = await ctx.host.call(
+            data.action === "show-transcript" ? "transcript" : data.action,
+            data.input
+          );
+          if (data.action === "show-transcript") {
+            setSelected((result as { meeting: Meeting }).meeting);
+          }
           window.postMessage(
             { id: data.id, result, type: "NAKAMA_MEET_RESULT" },
             window.location.origin
@@ -495,7 +530,9 @@ export function apply(ctx: Context) {
       {
         meetings:
           overview?.meetings.filter((meeting) =>
-            ["queued", "joining", "transcribing"].includes(meeting.state)
+            ["queued", "joining", "recording", "transcribing"].includes(
+              meeting.state
+            )
           ) ?? [],
         title: "In progress",
       },
@@ -632,12 +669,19 @@ export function apply(ctx: Context) {
                                   {meetingStatus(meeting)}
                                 </span>
                               )}
-                              {["queued", "joining", "transcribing"].includes(
-                                meeting.state
-                              ) && (
+                              {[
+                                "queued",
+                                "joining",
+                                "recording",
+                                "transcribing",
+                              ].includes(meeting.state) && (
                                 <Button
                                   className="meet-action"
-                                  disabled={busy || !!meeting.stopRequested}
+                                  disabled={
+                                    busy ||
+                                    !!meeting.stopRequested ||
+                                    meeting.state === "transcribing"
+                                  }
                                   onClick={() =>
                                     void action("leave", {
                                       meetingId: meeting.id,

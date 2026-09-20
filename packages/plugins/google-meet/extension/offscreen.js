@@ -4,6 +4,10 @@ const chrome = globalThis.chrome;
 let socket;
 let context;
 let streams = [];
+let processor;
+let stopping;
+let flushed;
+let finalized;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id || sender.tab) {
@@ -12,8 +16,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "START_CAPTURE") {
     start(message.streamId, message.captureUrl)
       .then(() => sendResponse({ ok: true }))
-      .catch((error) => {
-        fail(error);
+      .catch(async (error) => {
+        await fail(error);
         sendResponse({
           error: error.message,
           needsMicrophone: error.needsMicrophone === true,
@@ -22,12 +26,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.type === "STOP_CAPTURE") {
-    stop();
-    sendResponse({ ok: true });
+    void stop().then(() => sendResponse({ ok: true }));
+    return true;
   }
 });
 
 async function start(streamId, captureUrl) {
+  stopping = undefined;
   const tab = await navigator.mediaDevices.getUserMedia({
     audio: {
       mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId },
@@ -36,6 +41,12 @@ async function start(streamId, captureUrl) {
       mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId },
     },
   });
+  if (stopping) {
+    for (const track of tab.getTracks()) {
+      track.stop();
+    }
+    throw new Error("Capture stopped while starting");
+  }
   streams = [tab];
   context = new AudioContext({ sampleRate: 24_000 });
   const mix = context.createGain();
@@ -46,6 +57,12 @@ async function start(streamId, captureUrl) {
     const mic = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true },
     });
+    if (stopping) {
+      for (const track of mic.getTracks()) {
+        track.stop();
+      }
+      throw new Error("Capture stopped while starting");
+    }
     streams.push(mic);
     context.createMediaStreamSource(mic).connect(mix);
   } catch {
@@ -58,7 +75,10 @@ async function start(streamId, captureUrl) {
   await context.audioWorklet.addModule(
     chrome.runtime.getURL("audio-worklet.js")
   );
-  const processor = new AudioWorkletNode(context, "nakama-pcm", {
+  if (stopping) {
+    throw new Error("Capture stopped while starting");
+  }
+  processor = new AudioWorkletNode(context, "nakama-pcm", {
     channelCount: 1,
     channelCountMode: "explicit",
   });
@@ -81,9 +101,21 @@ async function start(streamId, captureUrl) {
       reject(new Error("Nakama capture connection failed"));
     };
   });
+  if (stopping) {
+    throw new Error("Capture stopped while starting");
+  }
+  socket.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (message.type === "capture-finalized") {
+      finalized?.();
+    }
+    if (message.type === "stop-requested") {
+      void stop();
+    }
+  };
   socket.onclose = (event) => {
     if (event.code >= 1008) {
-      fail(
+      void fail(
         new Error(event.reason || "Transcription connection ended unexpectedly")
       );
     } else {
@@ -92,7 +124,15 @@ async function start(streamId, captureUrl) {
   };
   socket.onerror = () => fail(new Error("Nakama capture connection failed"));
   processor.port.onmessage = (event) => {
+    if (event.data === "flushed") {
+      flushed?.();
+      return;
+    }
     if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    if (socket.bufferedAmount > 2_400_000) {
+      void fail(new Error("Capture connection cannot keep up"));
       return;
     }
     socket.send(event.data);
@@ -106,30 +146,66 @@ async function start(streamId, captureUrl) {
 }
 
 function stop(error) {
-  if (socket) {
-    socket.onclose = null;
-    socket.onerror = null;
-  }
-  if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: "stop" }));
-  }
-  socket?.close();
-  socket = undefined;
-  for (const stream of streams) {
-    for (const track of stream.getTracks()) {
-      track.stop();
+  stopping ??= (async () => {
+    let failure = typeof error === "string" ? error : undefined;
+    try {
+      if (!failure && socket?.readyState === WebSocket.OPEN && processor) {
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error("Final audio flush timed out")),
+            2000
+          );
+          flushed = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+          processor.port.postMessage("flush");
+        });
+        for (const stream of streams) {
+          for (const track of stream.getTracks()) {
+            track.stop();
+          }
+        }
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error("Capture confirmation timed out")),
+            5000
+          );
+          finalized = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+          socket.send(JSON.stringify({ protocol: 2, type: "stop" }));
+        });
+      }
+    } catch (reason) {
+      failure = reason.message;
     }
-  }
-  streams = [];
-  context?.close();
-  context = undefined;
-  chrome.runtime.sendMessage(
-    typeof error === "string"
-      ? { error, type: "CAPTURE_ERROR" }
-      : { type: "CAPTURE_STOPPED" }
-  );
+    if (socket) {
+      socket.onclose = null;
+      socket.onerror = null;
+      socket.close();
+    }
+    socket = undefined;
+    for (const stream of streams) {
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
+    }
+    streams = [];
+    await context?.close();
+    context = undefined;
+    processor = undefined;
+    flushed = finalized = undefined;
+    await chrome.runtime.sendMessage(
+      failure
+        ? { error: failure, type: "CAPTURE_ERROR" }
+        : { type: "CAPTURE_STOPPED" }
+    );
+  })();
+  return stopping;
 }
 
 function fail(error) {
-  stop(error.message);
+  return stop(error.message);
 }
