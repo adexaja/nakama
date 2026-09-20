@@ -76,6 +76,12 @@ export const NAV_GROUPS: NavGroup[] = [
         PlusSignSquareIcon
       ),
       navItem(
+        "profiles",
+        "Agent",
+        "Manage bot configs and tool allowlists",
+        UserSquareIcon
+      ),
+      navItem(
         "files",
         "Browse Files",
         "Manage profile artifacts",
@@ -87,12 +93,6 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     id: "agent",
     items: [
-      navItem(
-        "profiles",
-        "Assistants",
-        "Manage bot configs and tool allowlists",
-        UserSquareIcon
-      ),
       navItem(
         "automations",
         "Automations",
@@ -162,8 +162,8 @@ export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((group) => group.items);
 
 export const SIDEBAR_PAGE_IDS: readonly PageId[] = [
   "chat",
-  "files",
   "profiles",
+  "files",
   "automations",
   "integrations",
   "customize",
