@@ -199,3 +199,47 @@ test("upgrades existing meeting databases without losing transcripts", () => {
   expect(store.transcript(meeting.id)[0]?.text).toBe("Launch planning");
   expect(store.nextUntitled()).toBeNull();
 });
+
+test("speaker turns survive reopen and recording remains an exclusive active state", () => {
+  const directory = mkdtempSync(join(tmpdir(), "meet-speaker-store-"));
+  let store = new MeetingStore(directory, "org");
+  try {
+    const meeting = store.create(
+      "https://meet.google.com/abc-defg-hij",
+      "user",
+      undefined,
+      1
+    );
+    store.update(meeting.id, "recording");
+    expect(() =>
+      store.create("https://meet.google.com/abc-defg-hij", "user", undefined, 1)
+    ).toThrow();
+    const turn = {
+      endMs: 500,
+      id: "0-0",
+      receivedAt: 1,
+      speakerId: "speaker_1",
+      speakerName: "Speaker 1",
+      startMs: 100,
+      text: "Hello",
+    };
+    store.addSegment(meeting.id, turn);
+    store.addSegment(meeting.id, turn);
+    store.close();
+    store = new MeetingStore(directory, "org");
+    expect(store.transcript(meeting.id)).toHaveLength(1);
+    expect(store.transcript(meeting.id)[0]).toMatchObject(turn);
+    expect(
+      readFileSync(
+        join(directory, "transcripts", `meeting-${meeting.id}.txt`),
+        "utf8"
+      )
+    ).toBe("Speaker 1: Hello\n");
+    store.recover();
+    expect(store.get(meeting.id)?.state).toBe("failed");
+    expect(store.transcript(meeting.id)[0]?.speakerName).toBe("Speaker 1");
+  } finally {
+    store.close();
+    rmSync(directory, { force: true, recursive: true });
+  }
+});

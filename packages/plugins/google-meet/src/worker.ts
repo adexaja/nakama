@@ -23,21 +23,25 @@ export function createStreamMeeting(
     const config = readSettings(directory);
     transcription = await transcriptionProviders[config.provider]!.connect({
       ...config,
+      directory: join(directory, "audio", meeting.id),
       onError: (error) => {
         failure = error;
         abort.abort();
       },
+      onProgress: (seconds) => store.setPending(meeting.id, seconds),
       onSegment: (segment) => store.addSegment(meeting.id, segment),
       signal: combined,
     });
-    store.update(meeting.id, "transcribing");
+    store.update(meeting.id, "recording");
   })().catch((error) => {
     failure =
       error instanceof Error ? error : new Error("Meeting capture failed");
     throw failure;
   });
 
+  let receivedBytes = 0;
   return {
+    captured: () => queue,
     close(requestedStop = false) {
       closing ??= (async () => {
         await queue.catch((error) => {
@@ -48,6 +52,7 @@ export function createStreamMeeting(
         });
         await started.catch(() => undefined);
         if (transcription) {
+          store.update(meeting.id, "transcribing");
           try {
             await transcription.finish();
           } catch (error) {
@@ -56,12 +61,17 @@ export function createStreamMeeting(
                 ? error
                 : new Error("Final transcript incomplete");
           }
-          transcription.close();
+          try {
+            await transcription.close();
+          } catch {
+            failure ??= new Error("Temporary audio cleanup failed");
+          }
         }
         abort.abort();
+        store.setPending(meeting.id, 0);
         store.update(
           meeting.id,
-          failure || signal.aborted ? "failed" : "finished",
+          failure || signal.aborted || !requestedStop ? "failed" : "finished",
           failure?.message ??
             (requestedStop ? null : "Capture ended; partial transcript saved")
         );
@@ -69,14 +79,20 @@ export function createStreamMeeting(
       return closing;
     },
     push(frame: Uint8Array) {
-      if (frame.byteLength > 48_000) {
+      if (closing) {
+        return Promise.reject(new Error("Recording has stopped"));
+      }
+      receivedBytes += frame.byteLength;
+      if (receivedBytes > meeting.durationMinutes * 60 * 48_000) {
+        throw new Error("Recording duration exceeded");
+      }
+      if (frame.byteLength > 48_000 || frame.byteLength % 2) {
         throw new Error("Audio frame is too large");
       }
       queue = queue.then(async () => {
         await started;
-        if (!combined.aborted) {
-          transcription?.push(frame);
-        }
+        combined.throwIfAborted();
+        transcription?.push(frame);
       });
       return queue;
     },
@@ -166,6 +182,8 @@ async function runWorker(directory: string, dataDir: string, orgId: string) {
   mkdirSync(directory, { mode: 0o700, recursive: true });
   const store = new MeetingStore(dataDir, orgId);
   store.recover();
+  rmSync(join(dataDir, "audio"), { force: true, recursive: true });
+  const active = new Set<{ close(): void; done(): Promise<void> }>();
   const abort = new AbortController();
   const stop = () => abort.abort();
   process.on("SIGTERM", stop);
@@ -175,6 +193,8 @@ async function runWorker(directory: string, dataDir: string, orgId: string) {
   const capture = Bun.serve<{
     meetingId: string;
     stream?: ReturnType<typeof createStreamMeeting>;
+    stopTimer?: ReturnType<typeof setInterval>;
+    cleanup?: () => void;
   }>({
     async fetch(request, server) {
       const url = new URL(request.url);
@@ -206,14 +226,22 @@ async function runWorker(directory: string, dataDir: string, orgId: string) {
     port: Number(process.env.NAKAMA_MEET_CAPTURE_PORT ?? 0),
     websocket: {
       close(ws) {
+        ws.data.cleanup?.();
         void ws.data.stream?.close(false);
       },
-      message(ws, message) {
+      maxPayloadLength: 48_000,
+      async message(ws, message) {
         if (typeof message === "string") {
           try {
-            const event = JSON.parse(message) as { type?: string };
+            const event = JSON.parse(message) as {
+              type?: string;
+              protocol?: number;
+            };
             if (event.type === "stop") {
-              void ws.data.stream?.close(true);
+              const complete = ws.data.stream?.close(event.protocol === 2);
+              await ws.data.stream?.captured();
+              void complete;
+              ws.send(JSON.stringify({ type: "capture-finalized" }));
               ws.close();
             }
           } catch {
@@ -221,13 +249,21 @@ async function runWorker(directory: string, dataDir: string, orgId: string) {
           }
           return;
         }
-        void ws.data.stream
-          ?.push(
+        try {
+          await ws.data.stream?.push(
             new Uint8Array(
-              message instanceof ArrayBuffer ? message : message.buffer
+              message instanceof ArrayBuffer
+                ? message
+                : new Uint8Array(
+                    message.buffer,
+                    message.byteOffset,
+                    message.byteLength
+                  )
             )
-          )
-          .catch(() => ws.close(1011, "Audio stream failed"));
+          );
+        } catch {
+          ws.close(1011, "Audio stream failed");
+        }
       },
       open(ws) {
         const meeting = store.get(ws.data.meetingId);
@@ -242,6 +278,34 @@ async function runWorker(directory: string, dataDir: string, orgId: string) {
           abort.signal
         );
         ws.data.stream = stream;
+        const entry = {
+          close: () => ws.close(),
+          done: () => stream.close(false),
+        };
+        active.add(entry);
+        ws.data.cleanup = () => {
+          clearInterval(ws.data.stopTimer);
+          void stream.close(false).finally(() => active.delete(entry));
+        };
+        let stopSent = 0;
+        ws.data.stopTimer = setInterval(() => {
+          const current = store.get(meeting.id);
+          if (!current || abort.signal.aborted) {
+            ws.close();
+            return;
+          }
+          if (
+            current.stopRequested ||
+            Date.now() >= meeting.createdAt + meeting.durationMinutes * 60_000
+          ) {
+            if (!stopSent) {
+              stopSent = Date.now();
+              ws.send(JSON.stringify({ type: "stop-requested" }));
+            } else if (Date.now() - stopSent > 5000) {
+              ws.close(1011, "Final audio flush timed out");
+            }
+          }
+        }, 500);
         void stream.ready
           .then(() => ws.send(JSON.stringify({ type: "ready" })))
           .catch(() => ws.close(1011, "Transcription unavailable"));
@@ -265,6 +329,10 @@ async function runWorker(directory: string, dataDir: string, orgId: string) {
     }
   } finally {
     clearInterval(heartbeat);
+    for (const entry of active) {
+      entry.close();
+    }
+    await Promise.all([...active].map((entry) => entry.done()));
     capture.stop(true);
     rmSync(join(directory, "status.json"), { force: true });
     store.close();

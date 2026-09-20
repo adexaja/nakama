@@ -150,6 +150,16 @@
       overflow-wrap: anywhere;
       border-top: 1px solid var(--border);
     }
+    #transcript {
+      max-height: 300px;
+      padding: 0 16px;
+      overflow-y: auto;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+    #transcript p {
+      margin: 12px 0;
+    }
     @media (prefers-reduced-motion: reduce) {
       button {
         transition: none;
@@ -197,6 +207,10 @@
         <button hidden id="start" type="button">Start transcription</button>
         <button hidden id="stop" type="button">Stop transcription</button>
       </div>
+      <button hidden id="full-transcript" type="button">
+        Open full transcript
+      </button>
+      <section aria-label="Live transcript" id="transcript"></section>
       <div aria-live="polite" id="status" role="status">
         Checking connection…
       </div>

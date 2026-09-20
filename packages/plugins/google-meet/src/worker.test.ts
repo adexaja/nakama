@@ -150,3 +150,66 @@ test("capture sessions ignore missing or malformed files", () => {
     rmSync(directory, { force: true, recursive: true });
   }
 });
+
+test("Stop acknowledges captured audio while final transcription drains and rejects late frames", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "meet-drain-"));
+  const store = new MeetingStore(directory, "org");
+  const provider = transcriptionProviders.openai!;
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let finishes = 0;
+  try {
+    privateJson(join(directory, "settings.json"), { apiKey: "test" });
+    const meeting = store.create(
+      "https://meet.google.com/abc-defg-hij",
+      "user",
+      undefined,
+      1
+    );
+    transcriptionProviders.openai = {
+      async connect({ onSegment }) {
+        return {
+          close() {},
+          async finish() {
+            finishes++;
+            await pending;
+            onSegment({
+              id: "last",
+              receivedAt: 1,
+              speakerName: "Speaker 1",
+              text: "Final words",
+            });
+          },
+          push() {},
+        };
+      },
+    };
+    const stream = createStreamMeeting(
+      meeting,
+      store,
+      directory,
+      new AbortController().signal
+    );
+    await stream.ready;
+    expect(store.get(meeting.id)?.state).toBe("recording");
+    await stream.push(new Uint8Array(256));
+    const done = stream.close(true);
+    await stream.captured();
+    await Bun.sleep(0);
+    expect(store.get(meeting.id)?.state).toBe("transcribing");
+    await expect(stream.push(new Uint8Array(256))).rejects.toThrow();
+    release();
+    await done;
+    await stream.close(false);
+    expect(finishes).toBe(1);
+    expect(store.get(meeting.id)?.state).toBe("finished");
+    expect(store.transcript(meeting.id)[0]?.text).toBe("Final words");
+  } finally {
+    release();
+    transcriptionProviders.openai = provider;
+    store.close();
+    rmSync(directory, { force: true, recursive: true });
+  }
+});

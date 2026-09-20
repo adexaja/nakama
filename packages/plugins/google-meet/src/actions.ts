@@ -72,6 +72,7 @@ export async function run(
       return {
         authenticated: worker.state === "ready",
         canConfigure: context.actor.role === "admin",
+        captureProtocol: 2,
         configured: existsSync(settingsPath),
         meetings: store.list(
           context.actor.role === "admin" ? null : context.actor.id,
@@ -188,6 +189,13 @@ export async function run(
     }
     if (action === "leave") {
       store.stop(meeting.id);
+      if (meeting.state === "queued") {
+        store.update(
+          meeting.id,
+          "failed",
+          "Capture cancelled before recording started"
+        );
+      }
       return { ...meeting, stopRequested: 1 };
     }
     if (action === "transcript") {

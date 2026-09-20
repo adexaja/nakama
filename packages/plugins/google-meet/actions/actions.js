@@ -16,6 +16,13 @@ import {
 } from "fs";
 import { join } from "path";
 
+// src/transcript-format.ts
+function formatTranscript(segments, imported = false) {
+  return segments.map((segment) => imported ? segment.text : `${segment.speakerName ? `${segment.speakerName}: ` : ""}${segment.text}
+`).join("");
+}
+
+// src/store.ts
 class MeetingStore {
   directory;
   db;
@@ -44,7 +51,25 @@ class MeetingStore {
     }
     try {
       this.db.transaction(() => {
+        const segmentColumns = this.db.query("PRAGMA table_info(segments)").all();
+        for (const [name, type] of [
+          ["speakerId", "TEXT"],
+          ["speakerName", "TEXT"],
+          ["startMs", "INTEGER"],
+          ["endMs", "INTEGER"]
+        ]) {
+          if (!segmentColumns.some((column) => column.name === name)) {
+            this.db.exec(`ALTER TABLE segments ADD COLUMN ${name} ${type}`);
+          }
+        }
+        const activeIndex = this.db.query("SELECT sql FROM sqlite_master WHERE name='one_active_meeting'").get();
+        if (!activeIndex?.sql.includes("'recording'")) {
+          this.db.exec("DROP INDEX IF EXISTS one_active_meeting; CREATE UNIQUE INDEX one_active_meeting ON meetings ((1)) WHERE state IN ('queued','joining','recording','transcribing')");
+        }
         const columns = this.db.query("PRAGMA table_info(meetings)").all();
+        if (!columns.some((column) => column.name === "pendingSeconds")) {
+          this.db.exec("ALTER TABLE meetings ADD COLUMN pendingSeconds INTEGER NOT NULL DEFAULT 0");
+        }
         if (!columns.some((column) => column.name === "title")) {
           this.db.exec("ALTER TABLE meetings ADD COLUMN title TEXT");
         }
@@ -114,11 +139,15 @@ class MeetingStore {
     this.db.query("UPDATE meetings SET title=? WHERE id=?").run(title, id);
   }
   recover() {
-    this.db.query("UPDATE meetings SET state='failed', error='Meeting worker restarted; partial transcript saved',updatedAt=? WHERE state IN ('joining','transcribing')").run(Date.now());
+    this.db.query("UPDATE meetings SET state='failed', error='Meeting worker restarted; partial transcript saved',updatedAt=? WHERE state IN ('queued','joining','recording','transcribing')").run(Date.now());
+    this.db.query("UPDATE meetings SET pendingSeconds=0 WHERE state IN ('finished','failed')").run();
     this.restoreTranscripts(true);
   }
   update(id, state, error = null) {
     this.db.query("UPDATE meetings SET state=?,error=?,updatedAt=? WHERE id=?").run(state, error, Date.now(), id);
+  }
+  setPending(id, seconds) {
+    this.db.query("UPDATE meetings SET pendingSeconds=? WHERE id=?").run(seconds, id);
   }
   stop(id) {
     this.db.query("UPDATE meetings SET stopRequested=1 WHERE id=?").run(id);
@@ -138,7 +167,7 @@ class MeetingStore {
     if (!this.get(meetingId)) {
       throw new Error("Meeting not found");
     }
-    this.db.query("INSERT OR IGNORE INTO segments (meetingId,id,text,receivedAt) VALUES (?,?,?,?)").run(meetingId, segment.id, segment.text, segment.receivedAt);
+    this.db.query("INSERT OR IGNORE INTO segments (meetingId,id,text,receivedAt,speakerId,speakerName,startMs,endMs) VALUES (?,?,?,?,?,?,?,?)").run(meetingId, segment.id, segment.text, segment.receivedAt, segment.speakerId ?? null, segment.speakerName ?? null, segment.startMs ?? null, segment.endMs ?? null);
     this.saveTranscript(meetingId);
   }
   transcriptPath(id) {
@@ -154,7 +183,7 @@ class MeetingStore {
   }
   saveTranscript(id) {
     this.db.transaction(() => {
-      const rows = this.db.query("SELECT text FROM segments WHERE meetingId=? ORDER BY sequence").all(id);
+      const rows = this.db.query("SELECT * FROM segments WHERE meetingId=? ORDER BY sequence").all(id);
       mkdirSync(join(this.directory, "transcripts"), {
         mode: 448,
         recursive: true
@@ -163,8 +192,9 @@ class MeetingStore {
       const imported = Boolean(this.get(id)?.sourceName);
       const temporary = `${path}.${randomUUID()}.tmp`;
       try {
-        writeFileSync(temporary, rows.map((row) => imported ? row.text : `${row.text}
-`).join(""), { mode: 384 });
+        writeFileSync(temporary, formatTranscript(rows, imported), {
+          mode: 384
+        });
         renameSync(temporary, path);
       } finally {
         rmSync(temporary, { force: true });
@@ -172,7 +202,7 @@ class MeetingStore {
     }).immediate();
   }
   transcript(id, after = 0) {
-    const rows = this.db.query("SELECT sequence,id,text,receivedAt FROM segments WHERE meetingId=? AND sequence>? ORDER BY sequence LIMIT 2000").all(id, after);
+    const rows = this.db.query("SELECT sequence,id,text,receivedAt,speakerId,speakerName,startMs,endMs FROM segments WHERE meetingId=? AND sequence>? ORDER BY sequence LIMIT 2000").all(id, after);
     let size = 0;
     const end = rows.findIndex((row) => {
       size += JSON.stringify(row).length;
@@ -188,15 +218,20 @@ class MeetingStore {
 // src/transcription.ts
 function transcriptionConfig(value) {
   const provider = value.provider ?? "openai";
-  const model = value.model ?? "gpt-transcribe";
-  if (provider !== "openai" || model !== "gpt-transcribe") {
+  if (provider !== "openai" || value.model != null && !["gpt-transcribe", "gpt-4o-transcribe-diarize"].includes(String(value.model))) {
     throw new Error("Unsupported transcription provider or model");
   }
   if (typeof value.apiKey !== "string" || !value.apiKey.trim() || value.apiKey.length > 4096) {
     throw new Error("An OpenAI API key is required for transcription");
   }
-  return { apiKey: value.apiKey.trim(), model, provider };
+  return {
+    apiKey: value.apiKey.trim(),
+    model: "gpt-4o-transcribe-diarize",
+    provider
+  };
 }
+var BYTES_PER_SECOND = 48000;
+var CHUNK_BYTES = 15 * BYTES_PER_SECOND;
 
 // src/actions.ts
 function privateJson(path, data) {
@@ -242,6 +277,7 @@ async function run(input, context) {
       return {
         authenticated: worker.state === "ready",
         canConfigure: context.actor.role === "admin",
+        captureProtocol: 2,
         configured: existsSync2(settingsPath),
         meetings: store.list(context.actor.role === "admin" ? null : context.actor.id, context.profileId ?? null),
         worker
@@ -320,6 +356,9 @@ async function run(input, context) {
     }
     if (action === "leave") {
       store.stop(meeting.id);
+      if (meeting.state === "queued") {
+        store.update(meeting.id, "failed", "Capture cancelled before recording started");
+      }
       return { ...meeting, stopRequested: 1 };
     }
     if (action === "transcript") {

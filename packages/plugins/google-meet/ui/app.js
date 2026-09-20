@@ -1,30 +1,42 @@
-// node_modules/.bun/@hugeicons+core-free-icons@3.3.0/node_modules/@hugeicons/core-free-icons/dist/esm/ArrowRight01Icon.js
+// ../../../node_modules/.bun/@hugeicons+core-free-icons@3.3.0/node_modules/@hugeicons/core-free-icons/dist/esm/ArrowRight01Icon.js
 var ArrowRight01Icon = [
   ["path", { d: "M9.00005 6C9.00005 6 15 10.4189 15 12C15 13.5812 9 18 9 18", stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "1.5", key: "0" }]
 ];
-// node_modules/.bun/@hugeicons+core-free-icons@3.3.0/node_modules/@hugeicons/core-free-icons/dist/esm/Copy01Icon.js
+// ../../../node_modules/.bun/@hugeicons+core-free-icons@3.3.0/node_modules/@hugeicons/core-free-icons/dist/esm/Copy01Icon.js
 var Copy01Icon = [
   ["path", { d: "M9 15C9 12.1716 9 10.7574 9.87868 9.87868C10.7574 9 12.1716 9 15 9L16 9C18.8284 9 20.2426 9 21.1213 9.87868C22 10.7574 22 12.1716 22 15V16C22 18.8284 22 20.2426 21.1213 21.1213C20.2426 22 18.8284 22 16 22H15C12.1716 22 10.7574 22 9.87868 21.1213C9 20.2426 9 18.8284 9 16L9 15Z", stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "1.5", key: "0" }],
   ["path", { d: "M16.9999 9C16.9975 6.04291 16.9528 4.51121 16.092 3.46243C15.9258 3.25989 15.7401 3.07418 15.5376 2.90796C14.4312 2 12.7875 2 9.5 2C6.21252 2 4.56878 2 3.46243 2.90796C3.25989 3.07417 3.07418 3.25989 2.90796 3.46243C2 4.56878 2 6.21252 2 9.5C2 12.7875 2 14.4312 2.90796 15.5376C3.07417 15.7401 3.25989 15.9258 3.46243 16.092C4.51121 16.9528 6.04291 16.9975 9 16.9999", stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "1.5", key: "1" }]
 ];
-// node_modules/.bun/@hugeicons+core-free-icons@3.3.0/node_modules/@hugeicons/core-free-icons/dist/esm/Delete02Icon.js
+// ../../../node_modules/.bun/@hugeicons+core-free-icons@3.3.0/node_modules/@hugeicons/core-free-icons/dist/esm/Delete02Icon.js
 var Delete02Icon = [
   ["path", { d: "M19.5 5.5L18.8803 15.5251C18.7219 18.0864 18.6428 19.3671 18.0008 20.2879C17.6833 20.7431 17.2747 21.1273 16.8007 21.416C15.8421 22 14.559 22 11.9927 22C9.42312 22 8.1383 22 7.17905 21.4149C6.7048 21.1257 6.296 20.7408 5.97868 20.2848C5.33688 19.3626 5.25945 18.0801 5.10461 15.5152L4.5 5.5", stroke: "currentColor", strokeLinecap: "round", strokeWidth: "1.5", key: "0" }],
   ["path", { d: "M3 5.5H21M16.0557 5.5L15.3731 4.09173C14.9196 3.15626 14.6928 2.68852 14.3017 2.39681C14.215 2.3321 14.1231 2.27454 14.027 2.2247C13.5939 2 13.0741 2 12.0345 2C10.9688 2 10.436 2 9.99568 2.23412C9.8981 2.28601 9.80498 2.3459 9.71729 2.41317C9.32164 2.7167 9.10063 3.20155 8.65861 4.17126L8.05292 5.5", stroke: "currentColor", strokeLinecap: "round", strokeWidth: "1.5", key: "1" }],
   ["path", { d: "M9.5 16.5L9.5 10.5", stroke: "currentColor", strokeLinecap: "round", strokeWidth: "1.5", key: "2" }],
   ["path", { d: "M14.5 16.5L14.5 10.5", stroke: "currentColor", strokeLinecap: "round", strokeWidth: "1.5", key: "3" }]
 ];
-// node_modules/.bun/@hugeicons+core-free-icons@3.3.0/node_modules/@hugeicons/core-free-icons/dist/esm/Download01Icon.js
+// ../../../node_modules/.bun/@hugeicons+core-free-icons@3.3.0/node_modules/@hugeicons/core-free-icons/dist/esm/Download01Icon.js
 var Download01Icon = [
   ["path", { d: "M2.99969 17.0002C2.99969 17.9302 2.99969 18.3952 3.10192 18.7767C3.37932 19.8119 4.18796 20.6206 5.22324 20.898C5.60474 21.0002 6.06972 21.0002 6.99969 21.0002L16.9997 21.0002C17.9297 21.0002 18.3947 21.0002 18.7762 20.898C19.8114 20.6206 20.6201 19.8119 20.8975 18.7767C20.9997 18.3952 20.9997 17.9302 20.9997 17.0002", stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "1.5", key: "0" }],
   ["path", { d: "M16.4998 11.5002C16.4998 11.5002 13.1856 16.0002 11.9997 16.0002C10.8139 16.0002 7.49976 11.5002 7.49976 11.5002M11.9997 15.0002V3.00016", stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "1.5", key: "1" }]
 ];
-// packages/plugins/google-meet/src/ui.tsx
+// src/transcript-format.ts
+function formatTranscript(segments, imported = false) {
+  return segments.map((segment) => imported ? segment.text : `${segment.speakerName ? `${segment.speakerName}: ` : ""}${segment.text}
+`).join("");
+}
+
+// src/ui.tsx
 var message = (error) => error instanceof Error ? error.message : "Request failed";
 var inject = ["slots", "host", "styles", "ui"];
 function meetingStatus(meeting) {
-  if (["queued", "joining", "transcribing"].includes(meeting.state)) {
-    return meeting.stopRequested ? "Stopping…" : meeting.state === "transcribing" ? "Transcribing…" : "Connecting…";
+  if (["queued", "joining", "recording", "transcribing"].includes(meeting.state)) {
+    if ((meeting.pendingSeconds ?? 0) > 30) {
+      return "Transcription is catching up…";
+    }
+    if (meeting.state === "recording") {
+      return meeting.stopRequested ? "Stopping…" : "Recording and transcribing…";
+    }
+    return meeting.stopRequested ? "Stopping…" : meeting.state === "transcribing" ? "Finishing transcript…" : "Connecting…";
   }
   if (meeting.state === "failed") {
     return meeting.transcriptFile ? "Partial transcript" : "Transcription failed";
@@ -149,7 +161,8 @@ function apply(ctx) {
     }, busy ? "Saving…" : "Save key")))));
   }
   function Transcript({ meeting, close }) {
-    const [text, setText] = React.useState("");
+    const [segments, setSegments] = React.useState([]);
+    const text = formatTranscript(segments, Boolean(meeting.sourceName));
     const [error, setError] = React.useState("");
     const [loaded, setLoaded] = React.useState(false);
     const [copyStatus, setCopyStatus] = React.useState("");
@@ -171,8 +184,13 @@ function apply(ctx) {
           });
           if (alive && !ctx.signal.aborted) {
             cursor = value.nextCursor;
-            setText((previous) => previous + value.segments.map((segment) => segment.text + (meeting.sourceName ? "" : `
-`)).join(""));
+            setSegments((previous) => {
+              const seen = new Set(previous.map((segment) => segment.id));
+              return [
+                ...previous,
+                ...value.segments.filter((segment) => !seen.has(segment.id))
+              ];
+            });
             setError("");
             setLoaded(true);
           }
@@ -269,12 +287,109 @@ function apply(ctx) {
       className: "meet-card meet-document"
     }, /* @__PURE__ */ React.createElement("div", {
       className: "meet-document-text"
-    }, text)) : /* @__PURE__ */ React.createElement(Card, {
+    }, meeting.sourceName ? text : segments.map((segment) => /* @__PURE__ */ React.createElement("p", {
+      key: segment.id
+    }, /* @__PURE__ */ React.createElement("strong", null, segment.speakerName || "Unknown speaker"), `
+`, segment.text)))) : /* @__PURE__ */ React.createElement(Card, {
       className: "meet-card"
     }, /* @__PURE__ */ React.createElement("p", {
       className: "meet-empty",
       role: "status"
-    }, loaded ? ["queued", "joining", "transcribing"].includes(meeting.state) ? "Waiting for speech…" : "No speech was captured." : "Loading transcript…")));
+    }, loaded ? ["queued", "joining", "recording", "transcribing"].includes(meeting.state) ? "Waiting for speech…" : "No speech was captured." : "Loading transcript…")));
+  }
+  function MeetingRow({
+    meeting,
+    busy,
+    onStop,
+    onDelete,
+    onOpen
+  }) {
+    return /* @__PURE__ */ React.createElement("li", null, /* @__PURE__ */ React.createElement("div", {
+      className: "meet-meeting"
+    }, /* @__PURE__ */ React.createElement("div", {
+      className: "meet-meta"
+    }, /* @__PURE__ */ React.createElement("h3", null, meeting.title || meeting.sourceName || "Untitled meeting"), /* @__PURE__ */ React.createElement("span", {
+      className: "meet-status"
+    }, new Date(meeting.createdAt).toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+      year: "numeric"
+    }), " · ", new Date(meeting.createdAt).toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit"
+    }))), /* @__PURE__ */ React.createElement("div", {
+      className: "meet-row"
+    }, meetingStatus(meeting) !== "Transcript ready" && /* @__PURE__ */ React.createElement("span", {
+      className: "meet-badge"
+    }, meetingStatus(meeting)), ["queued", "joining", "recording", "transcribing"].includes(meeting.state) && /* @__PURE__ */ React.createElement(Button, {
+      className: "meet-action",
+      disabled: busy || !!meeting.stopRequested || meeting.state === "transcribing",
+      onClick: () => onStop(meeting.id),
+      size: "sm",
+      variant: "outline"
+    }, "Stop transcription"), ["finished", "failed"].includes(meeting.state) && /* @__PURE__ */ React.createElement(Button, {
+      "aria-label": "Delete meeting",
+      className: "meet-action meet-delete",
+      disabled: busy,
+      onClick: () => {
+        onDelete(meeting);
+      },
+      size: "icon",
+      title: "Delete meeting",
+      variant: "ghost"
+    }, /* @__PURE__ */ React.createElement("svg", {
+      "aria-hidden": "true",
+      fill: "none",
+      height: "16",
+      stroke: "currentColor",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      strokeWidth: "1.5",
+      viewBox: "0 0 24 24",
+      width: "16"
+    }, Delete02Icon.map(([tag, attrs]) => React.createElement(tag, attrs)))), /* @__PURE__ */ React.createElement(Button, {
+      "aria-label": meeting.transcriptFile ? "Read transcript" : "View details",
+      className: "meet-open",
+      onClick: () => onOpen(meeting),
+      size: "icon",
+      title: meeting.transcriptFile ? "Read transcript" : "View details",
+      variant: "ghost"
+    }, /* @__PURE__ */ React.createElement("svg", {
+      "aria-hidden": "true",
+      fill: "none",
+      height: "16",
+      stroke: "currentColor",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      strokeWidth: "1.75",
+      style: { color: "var(--muted-foreground)" },
+      viewBox: "0 0 24 24",
+      width: "16"
+    }, ArrowRight01Icon.map(([tag, attrs]) => React.createElement(tag, {
+      ...attrs,
+      strokeWidth: 1.75
+    })))))), meeting.error && /* @__PURE__ */ React.createElement("p", {
+      role: "alert"
+    }, meeting.error));
+  }
+  function ConnectionStatus({
+    overview,
+    connected
+  }) {
+    let connectionMessage = "Connected. Start transcription from the extension in your Google Meet tab. Keep this page open.";
+    if (!overview) {
+      connectionMessage = "Checking connection…";
+    } else if (!overview.configured) {
+      connectionMessage = "Set a transcription API key in Settings.";
+    } else if (overview.worker.state !== "ready") {
+      connectionMessage = "Start Google Meet in Workers.";
+    } else if (!connected) {
+      connectionMessage = "Open the Chrome extension on this page and choose Connect this Nakama tab.";
+    }
+    return /* @__PURE__ */ React.createElement("span", {
+      className: "meet-status",
+      role: "status"
+    }, connectionMessage);
   }
   function Page() {
     const [overview, setOverview] = React.useState(null);
@@ -321,11 +436,20 @@ function apply(ctx) {
           setExtensionConnected(data.connected === true);
           return;
         }
-        if (data?.type !== "NAKAMA_MEET_ACTION" || typeof data.id !== "string" || !["meetings", "start-capture", "leave"].includes(data.action)) {
+        if (data?.type !== "NAKAMA_MEET_ACTION" || typeof data.id !== "string" || ![
+          "meetings",
+          "start-capture",
+          "leave",
+          "transcript",
+          "show-transcript"
+        ].includes(data.action)) {
           return;
         }
         try {
-          const result = await ctx.host.call(data.action, data.input);
+          const result = await ctx.host.call(data.action === "show-transcript" ? "transcript" : data.action, data.input);
+          if (data.action === "show-transcript") {
+            setSelected(result.meeting);
+          }
           window.postMessage({ id: data.id, result, type: "NAKAMA_MEET_RESULT" }, window.location.origin);
         } catch (reason) {
           window.postMessage({ error: message(reason), id: data.id, type: "NAKAMA_MEET_RESULT" }, window.location.origin);
@@ -380,13 +504,14 @@ function apply(ctx) {
         setBusy(false);
       }
     }
+    const meetings = overview?.meetings ?? [];
     const groups = [
       {
-        meetings: overview?.meetings.filter((meeting) => ["queued", "joining", "transcribing"].includes(meeting.state)) ?? [],
+        meetings: meetings.filter((meeting) => ["queued", "joining", "recording", "transcribing"].includes(meeting.state)),
         title: "In progress"
       },
       {
-        meetings: overview?.meetings.filter((meeting) => ["finished", "failed"].includes(meeting.state)) ?? [],
+        meetings: meetings.filter((meeting) => ["finished", "failed"].includes(meeting.state)),
         title: "Meeting history"
       }
     ];
@@ -396,7 +521,7 @@ function apply(ctx) {
       }, /* @__PURE__ */ React.createElement(Transcript, {
         close: () => setSelected(null),
         key: selected.id,
-        meeting: overview?.meetings.find((meeting) => meeting.id === selected.id) ?? selected
+        meeting: meetings.find((meeting) => meeting.id === selected.id) ?? selected
       }));
     }
     return /* @__PURE__ */ React.createElement("section", {
@@ -414,10 +539,10 @@ function apply(ctx) {
     }, "Settings")), /* @__PURE__ */ React.createElement("div", {
       className: "meet-card-heading",
       style: { borderBottom: 0, borderTop: "1px solid var(--border)" }
-    }, /* @__PURE__ */ React.createElement("span", {
-      className: "meet-status",
-      role: "status"
-    }, overview ? overview.configured ? overview.worker.state === "ready" ? extensionConnected ? "Connected. Start transcription from the extension in your Google Meet tab. Keep this page open." : "Open the Chrome extension on this page and choose Connect this Nakama tab." : "Start Google Meet in Workers." : "Set a transcription API key in Settings." : "Checking connection…"))), overview ? groups.filter((group) => group.title !== "In progress" || group.meetings.length).map((group) => /* @__PURE__ */ React.createElement("section", {
+    }, /* @__PURE__ */ React.createElement(ConnectionStatus, {
+      connected: extensionConnected,
+      overview
+    }))), overview ? groups.filter((group) => group.title !== "In progress" || group.meetings.length).map((group) => /* @__PURE__ */ React.createElement("section", {
       key: group.title
     }, /* @__PURE__ */ React.createElement(Card, {
       className: "meet-card"
@@ -448,74 +573,14 @@ function apply(ctx) {
       variant: "outline"
     }, uploading ? "Importing…" : "Upload file")))), group.meetings.length ? /* @__PURE__ */ React.createElement("ul", {
       className: "meet-list"
-    }, group.meetings.map((meeting) => /* @__PURE__ */ React.createElement("li", {
-      key: meeting.id
-    }, /* @__PURE__ */ React.createElement("div", {
-      className: "meet-meeting"
-    }, /* @__PURE__ */ React.createElement("div", {
-      className: "meet-meta"
-    }, /* @__PURE__ */ React.createElement("h3", null, meeting.title || meeting.sourceName || "Untitled meeting"), /* @__PURE__ */ React.createElement("span", {
-      className: "meet-status"
-    }, new Date(meeting.createdAt).toLocaleDateString(undefined, {
-      day: "numeric",
-      month: "short",
-      year: "numeric"
-    }), " · ", new Date(meeting.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }))), /* @__PURE__ */ React.createElement("div", {
-      className: "meet-row"
-    }, meetingStatus(meeting) !== "Transcript ready" && /* @__PURE__ */ React.createElement("span", {
-      className: "meet-badge"
-    }, meetingStatus(meeting)), ["queued", "joining", "transcribing"].includes(meeting.state) && /* @__PURE__ */ React.createElement(Button, {
-      className: "meet-action",
-      disabled: busy || !!meeting.stopRequested,
-      onClick: () => void action("leave", {
-        meetingId: meeting.id
-      }),
-      size: "sm",
-      variant: "outline"
-    }, "Stop transcription"), ["finished", "failed"].includes(meeting.state) && /* @__PURE__ */ React.createElement(Button, {
-      "aria-label": "Delete meeting",
-      className: "meet-action meet-delete",
-      disabled: busy,
-      onClick: () => {
-        setDeleting(meeting);
-      },
-      size: "icon",
-      title: "Delete meeting",
-      variant: "ghost"
-    }, /* @__PURE__ */ React.createElement("svg", {
-      "aria-hidden": "true",
-      fill: "none",
-      height: "16",
-      stroke: "currentColor",
-      strokeLinecap: "round",
-      strokeLinejoin: "round",
-      strokeWidth: "1.5",
-      viewBox: "0 0 24 24",
-      width: "16"
-    }, Delete02Icon.map(([tag, attrs]) => React.createElement(tag, attrs)))), /* @__PURE__ */ React.createElement(Button, {
-      "aria-label": meeting.transcriptFile ? "Read transcript" : "View details",
-      className: "meet-open",
-      onClick: () => setSelected(meeting),
-      size: "icon",
-      title: meeting.transcriptFile ? "Read transcript" : "View details",
-      variant: "ghost"
-    }, /* @__PURE__ */ React.createElement("svg", {
-      "aria-hidden": "true",
-      fill: "none",
-      height: "16",
-      stroke: "currentColor",
-      strokeLinecap: "round",
-      strokeLinejoin: "round",
-      strokeWidth: "1.75",
-      style: { color: "var(--muted-foreground)" },
-      viewBox: "0 0 24 24",
-      width: "16"
-    }, ArrowRight01Icon.map(([tag, attrs]) => React.createElement(tag, {
-      ...attrs,
-      strokeWidth: 1.75
-    })))))), meeting.error && /* @__PURE__ */ React.createElement("p", {
-      role: "alert"
-    }, meeting.error)))) : /* @__PURE__ */ React.createElement("p", {
+    }, group.meetings.map((meeting) => /* @__PURE__ */ React.createElement(MeetingRow, {
+      busy,
+      key: meeting.id,
+      meeting,
+      onDelete: setDeleting,
+      onOpen: setSelected,
+      onStop: (meetingId) => void action("leave", { meetingId })
+    }))) : /* @__PURE__ */ React.createElement("p", {
       className: "meet-empty"
     }, "No meetings yet.")))) : /* @__PURE__ */ React.createElement("p", null, "Loading…"), deleting && /* @__PURE__ */ React.createElement(ConfirmDialog, {
       confirmLabel: "Delete meeting",

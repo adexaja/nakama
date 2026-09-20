@@ -1,164 +1,265 @@
-import { expect, test } from "bun:test";
-import {
-  OpenAITranscript,
-  transcriptionConfig,
-  transcriptionProviders,
-} from "./transcription";
+import { expect, spyOn, test } from "bun:test";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { formatTranscript, type TranscriptSegment } from "./transcript-format";
+import { transcriptionConfig, transcriptionProviders } from "./transcription";
 
-test("defaults to gpt-transcribe without inheriting a chat model", () => {
-  expect(transcriptionConfig({ apiKey: "secret" })).toEqual({
+test("legacy settings resolve to diarization without inheriting a chat model", () => {
+  expect(
+    transcriptionConfig({ apiKey: " secret ", model: "gpt-transcribe" })
+  ).toEqual({
     apiKey: "secret",
-    model: "gpt-transcribe",
+    model: "gpt-4o-transcribe-diarize",
     provider: "openai",
   });
   expect(() =>
-    transcriptionConfig({ apiKey: "secret", provider: "chatgpt" })
+    transcriptionConfig({ apiKey: "secret", model: "gpt-4.1" })
   ).toThrow();
+  expect(() => transcriptionConfig({ apiKey: " " })).toThrow();
 });
 
-test("orders asynchronous completions by committed audio turns and ignores duplicates", () => {
-  const transcript = new OpenAITranscript();
-  transcript.accept({
-    item_id: "a",
-    previous_item_id: null,
-    type: "input_audio_buffer.committed",
-  });
-  transcript.accept({
-    item_id: "b",
-    previous_item_id: "a",
-    type: "input_audio_buffer.committed",
-  });
-  transcript.accept({
-    item_id: "b",
-    transcript: "Second",
-    type: "conversation.item.input_audio_transcription.completed",
-  });
-  expect(transcript.drain()).toEqual([]);
-  transcript.accept({
-    item_id: "a",
-    transcript: "First",
-    type: "conversation.item.input_audio_transcription.completed",
-  });
-  expect(transcript.drain().map((segment) => segment.text)).toEqual([
-    "First",
-    "Second",
-  ]);
-  transcript.accept({
-    item_id: "a",
-    transcript: "First",
-    type: "conversation.item.input_audio_transcription.completed",
-  });
-  expect(transcript.drain()).toEqual([]);
+test("speaker exports preserve imports and historical unlabelled text", () => {
+  expect(
+    formatTranscript([
+      { speakerName: "Speaker 1", text: "hello" },
+      { speakerName: "Speaker 2", text: "hi" },
+    ])
+  ).toBe("Speaker 1: hello\nSpeaker 2: hi\n");
+  expect(formatTranscript([{ text: "  hello\n\n" }], true)).toBe("  hello\n\n");
+  expect(formatTranscript([{ text: "old" }])).toBe("old\n");
 });
 
-test("propagates transcription failures instead of silently losing a turn", () => {
-  const transcript = new OpenAITranscript();
-  expect(() =>
-    transcript.accept({
-      error: { message: "secret upstream detail" },
-      item_id: "a",
-      type: "conversation.item.input_audio_transcription.failed",
-    })
-  ).toThrow("Transcription failed");
-});
-
-test("websocket sends PCM and flushes a VAD turn racing the final empty commit", async () => {
-  const original = globalThis.WebSocket;
-  const sent: Record<string, unknown>[] = [];
-  const segments: string[] = [];
-  let closed = false;
-  class Socket extends EventTarget {
-    static OPEN = 1;
-    readyState = 1;
-    bufferedAmount = 0;
-    constructor(_url: string, options: Bun.WebSocketOptions) {
-      super();
-      expect(options.headers).toEqual({ Authorization: "Bearer test-key" });
-      queueMicrotask(() => this.dispatchEvent(new Event("open")));
-    }
-    emit(event: unknown) {
-      this.dispatchEvent(
-        new MessageEvent("message", { data: JSON.stringify(event) })
-      );
-    }
-    send(data: string) {
-      const event = JSON.parse(data);
-      sent.push(event);
-      if (event.type === "session.update") {
-        queueMicrotask(() => this.emit({ type: "session.updated" }));
+test("publishes before Stop, captures while request is pending, and reuses voice references", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "meet-diarize-"));
+  const audioDir = join(directory, "audio");
+  const segments: TranscriptSegment[] = [];
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let requests = 0;
+  const request = spyOn(globalThis, "fetch").mockImplementation(
+    async (_url, init) => {
+      const form = init!.body as FormData;
+      expect(form.get("model")).toBe("gpt-4o-transcribe-diarize");
+      expect(form.get("response_format")).toBe("diarized_json");
+      const file = form.get("file") as File;
+      const bytes = Buffer.from(await file.arrayBuffer());
+      expect(bytes.toString("ascii", 0, 4)).toBe("RIFF");
+      const call = requests++;
+      if (call === 0) {
+        expect(bytes.length).toBe(720_044);
+        expect(form.getAll("known_speaker_names[]")).toEqual([]);
+        await pending;
+      } else {
+        expect(form.getAll("known_speaker_names[]")).toEqual(["speaker_1"]);
+        expect(String(form.get("known_speaker_references[]"))).toStartWith(
+          "data:audio/wav;base64,"
+        );
       }
-      if (event.type === "input_audio_buffer.commit") {
-        queueMicrotask(() => {
-          this.emit({ item_id: "last", type: "input_audio_buffer.committed" });
-          this.emit({
-            error: { code: "input_audio_buffer_commit_empty" },
-            type: "error",
-          });
-          this.emit({
-            item_id: "last",
-            transcript: "Final sentence",
-            type: "conversation.item.input_audio_transcription.completed",
-          });
+      return Response.json({
+        segments: [
+          {
+            end: 3,
+            speaker: call === 0 ? "A" : "speaker_1",
+            start: 0,
+            text: `turn ${call}`,
+          },
+        ],
+      });
+    }
+  );
+  const session = await transcriptionProviders.openai!.connect({
+    ...transcriptionConfig({ apiKey: "test" }),
+    directory: audioDir,
+    onError: () => {},
+    onSegment: (segment) => segments.push(segment),
+    signal: new AbortController().signal,
+  });
+  try {
+    session.push(new Uint8Array(720_000));
+    await Bun.sleep(5);
+    session.push(new Uint8Array(144_000));
+    expect(readdirSync(audioDir)).toHaveLength(2);
+    expect(segments).toHaveLength(0);
+    release();
+    for (let i = 0; i < 100 && !segments.length; i++) {
+      await Bun.sleep(1);
+    }
+    expect(segments).toHaveLength(1);
+    expect(segments[0]?.speakerName).toBe("Speaker 1");
+    await session.finish();
+    await session.finish();
+    expect(
+      segments.map((segment) => [
+        segment.id,
+        segment.speakerId,
+        segment.startMs,
+      ])
+    ).toEqual([
+      ["0-0", "speaker_1", 0],
+      ["1-0", "speaker_1", 15_000],
+    ]);
+    expect(requests).toBe(2);
+    expect(() => session.push(new Uint8Array(2))).toThrow();
+  } finally {
+    release();
+    await session.close();
+    await Bun.sleep(0);
+    request.mockRestore();
+    expect(existsSync(audioDir)).toBe(false);
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("reused anonymous labels across chunks do not merge voices and invalid responses fail", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "meet-speakers-"));
+  const segments: TranscriptSegment[] = [];
+  const failures: Error[] = [];
+  let calls = 0;
+  const request = spyOn(globalThis, "fetch").mockImplementation(async () =>
+    Response.json({
+      segments: [
+        { end: ++calls === 3 ? -1 : 1, speaker: "A", start: 0, text: "hello" },
+      ],
+    })
+  );
+  const session = await transcriptionProviders.openai!.connect({
+    ...transcriptionConfig({ apiKey: "test" }),
+    directory: join(directory, "audio"),
+    onError: (error) => failures.push(error),
+    onSegment: (segment) => segments.push(segment),
+    signal: new AbortController().signal,
+  });
+  try {
+    session.push(new Uint8Array(720_000 * 3));
+    await expect(session.finish()).rejects.toThrow();
+    expect(segments.map((segment) => segment.speakerId)).toEqual([
+      "speaker_1",
+      "speaker_2",
+    ]);
+    expect(failures).toHaveLength(1);
+  } finally {
+    await session.close();
+    await Bun.sleep(0);
+    request.mockRestore();
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("permanent provider errors are not retried and queued audio is cleaned", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "meet-error-"));
+  const request = spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response(null, { status: 401 })
+  );
+  const session = await transcriptionProviders.openai!.connect({
+    ...transcriptionConfig({ apiKey: "test" }),
+    directory: join(directory, "audio"),
+    onError: () => {},
+    onSegment: () => {},
+    signal: new AbortController().signal,
+  });
+  try {
+    expect(() => session.push(new Uint8Array(1))).toThrow();
+    expect(() => session.push(new Uint8Array(301 * 48_000))).toThrow();
+    session.push(new Uint8Array(144_000));
+    await expect(session.finish()).rejects.toThrow();
+    expect(request).toHaveBeenCalledTimes(1);
+  } finally {
+    await session.close();
+    await Bun.sleep(0);
+    request.mockRestore();
+    rmSync(directory, { force: true, recursive: true });
+  }
+});
+
+test("reference bank stays at four voices and retries do not duplicate turns", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "meet-refs-"));
+  const segments: TranscriptSegment[] = [];
+  let calls = 0;
+  const request = spyOn(globalThis, "fetch").mockImplementation(
+    async (_url, init) => {
+      calls++;
+      if (calls === 1) {
+        return new Response(null, { status: 503 });
+      }
+      if (calls === 2) {
+        return Response.json({
+          segments: ["A", "B", "C", "D", "E"].map((speaker, i) => ({
+            end: i * 2 + 2,
+            speaker,
+            start: i * 2,
+            text: speaker,
+          })),
         });
       }
+      const form = init!.body as FormData;
+      expect(form.getAll("known_speaker_names[]")).toEqual([
+        "speaker_1",
+        "speaker_2",
+        "speaker_3",
+        "speaker_4",
+      ]);
+      expect(form.getAll("known_speaker_references[]")).toHaveLength(4);
+      return Response.json({
+        segments: [{ end: 2, speaker: "E", start: 0, text: "again" }],
+      });
     }
-    close() {
-      closed = true;
-    }
-  }
-  globalThis.WebSocket = Socket as unknown as typeof WebSocket;
+  );
+  const session = await transcriptionProviders.openai!.connect({
+    ...transcriptionConfig({ apiKey: "test" }),
+    directory: join(directory, "audio"),
+    onError: () => {},
+    onSegment: (segment) => segments.push(segment),
+    signal: new AbortController().signal,
+  });
   try {
-    const session = await transcriptionProviders.openai!.connect({
-      apiKey: "test-key",
-      model: "gpt-transcribe",
-      onError: (error) => {
-        throw error;
-      },
-      onSegment: (segment) => segments.push(segment.text),
-      signal: new AbortController().signal,
-    });
-    session.push(new Uint8Array([1, 2, 3, 4]));
+    session.push(new Uint8Array(720_000 + 96_000));
     await session.finish();
-    session.close();
-    expect(sent[0]).toMatchObject({
-      session: {
-        audio: { input: { transcription: { model: "gpt-transcribe" } } },
-        type: "transcription",
-      },
-    });
-    expect(sent[1]).toEqual({
-      audio: "AQIDBA==",
-      type: "input_audio_buffer.append",
-    });
-    expect(segments).toEqual(["Final sentence"]);
-    expect(closed).toBe(true);
+    expect(calls).toBe(3);
+    expect(segments).toHaveLength(6);
+    expect(segments.at(-1)?.speakerId).toBe("speaker_6");
   } finally {
-    globalThis.WebSocket = original;
+    await session.close();
+    request.mockRestore();
+    rmSync(directory, { force: true, recursive: true });
   }
 });
 
-test("cancelling a connecting provider releases the socket immediately", async () => {
-  const original = globalThis.WebSocket;
-  let closed = false;
-  class Socket extends EventTarget {
-    close() {
-      closed = true;
-    }
-  }
-  globalThis.WebSocket = Socket as unknown as typeof WebSocket;
+test("aborting an upload publishes no late segments and removes audio", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "meet-abort-"));
+  const audioDirectory = join(directory, "audio");
   const abort = new AbortController();
+  const segments: TranscriptSegment[] = [];
+  const request = spyOn(globalThis, "fetch").mockImplementation(
+    async (_url, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init!.signal!.addEventListener(
+          "abort",
+          () => reject(new Error("cancelled")),
+          { once: true }
+        );
+      })
+  );
+  const session = await transcriptionProviders.openai!.connect({
+    ...transcriptionConfig({ apiKey: "test" }),
+    directory: audioDirectory,
+    onError: () => {},
+    onSegment: (segment) => segments.push(segment),
+    signal: abort.signal,
+  });
   try {
-    const pending = transcriptionProviders.openai!.connect({
-      apiKey: "test",
-      model: "gpt-transcribe",
-      onError() {},
-      onSegment() {},
-      signal: abort.signal,
-    });
+    session.push(new Uint8Array(720_000));
+    await Bun.sleep(0);
     abort.abort();
-    await expect(pending).rejects.toThrow("cancelled");
-    expect(closed).toBe(true);
+    await expect(session.finish()).rejects.toThrow();
+    await session.close();
+    expect(segments).toHaveLength(0);
+    expect(existsSync(audioDirectory)).toBe(false);
   } finally {
-    globalThis.WebSocket = original;
+    await session.close();
+    request.mockRestore();
+    rmSync(directory, { force: true, recursive: true });
   }
 });

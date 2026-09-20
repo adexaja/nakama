@@ -1,6 +1,6 @@
 # Google Meet transcription
 
-The plugin creates a short-lived capture session. The Nakama Chrome extension captures the active Meet tab and microphone, sends 24 kHz mono PCM16 audio to the org worker, and OpenAI `gpt-transcribe` writes live transcript segments. Raw audio is not retained.
+The plugin creates a short-lived capture session. The Nakama Chrome extension captures the active Meet tab and microphone, sends 24 kHz mono PCM16 audio to the org worker, and OpenAI `gpt-4o-transcribe-diarize` produces speaker-labelled turns while recording continues. The worker uploads 15-second audio chunks; results appear after chunking and provider processing, rather than word by word. Stop flushes the final chunk and finishes any queued transcription.
 
 ## Setup
 
@@ -9,6 +9,14 @@ The plugin creates a short-lived capture session. The Nakama Chrome extension ca
 3. Install the unpacked extension from the `extension/` directory in Chrome at `chrome://extensions`, enable Developer mode, and choose **Load unpacked**.
 4. Refresh the Nakama Google Meet page after installing or reloading the extension. Open the extension on that page and choose **Connect this Nakama tab**. It uses your signed-in Nakama session; no credentials or capture URLs need to be pasted.
 5. Join a Google Meet call, open the extension in that tab, and choose **Start transcription**. Keep the connected Nakama page open. If microphone setup opens, allow access and retry from the Meet tab.
+
+The extension popup shows the latest 200 turns, labelled **Speaker 1**, **Speaker 2**, and so on. Closing the popup does not stop recording; reopening reloads the transcript. Choose **Open full transcript** to view the complete meeting in Nakama. Copy, download and agent transcript results retain speaker labels and timestamps are available in the transcript action.
+
+These are voice labels, not verified Meet participant names. Up to four voice references help keep labels consistent across chunks; short speech, overlap and additional speakers can cause separate labels for the same person. No Meet captions are used.
+
+The worker temporarily stores private PCM audio files in the plugin data directory. It deletes each processed chunk, keeps short voice references in memory until processing ends, and removes remaining audio on failure or restart. If processing falls five minutes behind, recording ends with a partial-failure status rather than dropping audio silently. Existing transcripts and file imports remain readable.
+
+Update the plugin/worker and reload the unpacked extension together, then refresh and reconnect the Nakama page.
 
 Tell participants before transcribing. Leave the meeting from Nakama or stop capture from the extension. Restarts fail interrupted meetings instead of silently rejoining; partial transcripts remain available.
 
@@ -33,11 +41,11 @@ Preserve WebSocket upgrades and do not log query strings: the capture URL contai
 
 ```text
 Chrome Meet tab + microphone → extension offscreen audio mixer
-  → org worker WebSocket → OpenAI transcription WebSocket
-  → org SQLite segments → Nakama UI and agent tools
+  → org worker WebSocket → bounded WAV uploads to OpenAI diarization
+  → org SQLite segments → Nakama UI, extension popup and agent tools
 ```
 
-The extension owns browser access; the Nakama worker owns authorization, audio forwarding, OpenAI, and persistence. The architecture follows [meet-transcriber](https://github.com/hugoblanc/meet-transcriber), adapted to use the existing Nakama OpenAI transcription provider and meeting store.
+The extension owns browser access; the Nakama worker owns authorization, audio forwarding, OpenAI, and persistence. The architecture follows [meet-transcriber](https://github.com/hugoblanc/meet-transcriber), adapted to process chunks during capture and keep credentials on the Nakama worker.
 
 ## Development
 
