@@ -297,6 +297,100 @@ function apply(ctx) {
       role: "status"
     }, loaded ? ["queued", "joining", "recording", "transcribing"].includes(meeting.state) ? "Waiting for speech…" : "No speech was captured." : "Loading transcript…")));
   }
+  function MeetingRow({
+    meeting,
+    busy,
+    onStop,
+    onDelete,
+    onOpen
+  }) {
+    return /* @__PURE__ */ React.createElement("li", null, /* @__PURE__ */ React.createElement("div", {
+      className: "meet-meeting"
+    }, /* @__PURE__ */ React.createElement("div", {
+      className: "meet-meta"
+    }, /* @__PURE__ */ React.createElement("h3", null, meeting.title || meeting.sourceName || "Untitled meeting"), /* @__PURE__ */ React.createElement("span", {
+      className: "meet-status"
+    }, new Date(meeting.createdAt).toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+      year: "numeric"
+    }), " · ", new Date(meeting.createdAt).toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit"
+    }))), /* @__PURE__ */ React.createElement("div", {
+      className: "meet-row"
+    }, meetingStatus(meeting) !== "Transcript ready" && /* @__PURE__ */ React.createElement("span", {
+      className: "meet-badge"
+    }, meetingStatus(meeting)), ["queued", "joining", "recording", "transcribing"].includes(meeting.state) && /* @__PURE__ */ React.createElement(Button, {
+      className: "meet-action",
+      disabled: busy || !!meeting.stopRequested || meeting.state === "transcribing",
+      onClick: () => onStop(meeting.id),
+      size: "sm",
+      variant: "outline"
+    }, "Stop transcription"), ["finished", "failed"].includes(meeting.state) && /* @__PURE__ */ React.createElement(Button, {
+      "aria-label": "Delete meeting",
+      className: "meet-action meet-delete",
+      disabled: busy,
+      onClick: () => {
+        onDelete(meeting);
+      },
+      size: "icon",
+      title: "Delete meeting",
+      variant: "ghost"
+    }, /* @__PURE__ */ React.createElement("svg", {
+      "aria-hidden": "true",
+      fill: "none",
+      height: "16",
+      stroke: "currentColor",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      strokeWidth: "1.5",
+      viewBox: "0 0 24 24",
+      width: "16"
+    }, Delete02Icon.map(([tag, attrs]) => React.createElement(tag, attrs)))), /* @__PURE__ */ React.createElement(Button, {
+      "aria-label": meeting.transcriptFile ? "Read transcript" : "View details",
+      className: "meet-open",
+      onClick: () => onOpen(meeting),
+      size: "icon",
+      title: meeting.transcriptFile ? "Read transcript" : "View details",
+      variant: "ghost"
+    }, /* @__PURE__ */ React.createElement("svg", {
+      "aria-hidden": "true",
+      fill: "none",
+      height: "16",
+      stroke: "currentColor",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      strokeWidth: "1.75",
+      style: { color: "var(--muted-foreground)" },
+      viewBox: "0 0 24 24",
+      width: "16"
+    }, ArrowRight01Icon.map(([tag, attrs]) => React.createElement(tag, {
+      ...attrs,
+      strokeWidth: 1.75
+    })))))), meeting.error && /* @__PURE__ */ React.createElement("p", {
+      role: "alert"
+    }, meeting.error));
+  }
+  function ConnectionStatus({
+    overview,
+    connected
+  }) {
+    let connectionMessage = "Connected. Start transcription from the extension in your Google Meet tab. Keep this page open.";
+    if (!overview) {
+      connectionMessage = "Checking connection…";
+    } else if (!overview.configured) {
+      connectionMessage = "Set a transcription API key in Settings.";
+    } else if (overview.worker.state !== "ready") {
+      connectionMessage = "Start Google Meet in Workers.";
+    } else if (!connected) {
+      connectionMessage = "Open the Chrome extension on this page and choose Connect this Nakama tab.";
+    }
+    return /* @__PURE__ */ React.createElement("span", {
+      className: "meet-status",
+      role: "status"
+    }, connectionMessage);
+  }
   function Page() {
     const [overview, setOverview] = React.useState(null);
     const [error, setError] = React.useState("");
@@ -410,13 +504,14 @@ function apply(ctx) {
         setBusy(false);
       }
     }
+    const meetings = overview?.meetings ?? [];
     const groups = [
       {
-        meetings: overview?.meetings.filter((meeting) => ["queued", "joining", "recording", "transcribing"].includes(meeting.state)) ?? [],
+        meetings: meetings.filter((meeting) => ["queued", "joining", "recording", "transcribing"].includes(meeting.state)),
         title: "In progress"
       },
       {
-        meetings: overview?.meetings.filter((meeting) => ["finished", "failed"].includes(meeting.state)) ?? [],
+        meetings: meetings.filter((meeting) => ["finished", "failed"].includes(meeting.state)),
         title: "Meeting history"
       }
     ];
@@ -426,7 +521,7 @@ function apply(ctx) {
       }, /* @__PURE__ */ React.createElement(Transcript, {
         close: () => setSelected(null),
         key: selected.id,
-        meeting: overview?.meetings.find((meeting) => meeting.id === selected.id) ?? selected
+        meeting: meetings.find((meeting) => meeting.id === selected.id) ?? selected
       }));
     }
     return /* @__PURE__ */ React.createElement("section", {
@@ -444,10 +539,10 @@ function apply(ctx) {
     }, "Settings")), /* @__PURE__ */ React.createElement("div", {
       className: "meet-card-heading",
       style: { borderBottom: 0, borderTop: "1px solid var(--border)" }
-    }, /* @__PURE__ */ React.createElement("span", {
-      className: "meet-status",
-      role: "status"
-    }, overview ? overview.configured ? overview.worker.state === "ready" ? extensionConnected ? "Connected. Start transcription from the extension in your Google Meet tab. Keep this page open." : "Open the Chrome extension on this page and choose Connect this Nakama tab." : "Start Google Meet in Workers." : "Set a transcription API key in Settings." : "Checking connection…"))), overview ? groups.filter((group) => group.title !== "In progress" || group.meetings.length).map((group) => /* @__PURE__ */ React.createElement("section", {
+    }, /* @__PURE__ */ React.createElement(ConnectionStatus, {
+      connected: extensionConnected,
+      overview
+    }))), overview ? groups.filter((group) => group.title !== "In progress" || group.meetings.length).map((group) => /* @__PURE__ */ React.createElement("section", {
       key: group.title
     }, /* @__PURE__ */ React.createElement(Card, {
       className: "meet-card"
@@ -478,79 +573,14 @@ function apply(ctx) {
       variant: "outline"
     }, uploading ? "Importing…" : "Upload file")))), group.meetings.length ? /* @__PURE__ */ React.createElement("ul", {
       className: "meet-list"
-    }, group.meetings.map((meeting) => /* @__PURE__ */ React.createElement("li", {
-      key: meeting.id
-    }, /* @__PURE__ */ React.createElement("div", {
-      className: "meet-meeting"
-    }, /* @__PURE__ */ React.createElement("div", {
-      className: "meet-meta"
-    }, /* @__PURE__ */ React.createElement("h3", null, meeting.title || meeting.sourceName || "Untitled meeting"), /* @__PURE__ */ React.createElement("span", {
-      className: "meet-status"
-    }, new Date(meeting.createdAt).toLocaleDateString(undefined, {
-      day: "numeric",
-      month: "short",
-      year: "numeric"
-    }), " · ", new Date(meeting.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }))), /* @__PURE__ */ React.createElement("div", {
-      className: "meet-row"
-    }, meetingStatus(meeting) !== "Transcript ready" && /* @__PURE__ */ React.createElement("span", {
-      className: "meet-badge"
-    }, meetingStatus(meeting)), [
-      "queued",
-      "joining",
-      "recording",
-      "transcribing"
-    ].includes(meeting.state) && /* @__PURE__ */ React.createElement(Button, {
-      className: "meet-action",
-      disabled: busy || !!meeting.stopRequested || meeting.state === "transcribing",
-      onClick: () => void action("leave", {
-        meetingId: meeting.id
-      }),
-      size: "sm",
-      variant: "outline"
-    }, "Stop transcription"), ["finished", "failed"].includes(meeting.state) && /* @__PURE__ */ React.createElement(Button, {
-      "aria-label": "Delete meeting",
-      className: "meet-action meet-delete",
-      disabled: busy,
-      onClick: () => {
-        setDeleting(meeting);
-      },
-      size: "icon",
-      title: "Delete meeting",
-      variant: "ghost"
-    }, /* @__PURE__ */ React.createElement("svg", {
-      "aria-hidden": "true",
-      fill: "none",
-      height: "16",
-      stroke: "currentColor",
-      strokeLinecap: "round",
-      strokeLinejoin: "round",
-      strokeWidth: "1.5",
-      viewBox: "0 0 24 24",
-      width: "16"
-    }, Delete02Icon.map(([tag, attrs]) => React.createElement(tag, attrs)))), /* @__PURE__ */ React.createElement(Button, {
-      "aria-label": meeting.transcriptFile ? "Read transcript" : "View details",
-      className: "meet-open",
-      onClick: () => setSelected(meeting),
-      size: "icon",
-      title: meeting.transcriptFile ? "Read transcript" : "View details",
-      variant: "ghost"
-    }, /* @__PURE__ */ React.createElement("svg", {
-      "aria-hidden": "true",
-      fill: "none",
-      height: "16",
-      stroke: "currentColor",
-      strokeLinecap: "round",
-      strokeLinejoin: "round",
-      strokeWidth: "1.75",
-      style: { color: "var(--muted-foreground)" },
-      viewBox: "0 0 24 24",
-      width: "16"
-    }, ArrowRight01Icon.map(([tag, attrs]) => React.createElement(tag, {
-      ...attrs,
-      strokeWidth: 1.75
-    })))))), meeting.error && /* @__PURE__ */ React.createElement("p", {
-      role: "alert"
-    }, meeting.error)))) : /* @__PURE__ */ React.createElement("p", {
+    }, group.meetings.map((meeting) => /* @__PURE__ */ React.createElement(MeetingRow, {
+      busy,
+      key: meeting.id,
+      meeting,
+      onDelete: setDeleting,
+      onOpen: setSelected,
+      onStop: (meetingId) => void action("leave", { meetingId })
+    }))) : /* @__PURE__ */ React.createElement("p", {
       className: "meet-empty"
     }, "No meetings yet.")))) : /* @__PURE__ */ React.createElement("p", null, "Loading…"), deleting && /* @__PURE__ */ React.createElement(ConfirmDialog, {
       confirmLabel: "Delete meeting",
