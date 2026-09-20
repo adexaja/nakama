@@ -182,24 +182,24 @@ function StartTelegramPairing({
   pending: boolean;
 }) {
   return (
-    <div className="px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="font-medium text-sm">Create with QR</p>
-          <p className="text-muted-foreground text-xs">
-            The manager can access your bot token. By default, this is
-            getnakama.cloud. Use manual setup to avoid manager access.
-          </p>
-        </div>
-        <Button disabled={pending} onClick={onStart} size="sm" type="button">
-          {pending ? (
-            <Spinner className="size-3" />
-          ) : (
-            <QrCodeScanIcon className="size-3.5" />
-          )}
-          Create with QR
-        </Button>
+    <div className="space-y-4 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="font-medium text-sm">Create with QR</p>
+        <span className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary text-xs">
+          Recommended
+        </span>
       </div>
+      <p className="text-muted-foreground text-sm">
+        Scan a QR code to create your bot in Telegram. No token to copy.
+      </p>
+      <Button disabled={pending} onClick={onStart} size="sm" type="button">
+        {pending ? (
+          <Spinner className="size-3" />
+        ) : (
+          <QrCodeScanIcon className="size-3.5" />
+        )}
+        Create with QR
+      </Button>
       {error ? <p className="mt-2 text-destructive text-xs">{error}</p> : null}
     </div>
   );

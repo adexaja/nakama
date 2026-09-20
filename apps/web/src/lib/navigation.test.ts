@@ -34,7 +34,6 @@ describe("visibleNavGroups", () => {
       "chat",
       "customize",
       "files",
-      "integrations",
       "mcp",
       "organization",
       "plugin-management",
@@ -55,16 +54,16 @@ describe("visibleNavGroups", () => {
     expect(ids).not.toContain("providers");
     expect(ids).toContain("organization");
     expect(ids).toContain("profiles");
-    expect(ids).toContain("integrations");
+    expect(ids).not.toContain("integrations");
     expect(ids).toContain("workers");
     expect(ids).toContain("files");
     expect(ids).toContain("plugin-management");
     expect(ids).toContain("usage");
   });
 
-  test("a member loses System and Organization, a viewer also loses Integrations", () => {
+  test("members and viewers cannot access system and organization destinations", () => {
     const member = pageIdsFor(false, "member");
-    expect(member).toContain("integrations");
+    expect(member).not.toContain("integrations");
     expect(member).not.toContain("tools");
     expect(member).not.toContain("mcp");
     expect(member).not.toContain("organization");

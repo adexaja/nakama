@@ -59,11 +59,20 @@ describe("TelegramManagedBotPairingService", () => {
     });
 
     let saved: Record<string, string> | undefined;
+    await expect(
+      service.apply(
+        started.pairingId,
+        "org-a",
+        "user-a",
+        "another-agent",
+        async () => {}
+      )
+    ).rejects.toThrow();
     const applied = await service.apply(
       started.pairingId,
       "org-a",
       "user-a",
-      "profile-b",
+      "profile-a",
       async (input) => {
         saved = input;
       }
@@ -72,7 +81,7 @@ describe("TelegramManagedBotPairingService", () => {
     expect(saved).toEqual({
       allowedUserIds: "77",
       botToken: "42:secret",
-      profileId: "profile-b",
+      profileId: "profile-a",
     });
   });
 
@@ -218,7 +227,7 @@ describe("TelegramManagedBotPairingService deadline and save failure", () => {
     await service.status(started.pairingId, "org-a", "user-a");
 
     await expect(
-      service.apply(started.pairingId, "org-a", "user-a", "profile-b", () =>
+      service.apply(started.pairingId, "org-a", "user-a", "profile-a", () =>
         Promise.reject(new Error("telegram worker failed to start"))
       )
     ).rejects.toThrow("telegram worker failed to start");

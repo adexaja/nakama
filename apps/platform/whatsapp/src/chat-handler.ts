@@ -615,6 +615,13 @@ export function createChatHandler(deps: ChatHandlerDeps) {
   }
 
   async function resolveProfileId(): Promise<string> {
+    if (config.owner) {
+      const { profiles } = await client.listProfiles(config.owner.orgId);
+      if (!profiles.some((profile) => profile.id === config.owner!.profileId)) {
+        throw new Error("The connection owner is unavailable.");
+      }
+      return config.owner.profileId;
+    }
     const fileConfig = authStore.getConfig();
     const preferredProfileId =
       fileConfig?.profileId?.trim() || config.profileId;
@@ -627,6 +634,20 @@ export function createChatHandler(deps: ChatHandlerDeps) {
     const existing = sessionStore.get(jid);
 
     if (existing && existing.profileId === profileId) {
+      if (config.owner) {
+        const { sessions } = await client.listSessions(profileId, "whatsapp");
+        if (
+          !sessions.some(
+            (session) =>
+              session.id === existing.sessionId &&
+              session.profileId === profileId
+          )
+        ) {
+          sessionStore.delete(jid);
+          await sessionStore.save();
+          return createAndBindSession(jid, profileId);
+        }
+      }
       const hot = sessionStore.getHotSession<RemoteChatSession>(jid);
       if (hot) {
         return hot;
@@ -650,7 +671,9 @@ export function createChatHandler(deps: ChatHandlerDeps) {
     jid: string,
     profileId?: string
   ): Promise<RemoteChatSession> {
-    const resolvedProfileId = profileId ?? (await resolveProfileId());
+    const resolvedProfileId = config.owner
+      ? await resolveProfileId()
+      : (profileId ?? (await resolveProfileId()));
     const session = await client.createSession("whatsapp", {
       profileId: resolvedProfileId,
     });

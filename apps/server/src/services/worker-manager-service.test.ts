@@ -3,12 +3,7 @@ import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readWorkerDesiredState, setWorkerDesiredRunning } from "@nakama/core";
-import {
-  getWhatsAppConfigDir,
-  loadWhatsAppConfigFile,
-  saveWhatsAppConfig,
-  syncWhatsAppOwnerPairing,
-} from "@nakama/core/whatsapp-config";
+import { saveWhatsAppConfig } from "@nakama/core/whatsapp-config";
 import { WorkerManagerService } from "./worker-manager-service";
 
 function createMockPm2() {
@@ -50,78 +45,29 @@ afterEach(async () => {
 });
 
 describe("WorkerManagerService", () => {
-  test("migrates a stopped legacy account once with its auth and running preference", async () => {
-    await saveWhatsAppConfig({ profileId: "well-test" });
-    await syncWhatsAppOwnerPairing({ ownerJid: "628111111111@s.whatsapp.net" });
-    await mkdir(join(getWhatsAppConfigDir(), "auth"), { recursive: true });
-    await writeFile(join(getWhatsAppConfigDir(), "auth", "creds.json"), "{}");
-    await setWorkerDesiredRunning("whatsapp", true);
+  test("isolates agent processes, desired state, and recovery", async () => {
+    const first = { orgId: "org_a", profileId: "agent_a" };
+    const second = { orgId: "org_a", profileId: "agent_b" };
+    await saveWhatsAppConfig({}, first);
+    await saveWhatsAppConfig({}, second);
+    await setWorkerDesiredRunning("automation", false);
     const pm2 = createMockPm2();
     const service = new WorkerManagerService(projectRoot, pm2);
-    const organizations = [
-      { createdAt: "2026-02-01T00:00:00.000Z", id: "org_b" },
-      { createdAt: "2026-01-01T00:00:00.000Z", id: "org_a" },
-    ];
-    await service.migrateLegacyWhatsApp(organizations);
-    expect(await loadWhatsAppConfigFile("org_b")).toBeNull();
-    expect(await loadWhatsAppConfigFile()).toBeNull();
-    expect((await loadWhatsAppConfigFile("org_a"))?.pairedJid).toBe(
-      "628111111111@s.whatsapp.net"
-    );
-    expect(
-      await Bun.file(
-        join(getWhatsAppConfigDir("org_a"), "auth", "creds.json")
-      ).text()
-    ).toBe("{}");
-    expect((await readWorkerDesiredState()).whatsapp).toBe(false);
-    expect((await readWorkerDesiredState("org_a")).whatsapp).toBe(true);
-    await service.migrateLegacyWhatsApp(organizations);
-    expect((await loadWhatsAppConfigFile("org_a"))?.profileId).toBe(
-      "well-test"
-    );
-    await service.recoverDesiredWorkers();
+    await service.startWorker("whatsapp", first);
+    await service.startWorker("whatsapp", second);
     const calls = (pm2.start as ReturnType<typeof mock>).mock.calls;
+    expect(calls[0][0].name).not.toBe(calls[1][0].name);
+    expect(calls[0][0].env.NAKAMA_CHANNEL_PROFILE_ID).toBe(first.profileId);
+    await service.stopWorker("whatsapp", first);
+    expect((await readWorkerDesiredState(first)).whatsapp).toBe(false);
+    expect((await readWorkerDesiredState(second)).whatsapp).toBe(true);
+    (pm2.start as ReturnType<typeof mock>).mockClear();
+    await service.recoverDesiredWorkers();
+    expect(pm2.start).toHaveBeenCalledTimes(1);
     expect(
-      calls.some(([opts]) => opts.env.NAKAMA_WHATSAPP_ORG_ID === "org_a")
-    ).toBe(true);
-  });
-
-  test.each([
-    [{ createdAt: "2026-01-01T00:00:00.000Z", id: "org_z" }],
-    [
-      { createdAt: "2026-02-01T00:00:00.000Z", id: "org_a" },
-      { createdAt: "2026-01-01T00:00:00.000Z", id: "org_z" },
-    ],
-  ])(
-    "selects by creation time, including single-org installs: %j",
-    async (...organizations) => {
-      await saveWhatsAppConfig({ profileId: "legacy" });
-      const service = new WorkerManagerService(projectRoot, createMockPm2());
-      await service.migrateLegacyWhatsApp(organizations);
-      expect((await loadWhatsAppConfigFile("org_z"))?.profileId).toBe("legacy");
-      expect(await loadWhatsAppConfigFile("org_a")).toBeNull();
-      expect(await loadWhatsAppConfigFile()).toBeNull();
-    }
-  );
-
-  test("leaves the legacy account untouched without organizations", async () => {
-    await saveWhatsAppConfig({ profileId: "legacy" });
-    const service = new WorkerManagerService(projectRoot, createMockPm2());
-    await service.migrateLegacyWhatsApp([]);
-    expect((await loadWhatsAppConfigFile())?.profileId).toBe("legacy");
-  });
-
-  test("does not overwrite the oldest org or assign legacy to a newer org", async () => {
-    await saveWhatsAppConfig({ profileId: "legacy" });
-    await saveWhatsAppConfig({ profileId: "existing" }, "org_a");
-    const service = new WorkerManagerService(projectRoot, createMockPm2());
-    await service.migrateLegacyWhatsApp([
-      { createdAt: "2026-02-01T00:00:00.000Z", id: "org_b" },
-      { createdAt: "2026-01-01T00:00:00.000Z", id: "org_a" },
-    ]);
-    expect((await loadWhatsAppConfigFile())?.profileId).toBe("legacy");
-    expect((await loadWhatsAppConfigFile("org_a"))?.profileId).toBe("existing");
-    expect(await loadWhatsAppConfigFile("org_b")).toBeNull();
+      (pm2.start as ReturnType<typeof mock>).mock.calls[0][0].env
+        .NAKAMA_CHANNEL_PROFILE_ID
+    ).toBe(second.profileId);
   });
 
   describe("isValidWorker", () => {
@@ -607,7 +553,7 @@ describe("WorkerManagerService", () => {
   });
 
   describe("recoverDesiredWorkers", () => {
-    test("starts workers marked as desired when they are not online", async () => {
+    test("does not recover unowned legacy channel workers", async () => {
       const mockPm2 = createMockPm2();
       mockPm2.list = mock((cb: (err: Error | null, list: unknown[]) => void) =>
         cb(null, [])
@@ -618,7 +564,7 @@ describe("WorkerManagerService", () => {
       await setWorkerDesiredRunning("telegram", true);
       await service.recoverDesiredWorkers();
 
-      expect(mockPm2.start).toHaveBeenCalledTimes(1);
+      expect(mockPm2.start).not.toHaveBeenCalled();
     });
 
     test("recovers automation worker when desired", async () => {
@@ -763,4 +709,105 @@ test("Supermemory receives only the requested OpenAI configuration on each start
   expect(
     await Bun.file(join(dataDir, "workers/server/auto-provider.json")).json()
   ).toEqual({ apiKey: "test-key", model: "test-model", type: "openai" });
+});
+
+test("migration preserves an unambiguous connection and leaves ambiguous credentials stopped", async () => {
+  const { createInMemoryDatabaseAdapter } = await import("@nakama/db");
+  const { saveTelegramConfig, loadTelegramConfigFile } = await import(
+    "@nakama/core/telegram-config"
+  );
+  const db = createInMemoryDatabaseAdapter();
+  const now = new Date().toISOString();
+  for (const id of ["org_a", "org_b"]) {
+    await db.upsertOrganization({
+      createdAt: now,
+      id,
+      name: id,
+      slug: id,
+      updatedAt: now,
+    });
+    await db.upsertProfile({
+      createdAt: now,
+      id: `agent_${id}`,
+      isDefault: true,
+      isSuper: false,
+      model: "test",
+      name: id,
+      orgId: id,
+      systemPrompt: "",
+      updatedAt: now,
+    });
+  }
+  await saveTelegramConfig(null, {
+    botToken: "111:legacy",
+    profileId: "default",
+  });
+  await saveWhatsAppConfig({ profileId: "agent_org_a" }, "org_a");
+  await setWorkerDesiredRunning("whatsapp", true, "org_a");
+  const pm2 = createMockPm2();
+  const service = new WorkerManagerService(projectRoot, pm2);
+  await service.migrateAgentChannels(db);
+  expect(await service.legacyChannels("org_a", true)).toEqual([
+    { global: true, platform: "telegram" },
+  ]);
+  const owner = { orgId: "org_a", profileId: "agent_org_a" };
+  expect((await readWorkerDesiredState(owner)).whatsapp).toBe(true);
+  expect(pm2.start).not.toHaveBeenCalled();
+  await service.claimLegacyChannel("telegram", null, owner, db);
+  expect((await loadTelegramConfigFile(owner))?.botToken).toBe("111:legacy");
+  expect(await loadTelegramConfigFile(null)).toBeNull();
+  await service.migrateAgentChannels(db);
+  expect(await service.legacyChannels("org_a", true)).toEqual([]);
+  await service.disconnectChannel("telegram", owner);
+  expect(await loadTelegramConfigFile(owner)).toBeNull();
+  await saveTelegramConfig(
+    { orgId: "org_b", profileId: "agent_org_b" },
+    { botToken: "111:rotated" }
+  );
+});
+
+test("failed stop preserves credentials and blocks owner recovery", async () => {
+  const owner = { orgId: "org_a", profileId: "agent_a" };
+  await saveWhatsAppConfig({}, owner);
+  const pm2 = createMockPm2();
+  const service = new WorkerManagerService(projectRoot, pm2);
+  (pm2.describe as ReturnType<typeof mock>).mockImplementation((_name, cb) =>
+    cb(null, [{}])
+  );
+  (pm2.delete as ReturnType<typeof mock>).mockImplementation((_name, cb) =>
+    cb(new Error("stop failed"))
+  );
+  await expect(service.disableProfileChannels(owner, true)).rejects.toThrow();
+  const { loadWhatsAppConfigFile } = await import(
+    "@nakama/core/whatsapp-config"
+  );
+  expect(await loadWhatsAppConfigFile(owner)).not.toBeNull();
+  await expect(service.startWorker("whatsapp", owner)).rejects.toThrow();
+  expect((await readWorkerDesiredState(owner)).whatsapp).toBe(false);
+  expect(pm2.start).not.toHaveBeenCalled();
+});
+
+test("stopped agent logs remain available and clearing keeps sibling logs", async () => {
+  const { getChannelConfigDir } = await import(
+    "@nakama/core/channel-config-shared"
+  );
+  const a = { orgId: "org_a", profileId: "agent_a" };
+  const b = { orgId: "org_a", profileId: "agent_b" };
+  for (const owner of [a, b]) {
+    await saveWhatsAppConfig({}, owner);
+    await writeFile(
+      join(getChannelConfigDir("whatsapp", owner), "stdout.log"),
+      owner.profileId + "\n"
+    );
+  }
+  const service = new WorkerManagerService(projectRoot, createMockPm2());
+  await service.stopWorker("whatsapp", a);
+  expect((await service.getWorkerLogs("whatsapp", 20, a)).stdout).toBe(
+    "agent_a"
+  );
+  await service.clearWorkerLogs("whatsapp", a);
+  expect((await service.getWorkerLogs("whatsapp", 20, a)).stdout).toBe("");
+  expect((await service.getWorkerLogs("whatsapp", 20, b)).stdout).toBe(
+    "agent_b"
+  );
 });

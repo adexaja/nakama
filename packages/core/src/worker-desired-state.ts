@@ -1,4 +1,9 @@
 import { join } from "node:path";
+import {
+  type ChannelConfigScope,
+  getChannelConfigDir,
+  isChannelOwner,
+} from "./channel-config-shared";
 import { readTextOrNull, writeTextFile } from "./fs";
 import { getOrgConfigDir, getUserConfigDir } from "./user-config";
 
@@ -53,8 +58,20 @@ export function parseWorkerDesiredState(raw: string): WorkerDesiredState {
 }
 
 export async function readWorkerDesiredState(
-  orgId: string | null = null
+  orgId: ChannelConfigScope = null
 ): Promise<WorkerDesiredState> {
+  if (isChannelOwner(orgId)) {
+    const state = { ...DEFAULT_STATE, automation: false };
+    for (const platform of ["telegram", "discord", "whatsapp"] as const) {
+      state[platform] =
+        (
+          await readTextOrNull(
+            join(getChannelConfigDir(platform, orgId), "desired.json")
+          )
+        )?.trim() === "true";
+    }
+    return state;
+  }
   const raw = await readTextOrNull(getWorkerDesiredStatePath(orgId));
 
   if (raw === null) {
@@ -67,19 +84,23 @@ export async function readWorkerDesiredState(
 export async function setWorkerDesiredRunning(
   name: PlatformWorkerName,
   running: boolean,
-  orgId: string | null = null
+  orgId: ChannelConfigScope = null
 ): Promise<void> {
+  if (isChannelOwner(orgId)) {
+    if (name === "automation") {
+      throw new Error("Automation has no channel owner");
+    }
+    await writeTextFile(
+      join(getChannelConfigDir(name, orgId), "desired.json"),
+      JSON.stringify(running)
+    );
+    return;
+  }
   const state = await readWorkerDesiredState(orgId);
   state[name] = running;
 
   await writeTextFile(
     getWorkerDesiredStatePath(orgId),
-    `${JSON.stringify(state)}\n`,
-    {
-      ensureDir: join(
-        orgId ? getOrgConfigDir(orgId) : getUserConfigDir(),
-        "runtime"
-      ),
-    }
+    `${JSON.stringify(state)}\n`
   );
 }

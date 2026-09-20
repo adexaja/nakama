@@ -1,4 +1,5 @@
 import { Button } from "@nakama/ui/button";
+import { ConfirmDialog } from "@nakama/ui/dialog";
 import { Spinner } from "@nakama/ui/spinner";
 import { cn } from "@nakama/ui/utils";
 import {
@@ -8,6 +9,7 @@ import {
   RefreshIcon,
 } from "hugeicons-react";
 import { QRCodeSVG } from "qrcode.react";
+import { useState } from "react";
 import { SettingsRow } from "@/components/integration-settings.shared";
 
 function pairingCodeDescription(
@@ -197,7 +199,7 @@ function WhatsAppLinkStatus({
         )}
       >
         <Spinner className="size-4" />
-        Bridge starting — enter the pairing code in WhatsApp
+        Connecting — enter the code in WhatsApp
       </div>
     );
   }
@@ -239,8 +241,8 @@ function WhatsAppReconnectRow({
       className={rowClassName}
       description={
         paired
-          ? "Unlinks the current session so you can scan a new QR code"
-          : "Clears a stuck session so you can link again with a QR code"
+          ? "Disconnects this account until you scan the new QR code"
+          : "Try linking your account again with a QR code"
       }
       label="Reconnect"
     >
@@ -259,7 +261,7 @@ function WhatsAppReconnectRow({
         ) : (
           <>
             <QrCodeScanIcon aria-hidden="true" className="size-3.5" />
-            Reconnect with QR
+            Scan a new QR code
           </>
         )}
       </Button>
@@ -304,44 +306,24 @@ export function WhatsAppSettingsLinkingSection({
   rowClassName?: string;
   compact?: boolean;
 }) {
+  const [relinkMethod, setRelinkMethod] = useState<"code" | "qr" | null>(null);
   return (
-    <div className={cn("space-y-4", !paired && "bg-muted/20")}>
-      <SettingsRow
-        className={rowClassName}
-        description={pairingCodeDescription(pairingCode, paired)}
-        label="Pairing code"
-      >
-        <WhatsAppPairingCodeControls
-          copied={copied}
-          onCopyPairingCode={onCopyPairingCode}
-          onRegeneratePairingCode={onRegeneratePairingCode}
-          paired={paired}
-          pairingCode={pairingCode}
-          regeneratePending={regeneratePending}
-          savePending={savePending}
+    <div className="divide-y divide-border border-border border-t">
+      {relinkMethod ? (
+        <ConfirmDialog
+          confirmLabel="Relink WhatsApp"
+          description="This will disconnect the current account. Your agent cannot receive WhatsApp messages until you link it again."
+          onClose={() => setRelinkMethod(null)}
+          onConfirm={async () => {
+            if (relinkMethod === "code") {
+              onRegeneratePairingCode();
+            } else {
+              onReconnect();
+            }
+          }}
+          title="Relink WhatsApp?"
         />
-      </SettingsRow>
-
-      {pairingCode ? (
-        <ol
-          aria-label="Steps to connect WhatsApp with a pairing code"
-          className={cn(
-            "list-decimal space-y-1 pl-5 text-muted-foreground text-xs",
-            !compact && "px-4 py-3 pl-8"
-          )}
-        >
-          <li>
-            <strong>Open WhatsApp</strong> on your phone
-          </li>
-          <li>
-            Open <strong>Settings</strong>, then <strong>Linked Devices</strong>
-          </li>
-          <li>
-            Choose <strong>Link with phone number</strong> and enter this code
-          </li>
-        </ol>
       ) : null}
-
       <WhatsAppLinkStatus
         awaitingQr={awaitingQr}
         bridgeStarting={bridgeStarting}
@@ -351,10 +333,56 @@ export function WhatsAppSettingsLinkingSection({
         rowClassName={rowClassName}
         showQr={showQr}
       />
+      <details
+        className="px-4 py-3 text-sm"
+        open={paired || Boolean(pairingCode)}
+      >
+        <summary className="cursor-pointer text-muted-foreground">
+          Link with a code instead
+        </summary>
+        <SettingsRow
+          className={rowClassName}
+          description={pairingCodeDescription(pairingCode, paired)}
+          label="Link with a code"
+        >
+          <WhatsAppPairingCodeControls
+            copied={copied}
+            onCopyPairingCode={onCopyPairingCode}
+            onRegeneratePairingCode={() =>
+              paired ? setRelinkMethod("code") : onRegeneratePairingCode()
+            }
+            paired={paired}
+            pairingCode={pairingCode}
+            regeneratePending={regeneratePending}
+            savePending={savePending}
+          />
+        </SettingsRow>
+
+        {pairingCode ? (
+          <ol
+            aria-label="Steps to connect WhatsApp with a pairing code"
+            className={cn(
+              "list-decimal space-y-1 pl-5 text-muted-foreground text-xs",
+              !compact && "px-4 py-3 pl-8"
+            )}
+          >
+            <li>
+              <strong>Open WhatsApp</strong> on your phone
+            </li>
+            <li>
+              Open <strong>Settings</strong>, then{" "}
+              <strong>Linked Devices</strong>
+            </li>
+            <li>
+              Choose <strong>Link with phone number</strong> and enter this code
+            </li>
+          </ol>
+        ) : null}
+      </details>
 
       {showReconnect ? (
         <WhatsAppReconnectRow
-          onReconnect={onReconnect}
+          onReconnect={() => (paired ? setRelinkMethod("qr") : onReconnect())}
           paired={paired}
           reconnectPending={reconnectPending}
           regeneratePending={regeneratePending}

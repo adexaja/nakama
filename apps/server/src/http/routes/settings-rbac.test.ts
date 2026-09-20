@@ -26,11 +26,27 @@ test("WhatsApp HTTP settings, profiles, QR codes and reconnect are isolated by o
     agent: service,
     workerManager: {
       getWorkerStatus: async () => ({ managed: true, status: "online" }),
-      stopWorker: async (_name: string, orgId: string) => {
-        workerCalls.push("stop:" + orgId);
+      saveChannelConfig: async (
+        _name: string,
+        owner: { orgId: string; profileId: string },
+        save: () => Promise<unknown>
+      ) => {
+        workerCalls.push("stop:" + owner.orgId + ":" + owner.profileId);
+        const result = await save();
+        workerCalls.push("start:" + owner.orgId + ":" + owner.profileId);
+        return result;
       },
-      startWorker: async (_name: string, orgId: string) => {
-        workerCalls.push("start:" + orgId);
+      stopWorker: async (
+        _name: string,
+        owner: { orgId: string; profileId: string }
+      ) => {
+        workerCalls.push("stop:" + owner.orgId + ":" + owner.profileId);
+      },
+      startWorker: async (
+        _name: string,
+        owner: { orgId: string; profileId: string }
+      ) => {
+        workerCalls.push("start:" + owner.orgId + ":" + owner.profileId);
       },
     },
   });
@@ -52,7 +68,7 @@ test("WhatsApp HTTP settings, profiles, QR codes and reconnect are isolated by o
   ] as const) {
     const saved = await callRoute(app, session, {
       method: "PUT",
-      path: "/v1/settings/whatsapp",
+      path: `/v1/settings/whatsapp?profileId=profile_wa_${id}`,
       body: {
         profileId: "profile_wa_" + id,
         allowedPhones: id === "a" ? "628111111111" : "628222222222",
@@ -62,7 +78,7 @@ test("WhatsApp HTTP settings, profiles, QR codes and reconnect are isolated by o
   }
   const foreignProfile = await callRoute(app, a, {
     method: "PUT",
-    path: "/v1/settings/whatsapp",
+    path: "/v1/settings/whatsapp?profileId=profile_wa_b",
     body: { profileId: "profile_wa_b" },
   });
   expect(foreignProfile.status).toBe(404);
@@ -72,30 +88,62 @@ test("WhatsApp HTTP settings, profiles, QR codes and reconnect are isolated by o
     })
   );
   expect(foreignOrg.status).toBe(404);
-  await writeWhatsAppQrCode("qr-a", "wa_a");
-  await writeWhatsAppQrCode("qr-b", "wa_b");
-  expect((await getWhatsAppWorkerStatus("wa_a")).qrCode).toBe("qr-a");
-  expect((await getWhatsAppWorkerStatus("wa_b")).qrCode).toBe("qr-b");
+  await writeWhatsAppQrCode("qr-a", {
+    orgId: "wa_a",
+    profileId: "profile_wa_a",
+  });
+  await writeWhatsAppQrCode("qr-b", {
+    orgId: "wa_b",
+    profileId: "profile_wa_b",
+  });
+  expect(
+    (
+      await getWhatsAppWorkerStatus({
+        orgId: "wa_a",
+        profileId: "profile_wa_a",
+      })
+    ).qrCode
+  ).toBe("qr-a");
+  expect(
+    (
+      await getWhatsAppWorkerStatus({
+        orgId: "wa_b",
+        profileId: "profile_wa_b",
+      })
+    ).qrCode
+  ).toBe("qr-b");
   await syncWhatsAppOwnerPairing(
     { ownerJid: "628222222222@s.whatsapp.net" },
-    "wa_b"
+    { orgId: "wa_b", profileId: "profile_wa_b" }
   );
   const reconnect = await callRoute(app, a, {
     method: "POST",
-    path: "/v1/settings/whatsapp/reconnect",
+    path: "/v1/settings/whatsapp/reconnect?profileId=profile_wa_a",
   });
   expect(reconnect.status).toBe(200);
-  expect(workerCalls).toEqual(["stop:wa_a", "start:wa_a"]);
-  expect((await getWhatsAppWorkerStatus("wa_b")).qrCode).toBe("qr-b");
-  expect((await loadWhatsAppConfigFile("wa_b"))?.pairedJid).toBe(
-    "628222222222@s.whatsapp.net"
-  );
-  expect((await loadWhatsAppConfigFile("wa_a"))?.profileId).toBe(
-    "profile_wa_a"
-  );
+  expect(workerCalls).toEqual([
+    "stop:wa_a:profile_wa_a",
+    "start:wa_a:profile_wa_a",
+  ]);
+  expect(
+    (
+      await getWhatsAppWorkerStatus({
+        orgId: "wa_b",
+        profileId: "profile_wa_b",
+      })
+    ).qrCode
+  ).toBe("qr-b");
+  expect(
+    (await loadWhatsAppConfigFile({ orgId: "wa_b", profileId: "profile_wa_b" }))
+      ?.pairedJid
+  ).toBe("628222222222@s.whatsapp.net");
+  expect(
+    (await loadWhatsAppConfigFile({ orgId: "wa_a", profileId: "profile_wa_a" }))
+      ?.profileId
+  ).toBe("profile_wa_a");
   const readB = await callRoute(app, b, {
     method: "GET",
-    path: "/v1/settings/whatsapp",
+    path: "/v1/settings/whatsapp?profileId=profile_wa_b",
   });
   expect(await readB.json()).toMatchObject({
     profileId: "profile_wa_b",
@@ -153,12 +201,6 @@ const INSTALL_WRITES: { body?: unknown; method: string; path: string }[] = [
     method: "PUT",
     path: "/v1/settings/image-generation",
   },
-  { body: { botToken: "d" }, method: "PUT", path: "/v1/settings/discord" },
-  {
-    body: { botToken: "d" },
-    method: "POST",
-    path: "/v1/settings/discord/handshake",
-  },
   { body: { apiKey: "c" }, method: "PUT", path: "/v1/settings/composio" },
   {
     body: { apiKey: "exa-key", provider: "exa" },
@@ -187,6 +229,10 @@ const INSTALL_WRITES: { body?: unknown; method: string; path: string }[] = [
 
 for (const role of ["member", "viewer"] as const) {
   for (const [method, path] of [
+    ["GET", "/v1/settings/telegram?profileId=default"],
+    ["GET", "/v1/settings/discord?profileId=default"],
+    ["GET", "/v1/settings/whatsapp?profileId=default"],
+    ["GET", "/v1/system/status?profileId=default"],
     ["PUT", "/v1/settings/whatsapp"],
     ["POST", "/v1/settings/whatsapp/pairing-code"],
     ["POST", "/v1/settings/whatsapp/reconnect"],
@@ -218,6 +264,7 @@ function createApp() {
       createProvider: record("createProvider"),
       deleteProvider: record("deleteProvider"),
       discoverModels: record("discoverModels"),
+      getProfile: async () => ({ profile: { id: "default" } }),
       listProfiles: async () => ({ profiles: [{ id: "default" }] }),
       sendErrorTrackingTest: record("sendErrorTrackingTest"),
       setComposioSettings: record("setComposioSettings"),
@@ -331,7 +378,7 @@ describe("install-wide settings writes require a platform admin", () => {
     const response = await callRoute(app, session, {
       body: { botToken: "telegram-token" },
       method: "PUT",
-      path: "/v1/settings/telegram",
+      path: "/v1/settings/telegram?profileId=default",
     });
 
     expect(response.status).not.toBe(403);
@@ -392,4 +439,78 @@ test("a platform admin completes Grok device sign-in through authenticated HTTP 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("channel settings require an owner and keep sibling agents separate", async () => {
+  const db = createInMemoryDatabaseAdapter();
+  const { app, authService } = createMinimalHonoApp({
+    databaseAdapter: db,
+    agent: new AgentService(null, null, db),
+  });
+  const seeded = await seedOrgAdmin(db, {
+    authService,
+    orgId: "org_siblings",
+    profileId: "agent_a",
+  });
+  const first = (await db.listProfilesForOrg(seeded.orgId))[0]!;
+  await db.upsertProfile({
+    ...first,
+    id: "agent_b",
+    name: "Agent B",
+    isDefault: false,
+  });
+  const session = await loginUserSession(
+    app,
+    seeded.email,
+    seeded.password,
+    seeded.orgId
+  );
+  for (const platform of ["telegram", "discord", "whatsapp"]) {
+    expect(
+      (
+        await callRoute(app, session, {
+          method: "GET",
+          path: `/v1/settings/${platform}`,
+        })
+      ).status
+    ).toBe(400);
+    expect(
+      (
+        await callRoute(app, session, {
+          method: "GET",
+          path: `/v1/settings/${platform}?profileId=missing`,
+        })
+      ).status
+    ).toBe(404);
+  }
+  for (const [profileId, phone] of [
+    ["agent_a", "628111111111"],
+    ["agent_b", "628222222222"],
+  ]) {
+    expect(
+      (
+        await callRoute(app, session, {
+          method: "PUT",
+          path: `/v1/settings/whatsapp?profileId=${profileId}`,
+          body: { profileId: "agent_b", allowedPhones: phone },
+        })
+      ).status
+    ).toBe(200);
+  }
+  const a = await callRoute(app, session, {
+    method: "GET",
+    path: "/v1/settings/whatsapp?profileId=agent_a",
+  });
+  const b = await callRoute(app, session, {
+    method: "GET",
+    path: "/v1/settings/whatsapp?profileId=agent_b",
+  });
+  expect(await a.json()).toMatchObject({
+    profileId: "agent_a",
+    allowedPhones: ["628111111111"],
+  });
+  expect(await b.json()).toMatchObject({
+    profileId: "agent_b",
+    allowedPhones: ["628222222222"],
+  });
 });

@@ -1554,6 +1554,7 @@ export type NotificationWebhookLevel = "info" | "success" | "warning" | "error";
 
 export interface TelegramNotificationDestinationConfig {
   chatId: number;
+  profileId?: string;
   topicId?: number | null;
 }
 

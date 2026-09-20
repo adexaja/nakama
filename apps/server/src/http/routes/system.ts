@@ -12,7 +12,11 @@ import {
   persistWebPublicUrl,
 } from "../../services/composio-callback-url";
 import type { ServerOptions } from "../context";
-import { requireOrgAdminFromContext } from "../org-guards";
+import {
+  requireActiveOrgIdFromContext,
+  requireOrgAdminFromContext,
+  requireOrgAdminOrPlatformAdminFromContext,
+} from "../org-guards";
 import { errorResponse, getRequestAuth, readJson } from "../shared";
 import type { HonoApp } from "../types";
 
@@ -94,6 +98,7 @@ export function registerSystemRoutes(
     method: "get",
     operationId: "getSystemStatus",
     path: "/v1/system/status",
+    request: { query: z.object({ profileId: z.string().optional() }) },
     responses: {
       200: {
         content: { "application/json": { schema: systemStatusSchema } },
@@ -204,12 +209,20 @@ export function registerSystemRoutes(
     );
   });
 
-  app.openapi(systemStatusRoute, async (c) =>
-    c.json(
-      await systemStatus.getStatus(getRequestAuth(c).activeOrgId ?? null),
+  app.openapi(systemStatusRoute, async (c) => {
+    const profileId = c.req.query("profileId")?.trim();
+    const orgId = getRequestAuth(c).activeOrgId ?? null;
+    if (profileId) {
+      requireOrgAdminOrPlatformAdminFromContext(c);
+      await agent.getProfile(requireActiveOrgIdFromContext(c), profileId);
+    }
+    return c.json(
+      await systemStatus.getStatus(
+        profileId && orgId ? { orgId, profileId } : orgId
+      ),
       200
-    )
-  );
+    );
+  });
 
   app.openapi(getWebPublicUrlRoute, async (c) => {
     requireOrgAdminFromContext(c);

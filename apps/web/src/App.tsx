@@ -52,6 +52,10 @@ const OrganizationPage = lazyPage(
   () => import("@/pages/OrganizationPage"),
   "OrganizationPage"
 );
+const ProfileChannelSettingsPage = lazyPage(
+  () => import("@/pages/profiles/profile-config-tab"),
+  "ProfileChannelSettingsPage"
+);
 const ProfilesPage = lazyPage(
   () => import("@/pages/ProfilesPage"),
   "ProfilesPage"
@@ -208,6 +212,10 @@ function AppShell() {
                   <Route element={<PluginPage />} path="/plugins/:pluginId" />
                   <Route element={<PlatformAdminGuard allowOrgAdmin />}>
                     <Route element={<ProfilesPage />} path="/profiles" />
+                    <Route
+                      element={<ProfileChannelSettingsPage />}
+                      path="/profiles/:profileId/channels/:channel"
+                    />
                   </Route>
                   <Route element={<PlatformAdminGuard />}>
                     <Route
@@ -221,6 +229,10 @@ function AppShell() {
                     path="/tasks"
                   />
                   <Route element={<IntegrationsPage />} path="/integrations" />
+                  <Route
+                    element={<IntegrationsPage />}
+                    path="/customize/connections/:section"
+                  />
                   <Route element={<PlatformAdminGuard allowOrgAdmin />}>
                     <Route
                       element={<OrganizationPage />}

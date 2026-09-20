@@ -71,10 +71,10 @@ describe("whatsapp outbound server", () => {
         ["org_a", "628111111111"],
         ["org_b", "628222222222"],
       ]) {
-        await saveWhatsAppConfig({}, orgId);
+        await saveWhatsAppConfig({}, { orgId, profileId: "agent" });
         await syncWhatsAppOwnerPairing(
           { ownerJid: phone + "@s.whatsapp.net" },
-          orgId
+          { orgId, profileId: "agent" }
         );
         servers.push(
           await startWhatsAppOutboundServer({
@@ -83,28 +83,50 @@ describe("whatsapp outbound server", () => {
                 sent.push(orgId + ":" + jid + ":" + content.text);
               },
             }),
-            orgId,
+            orgId: { orgId, profileId: "agent" },
           })
         );
       }
       expect(servers[0].port).not.toBe(servers[1].port);
-      const a = await loadWhatsAppConfigFile("org_a");
-      const b = await loadWhatsAppConfigFile("org_b");
+      const a = await loadWhatsAppConfigFile({
+        orgId: "org_a",
+        profileId: "agent",
+      });
+      const b = await loadWhatsAppConfigFile({
+        orgId: "org_b",
+        profileId: "agent",
+      });
       expect(a?.outboundToken).not.toBe(b?.outboundToken);
       const crossed = await post(servers[1].port, {
         [WHATSAPP_OUTBOUND_TOKEN_HEADER]: a!.outboundToken!,
       });
       expect(crossed.status).toBe(401);
       const adapter = createWhatsAppOutboundAdapter();
-      expect(await adapter.send({ orgId: "org_a", text: "well-test" })).toEqual(
-        { ok: true }
-      );
-      expect(await adapter.send({ orgId: "org_b", text: "finance" })).toEqual({
+      expect(
+        await adapter.send({
+          orgId: "org_a",
+          profileId: "agent",
+          text: "well-test",
+        })
+      ).toEqual({ ok: true });
+      expect(
+        await adapter.send({
+          orgId: "org_b",
+          profileId: "agent",
+          text: "finance",
+        })
+      ).toEqual({
         ok: true,
       });
-      expect((await adapter.send({ orgId: "org_c", text: "unknown" })).ok).toBe(
-        false
-      );
+      expect(
+        (
+          await adapter.send({
+            orgId: "org_c",
+            profileId: "agent",
+            text: "unknown",
+          })
+        ).ok
+      ).toBe(false);
       expect(sent).toEqual([
         "org_a:628111111111@s.whatsapp.net:well-test",
         "org_b:628222222222@s.whatsapp.net:finance",

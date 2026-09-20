@@ -16,6 +16,7 @@ import {
   ViewOffIcon,
 } from "hugeicons-react";
 import { useEffect, useState } from "react";
+import { useProfilesQuery } from "@/hooks/use-app-queries";
 import {
   useCreateNotificationDestination,
   useDeleteNotificationDestination,
@@ -186,6 +187,8 @@ function LatestSecret({
 }
 
 export function NotificationDestinationsCard() {
+  const { data: profiles = [] } = useProfilesQuery();
+  const [profileId, setProfileId] = useState("");
   const { data, isLoading, error } = useNotificationDestinations();
   const createMutation = useCreateNotificationDestination();
   const rotateMutation = useRegenerateNotificationDestinationKey();
@@ -241,6 +244,7 @@ export function NotificationDestinationsCard() {
         name: name.trim() || `Telegram topic ${parsedTopic.topicId}`,
         telegram: {
           chatId: parsedTopic.chatId,
+          profileId,
           topicId: parsedTopic.topicId,
         },
       },
@@ -311,6 +315,7 @@ export function NotificationDestinationsCard() {
           name: destination.name,
           telegram: {
             chatId: destination.telegram.chatId,
+            profileId: profileId || destination.telegram.profileId,
             ...(parsedTopicId === null ? {} : { topicId: parsedTopicId }),
           },
         },
@@ -328,6 +333,21 @@ export function NotificationDestinationsCard() {
 
   return (
     <div className="space-y-8">
+      <label className="flex flex-col gap-2 text-sm">
+        Agent
+        <select
+          className="rounded-md border bg-background p-2"
+          onChange={(event) => setProfileId(event.target.value)}
+          value={profileId}
+        >
+          <option value="">Choose an agent</option>
+          {profiles.map((profile) => (
+            <option key={profile.id} value={profile.id}>
+              {profile.name}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
         <p className="px-4 py-3 font-medium text-foreground text-sm">
           Notification destinations

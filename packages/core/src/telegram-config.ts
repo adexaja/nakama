@@ -1,17 +1,25 @@
 import { rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  assertChannelPath,
+  type ChannelConfigScope,
+  claimChannelIdentity,
   generateHandshakeCode,
+  getChannelConfigDir,
   isBotChannelUserAuthorized,
+  isChannelOwner,
+  listChannelOwners,
   loadBotChannelIniConfig,
   maskBotToken,
+  releaseChannelClaims,
+  resetChannelConversationState,
   resolveHandshakeCodeOnSave,
   verifyAndPairBotChannelUser,
   writeBotChannelIniConfig,
 } from "./channel-config-shared";
 import { readEnvValue } from "./config";
 import { ensureDir, pathExists, readDirectoryOrEmpty } from "./fs";
-import { getOrgConfigDir, getUserConfigDir } from "./user-config";
+import { getUserConfigDir } from "./user-config";
 
 export {
   generateHandshakeCode,
@@ -49,15 +57,19 @@ export interface UpdateTelegramSettingsInput {
  * install-wide config that predates per-org channels and still serves every
  * org that has not saved its own.
  */
-export type TelegramConfigScope = string | null;
+export type TelegramConfigScope = ChannelConfigScope;
 
 export function getTelegramConfigDir(orgId: TelegramConfigScope): string {
-  const base = orgId === null ? getUserConfigDir() : getOrgConfigDir(orgId);
-  return join(base, "telegram");
+  return getChannelConfigDir("telegram", orgId);
 }
 
 export function getTelegramConfigPath(orgId: TelegramConfigScope): string {
-  return join(getTelegramConfigDir(orgId), "config.ini");
+  const path = join(getTelegramConfigDir(orgId), "config.ini");
+  if (isChannelOwner(orgId)) {
+    assertChannelPath(path);
+    assertChannelPath(`${path}.tmp`);
+  }
+  return path;
 }
 
 /** Org ids that have saved their own Telegram credentials. */
@@ -121,6 +133,9 @@ export async function loadTelegramConfigFile(
 export async function resolveTelegramScopeForOrg(
   orgId: TelegramConfigScope
 ): Promise<TelegramConfigScope> {
+  if (isChannelOwner(orgId)) {
+    return orgId;
+  }
   if (orgId === null) {
     return null;
   }
@@ -253,9 +268,34 @@ export async function saveTelegramConfig(
   input: UpdateTelegramSettingsInput
 ): Promise<TelegramSettingsPublic> {
   const existing = await loadTelegramConfigFile(orgId);
-  const next = buildSavedTelegramConfig(input, existing);
+  const changed =
+    existing &&
+    input.botToken !== undefined &&
+    existing.botToken !== input.botToken.trim();
+  const next = buildSavedTelegramConfig(input, changed ? null : existing);
+  if (isChannelOwner(orgId)) {
+    next.profileId = orgId.profileId;
+  }
   await assertTelegramTokenUnclaimed(orgId, next.botToken);
-  await writeTelegramConfigFile(orgId, next);
+  const rollback = isChannelOwner(orgId)
+    ? await claimChannelIdentity(
+        "telegram",
+        orgId,
+        next.botToken.split(":")[0]!
+      )
+    : async () => {};
+  try {
+    if (changed && isChannelOwner(orgId)) {
+      await resetChannelConversationState("telegram", orgId);
+    }
+    await writeTelegramConfigFile(orgId, next);
+  } catch (error) {
+    await rollback();
+    throw error;
+  }
+  if (isChannelOwner(orgId)) {
+    await releaseChannelClaims("telegram", orgId, next.botToken.split(":")[0]!);
+  }
   return toTelegramSettingsPublic(next);
 }
 
@@ -270,10 +310,11 @@ async function assertTelegramTokenUnclaimed(
   const scopes: TelegramConfigScope[] = [
     null,
     ...(await listTelegramConfigOrgIds()),
+    ...(await listChannelOwners("telegram")),
   ];
 
   for (const scope of scopes) {
-    if (scope === orgId) {
+    if (getTelegramConfigDir(scope) === getTelegramConfigDir(orgId)) {
       continue;
     }
 

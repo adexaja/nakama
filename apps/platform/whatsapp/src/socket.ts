@@ -1,4 +1,9 @@
-import { getWhatsAppConfigDir } from "@nakama/core/whatsapp-config";
+import type { ChannelConfigScope } from "@nakama/core/channel-config-shared";
+import { isChannelOwner } from "@nakama/core/channel-config-shared";
+import {
+  getWhatsAppConfigDir,
+  syncWhatsAppOwnerPairing,
+} from "@nakama/core/whatsapp-config";
 import {
   DEFAULT_CONNECTION_CONFIG,
   DisconnectReason,
@@ -29,7 +34,7 @@ export interface WhatsAppSocketDeps {
   onDisconnected?: () => void;
   onMessage: (data: WhatsAppInboundChat) => Promise<void>;
   onQr?: (qr: string) => void;
-  orgId?: string | null;
+  orgId?: ChannelConfigScope;
 }
 
 export interface WhatsAppSocketHandle {
@@ -136,6 +141,7 @@ export async function createWhatsAppSocket(
         return;
       }
 
+      let identityAccepted = !isChannelOwner(deps.orgId ?? null);
       socket = next;
       wrapSocketSendMessage(next);
 
@@ -154,7 +160,23 @@ export async function createWhatsAppSocket(
           reconnectAttempt = 0;
           const me = state.creds.me;
           if (me?.id) {
-            deps.onConnected?.({ id: me.id, lid: me.lid ?? null });
+            try {
+              await syncWhatsAppOwnerPairing(
+                { ownerJid: me.id, ownerLid: me.lid },
+                deps.orgId
+              );
+              if (myGen !== generation || stopped) {
+                return;
+              }
+              identityAccepted = true;
+              deps.onConnected?.({ id: me.id, lid: me.lid ?? null });
+            } catch (error) {
+              stopped = true;
+              generation += 1;
+              await retireSocket(next);
+              socket = null;
+              console.error("WhatsApp account could not be claimed", error);
+            }
           }
         }
 
@@ -215,6 +237,9 @@ export async function createWhatsAppSocket(
 
         const me = state.creds.me;
 
+        if (!identityAccepted) {
+          return;
+        }
         for (const msg of m.messages) {
           const remoteJid = msg.key.remoteJid ?? null;
           const text = extractInboundText(msg.message);

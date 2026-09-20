@@ -125,9 +125,10 @@ export class TelegramManagedBotPairingService {
   async status(
     pairingId: string,
     orgId: string,
-    userId: string
+    userId: string,
+    profileId?: string
   ): Promise<TelegramPairingStatusResponse> {
-    const pairing = this.authorize(pairingId, orgId, userId);
+    const pairing = this.authorize(pairingId, orgId, userId, profileId);
     if (
       (pairing.state === "waiting" || pairing.state === "ready") &&
       Date.now() >= Date.parse(pairing.expiresAt)
@@ -154,9 +155,10 @@ export class TelegramManagedBotPairingService {
   async cancel(
     pairingId: string,
     orgId: string,
-    userId: string
+    userId: string,
+    profileId?: string
   ): Promise<TelegramPairingStatusResponse> {
-    const pairing = this.authorize(pairingId, orgId, userId);
+    const pairing = this.authorize(pairingId, orgId, userId, profileId);
     if (pairing.state === "waiting" || pairing.state === "ready") {
       if (pairing.cloudSecret) {
         await this.cloudCall("cancel", pairing);
@@ -178,7 +180,7 @@ export class TelegramManagedBotPairingService {
       profileId: string;
     }) => Promise<void>
   ): Promise<TelegramPairingStatusResponse> {
-    const pairing = this.authorize(pairingId, orgId, userId);
+    const pairing = this.authorize(pairingId, orgId, userId, profileId);
     if (Date.now() >= Date.parse(pairing.expiresAt)) {
       throw new Error("Telegram pairing expired. Start a new pairing.");
     }
@@ -201,7 +203,6 @@ export class TelegramManagedBotPairingService {
       botToken: pairing.token,
       profileId,
     });
-    pairing.profileId = profileId;
     pairing.state = "applied";
     pairing.token = undefined;
     if (pairing.cloudSecret) {
@@ -212,9 +213,19 @@ export class TelegramManagedBotPairingService {
     return this.toResponse(pairing);
   }
 
-  private authorize(pairingId: string, orgId: string, userId: string): Pairing {
+  private authorize(
+    pairingId: string,
+    orgId: string,
+    userId: string,
+    profileId?: string
+  ): Pairing {
     const pairing = this.pairings.get(pairingId);
-    if (!pairing || pairing.orgId !== orgId || pairing.userId !== userId) {
+    if (
+      !pairing ||
+      pairing.orgId !== orgId ||
+      pairing.userId !== userId ||
+      (profileId !== undefined && pairing.profileId !== profileId)
+    ) {
       throw new Error("Telegram pairing was not found.");
     }
     return pairing;

@@ -10,19 +10,16 @@ import {
   requireActiveOrgIdFromContext,
   requireNotViewerFromContext,
   requireOrgAdminOrPlatformAdminFromContext,
-  requirePlatformAdminFromContext,
 } from "../org-guards";
 import { errorResponse, json } from "../shared";
 import type { AppEnv, HonoApp } from "../types";
-
-const PLATFORM_ADMIN_WORKERS = new Set(["telegram", "discord"]);
 
 function requireWorkerAuthorization(
   c: Context<AppEnv>,
   name: string,
   manager: ServerOptions["workerManager"]
 ): void {
-  if (name === "whatsapp") {
+  if (["telegram", "discord", "whatsapp"].includes(name)) {
     requireOrgAdminOrPlatformAdminFromContext(c);
     return;
   }
@@ -33,11 +30,7 @@ function requireWorkerAuthorization(
     }
     return;
   }
-  if (PLATFORM_ADMIN_WORKERS.has(name)) {
-    requirePlatformAdminFromContext(c);
-  } else {
-    requireNotViewerFromContext(c);
-  }
+  requireNotViewerFromContext(c);
 }
 
 export function registerWorkerRoutes(
@@ -45,6 +38,18 @@ export function registerWorkerRoutes(
   options: ServerOptions
 ): void {
   const { workerManager } = options;
+  async function workerScope(c: Context<AppEnv>, name: string) {
+    if (!["telegram", "discord", "whatsapp"].includes(name)) {
+      return null;
+    }
+    const orgId = requireActiveOrgIdFromContext(c);
+    const profileId = c.req.query("profileId")?.trim();
+    if (!profileId) {
+      throw new NakamaApiError("Choose an agent to manage this worker.", 400);
+    }
+    await options.agent.getProfile(orgId, profileId);
+    return { orgId, profileId };
+  }
   const errorSchema = z
     .object({ error: z.string() })
     .openapi("ApiErrorResponse");
@@ -61,11 +66,16 @@ export function registerWorkerRoutes(
   });
   const workerActionParam = z.object({
     action: z
-      .enum(["start", "stop", "restart"])
+      .enum(["start", "stop", "restart", "disconnect"])
       .openapi({ param: { in: "path", name: "action" } }),
     name: z.string().openapi({ param: { in: "path", name: "name" } }),
   });
-  const workerLogsQuery = z.object({
+  const workerScopeQuery = z.object({
+    profileId: z.string().optional().openapi({
+      description: "Required for Telegram, Discord, and WhatsApp workers",
+    }),
+  });
+  const workerLogsQuery = workerScopeQuery.extend({
     lines: z.string().optional(),
   });
 
@@ -74,7 +84,7 @@ export function registerWorkerRoutes(
       method: "post",
       operationId: "workerAction",
       path: "/v1/workers/{name}/{action}",
-      request: { params: workerActionParam },
+      request: { params: workerActionParam, query: workerScopeQuery },
       responses: {
         200: {
           content: { "application/json": { schema: okSchema } },
@@ -122,7 +132,7 @@ export function registerWorkerRoutes(
       method: "post",
       operationId: "clearWorkerLogs",
       path: "/v1/workers/{name}/clear-logs",
-      request: { params: workerParam },
+      request: { params: workerParam, query: workerScopeQuery },
       responses: {
         200: {
           content: { "application/json": { schema: okSchema } },
@@ -182,40 +192,49 @@ export function registerWorkerRoutes(
     }
   );
 
-  app.post("/v1/workers/:name/:action{start|stop|restart}", async (c) => {
-    const name = decodeURIComponent(c.req.param("name"));
-    const action = c.req.param("action");
-    requireWorkerAuthorization(c, name, workerManager);
+  app.post(
+    "/v1/workers/:name/:action{start|stop|restart|disconnect}",
+    async (c) => {
+      const name = decodeURIComponent(c.req.param("name"));
+      const action = c.req.param("action");
+      requireWorkerAuthorization(c, name, workerManager);
 
-    if (!workerManager.isValidWorker(name)) {
-      return errorResponse(`Unknown worker: ${name}`, 400);
-    }
-
-    try {
-      if (action === "start") {
-        await workerManager.startWorker(
-          name,
-          name === "whatsapp" ? requireActiveOrgIdFromContext(c) : null
-        );
-      } else if (action === "stop") {
-        await workerManager.stopWorker(
-          name,
-          name === "whatsapp" ? requireActiveOrgIdFromContext(c) : null
-        );
-      } else {
-        await workerManager.restartWorker(
-          name,
-          name === "whatsapp" ? requireActiveOrgIdFromContext(c) : null
-        );
+      if (!workerManager.isValidWorker(name)) {
+        return errorResponse(`Unknown worker: ${name}`, 400);
       }
 
-      return json({ ok: true });
-    } catch (err) {
-      void reportError(err, { kind: "http", source: "server" });
-      const message = err instanceof Error ? err.message : String(err);
-      return errorResponse(message, 500);
+      try {
+        if (action === "disconnect") {
+          const owner = await workerScope(c, name);
+          if (!owner) {
+            throw new NakamaApiError(
+              "Only agent channels can be disconnected",
+              400
+            );
+          }
+          await workerManager.disconnectChannel(
+            name as "telegram" | "discord" | "whatsapp",
+            owner
+          );
+        } else if (action === "start") {
+          await workerManager.startWorker(name, await workerScope(c, name));
+        } else if (action === "stop") {
+          await workerManager.stopWorker(name, await workerScope(c, name));
+        } else {
+          await workerManager.restartWorker(name, await workerScope(c, name));
+        }
+
+        return json({ ok: true });
+      } catch (err) {
+        if (err instanceof NakamaApiError) {
+          return errorResponse(err.message, err.status);
+        }
+        void reportError(err, { kind: "http", source: "server" });
+        const message = err instanceof Error ? err.message : String(err);
+        return errorResponse(message, 500);
+      }
     }
-  });
+  );
 
   app.get("/v1/workers/:name/logs", async (c) => {
     const name = decodeURIComponent(c.req.param("name"));
@@ -236,10 +255,13 @@ export function registerWorkerRoutes(
       const logs = await workerManager.getWorkerLogs(
         name,
         lines,
-        name === "whatsapp" ? requireActiveOrgIdFromContext(c) : null
+        await workerScope(c, name)
       );
       return json<WorkerLogsResponse>(logs);
     } catch (err) {
+      if (err instanceof NakamaApiError) {
+        return errorResponse(err.message, err.status);
+      }
       void reportError(err, { kind: "http", source: "server" });
       const message = err instanceof Error ? err.message : String(err);
       return errorResponse(message, 500);
@@ -255,12 +277,12 @@ export function registerWorkerRoutes(
     }
 
     try {
-      await workerManager.clearWorkerLogs(
-        name,
-        name === "whatsapp" ? requireActiveOrgIdFromContext(c) : null
-      );
+      await workerManager.clearWorkerLogs(name, await workerScope(c, name));
       return json({ ok: true });
     } catch (err) {
+      if (err instanceof NakamaApiError) {
+        return errorResponse(err.message, err.status);
+      }
       void reportError(err, { kind: "http", source: "server" });
       const message = err instanceof Error ? err.message : String(err);
       return errorResponse(message, 500);

@@ -5,6 +5,7 @@ import {
   resolveWhatsAppOutboundPort,
   WHATSAPP_OUTBOUND_TOKEN_HEADER,
 } from "@nakama/core";
+import type { ChannelConfigScope } from "@nakama/core/channel-config-shared";
 import { saveWhatsAppOutboundPort } from "@nakama/core/whatsapp-config";
 import { rememberWhatsAppOutbound } from "./inbound-message";
 
@@ -25,7 +26,7 @@ export interface WhatsAppOutboundSendHandle {
 
 export interface WhatsAppOutboundServerOptions {
   getSendHandle: () => WhatsAppOutboundSendHandle | null;
-  orgId?: string | null;
+  orgId?: ChannelConfigScope;
 }
 
 export async function startWhatsAppOutboundServer(
@@ -35,7 +36,7 @@ export async function startWhatsAppOutboundServer(
   const config = await loadWhatsAppConfigFile(orgId);
   const port = orgId ? 0 : resolveWhatsAppOutboundPort(config);
   // Mint it before the port opens so the first send already has a token to send.
-  await ensureWhatsAppOutboundToken(orgId);
+  const startupToken = await ensureWhatsAppOutboundToken(orgId);
   let stopped = false;
 
   const server = Bun.serve({
@@ -48,13 +49,11 @@ export async function startWhatsAppOutboundServer(
 
       if (request.method === "POST" && url.pathname === "/send") {
         const latestConfig = await loadWhatsAppConfigFile(orgId);
-        // Re-read per request: pairing can create the config after startup.
-        const expectedToken =
-          latestConfig?.outboundToken?.trim() ||
-          (await ensureWhatsAppOutboundToken(orgId));
+        const expectedToken = latestConfig?.outboundToken?.trim();
 
         if (
           !(
+            expectedToken === startupToken &&
             expectedToken &&
             tokenMatches(
               request.headers.get(WHATSAPP_OUTBOUND_TOKEN_HEADER),

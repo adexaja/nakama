@@ -17,6 +17,7 @@ import {
   pluginIcon,
   profilePath,
   skillDetailPath,
+  visibleIntegrationSections,
   visibleNavGroups,
 } from "@/lib/navigation";
 import { queryKeys } from "@/lib/query-keys";
@@ -72,6 +73,17 @@ export function CustomizePage() {
     }),
     title,
   }));
+  sections.push({
+    items: visibleIntegrationSections(
+      user?.isPlatformAdmin === true,
+      activeOrg?.role
+    ).map((item) => ({
+      href: `/customize/connections/${item.id}`,
+      icon: item.icon,
+      label: item.label,
+    })),
+    title: "Integrations",
+  });
   sections.push({
     items: enabledPluginNavEntries(plugins).map((entry) => ({
       href: entry.href,

@@ -61,7 +61,7 @@ describe("route error formatting", () => {
     });
     const session = await setupFreshInstallSession(app, databaseAdapter);
     const response = await app.fetch(
-      new Request("http://localhost:4310/v1/workers/telegram/start", {
+      new Request("http://localhost:4310/v1/workers/automation/start", {
         headers: session.headers({ "X-CSRF-Token": session.csrfToken }),
         method: "POST",
       })

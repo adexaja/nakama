@@ -68,6 +68,7 @@ function createServerOptions() {
     agent: {
       beginSessionTurn: async () => true,
       createSession: async () => "session_1",
+      getProfile: async () => ({ profile: { id: "default" } }),
       getWhatsAppSettings: async () => ({ enabled: false }),
       listProfiles: async () => ({ profiles: [{ id: "default" }] }),
       listSessions: async (
@@ -293,12 +294,15 @@ describe("createHonoApp", () => {
       });
 
       const whatsappResponse = await app.fetch(
-        new Request("http://localhost:4310/v1/settings/whatsapp", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "X-Org-Id": TEST_ORG_ID,
-          },
-        })
+        new Request(
+          "http://localhost:4310/v1/settings/whatsapp?profileId=default",
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "X-Org-Id": TEST_ORG_ID,
+            },
+          }
+        )
       );
 
       expect(whatsappResponse.status).toBe(200);
@@ -933,11 +937,56 @@ describe("createHonoApp", () => {
     ).toBe(true);
   });
 
+  test("disconnect routes all agent channels to their scoped connection", async () => {
+    const options = createServerOptions();
+    const calls: Array<{
+      name: string;
+      owner: { orgId: string; profileId: string };
+    }> = [];
+    options.workerManager.disconnectChannel = async (
+      name: string,
+      owner: { orgId: string; profileId: string }
+    ) => {
+      calls.push({ name, owner });
+    };
+    const app = createHonoApp(options);
+    const session = await setupFreshInstallSession(
+      app,
+      options.databaseAdapter
+    );
+    const disconnect = (path: string) =>
+      app.fetch(
+        new Request(`http://localhost:4310/v1/workers/${path}`, {
+          headers: session.headers({ "X-CSRF-Token": session.csrfToken }),
+          method: "POST",
+        })
+      );
+    for (const name of ["telegram", "discord", "whatsapp"]) {
+      const response = await disconnect(`${name}/disconnect?profileId=default`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true });
+    }
+    expect(calls).toEqual(
+      ["telegram", "discord", "whatsapp"].map((name) => ({
+        name,
+        owner: { orgId: session.orgId, profileId: "default" },
+      }))
+    );
+    expect((await disconnect("discord/disconnect")).status).toBe(400);
+    expect(
+      (await disconnect("automation/disconnect?profileId=default")).status
+    ).toBe(400);
+    expect(calls).toHaveLength(3);
+  });
+
   test("allows org admins to control their WhatsApp worker", async () => {
     const options = createServerOptions();
     const calls: string[] = [];
-    options.workerManager.startWorker = async (name: string, orgId: string) => {
-      calls.push(`start:${name}:${orgId}`);
+    options.workerManager.startWorker = async (
+      name: string,
+      owner: { orgId: string; profileId: string }
+    ) => {
+      calls.push(`start:${name}:${owner.orgId}:${owner.profileId}`);
     };
     options.workerManager.stopWorker = async (name: string) => {
       calls.push(`stop:${name}`);
@@ -970,29 +1019,35 @@ describe("createHonoApp", () => {
       platformSession.orgId
     );
     const denied = await app.fetch(
-      new Request("http://localhost:4310/v1/workers/whatsapp/start", {
-        headers: orgAdminSession.headers({
-          "X-CSRF-Token": orgAdminSession.csrfToken,
-        }),
-        method: "POST",
-      })
+      new Request(
+        "http://localhost:4310/v1/workers/whatsapp/start?profileId=default",
+        {
+          headers: orgAdminSession.headers({
+            "X-CSRF-Token": orgAdminSession.csrfToken,
+          }),
+          method: "POST",
+        }
+      )
     );
 
     expect(denied.status).toBe(200);
-    expect(calls).toEqual([`start:whatsapp:${platformSession.orgId}`]);
+    expect(calls).toEqual([`start:whatsapp:${platformSession.orgId}:default`]);
 
     const allowed = await app.fetch(
-      new Request("http://localhost:4310/v1/workers/telegram/stop", {
-        headers: platformSession.headers({
-          "X-CSRF-Token": platformSession.csrfToken,
-        }),
-        method: "POST",
-      })
+      new Request(
+        "http://localhost:4310/v1/workers/telegram/stop?profileId=default",
+        {
+          headers: platformSession.headers({
+            "X-CSRF-Token": platformSession.csrfToken,
+          }),
+          method: "POST",
+        }
+      )
     );
 
     expect(allowed.status).toBe(200);
     expect(calls).toEqual([
-      `start:whatsapp:${platformSession.orgId}`,
+      `start:whatsapp:${platformSession.orgId}:default`,
       "stop:telegram",
     ]);
   });

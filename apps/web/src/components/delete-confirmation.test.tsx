@@ -152,10 +152,13 @@ test("removing a WhatsApp number saves only after confirmation", async () => {
     await act(async () => findButton("Remove").click());
     expect(save).toHaveBeenCalledTimes(1);
     expect(scoped).toHaveBeenCalledWith("org-a");
-    expect(save).toHaveBeenCalledWith({
-      allowedPhones: "628987654321",
-      profileId: "profile-1",
-    });
+    expect(save).toHaveBeenCalledWith(
+      {
+        allowedPhones: "628987654321",
+        profileId: "profile-1",
+      },
+      "profile-1"
+    );
     expect(changes).toEqual([["628987654321"]]);
   } finally {
     await act(async () => root.unmount());
@@ -218,7 +221,7 @@ test("clearing WhatsApp logs stays in its original org after switching", async (
       finish();
       await result;
     });
-    expect(clearA).toHaveBeenCalledWith("whatsapp");
+    expect(clearA).toHaveBeenCalledWith("whatsapp", undefined);
     expect(clearB).not.toHaveBeenCalled();
     expect(
       queryClient.getQueryData<{ stderr: string; stdout: string }>(keyA)

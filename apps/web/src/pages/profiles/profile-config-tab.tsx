@@ -24,6 +24,7 @@ import { toast } from "@nakama/ui/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown01Icon,
+  ArrowRight01Icon,
   Building06Icon,
   CloudDownloadIcon,
   Copy01Icon,
@@ -31,11 +32,22 @@ import {
   MoreHorizontalIcon,
 } from "hugeicons-react";
 import { useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { DiscordSettingsCard } from "@/components/DiscordSettingsCard";
 import { ExportProfileButton } from "@/components/profiles/ExportProfileButton";
 import { ProfileSkillsSettingsSection } from "@/components/profiles/ProfileSkillsSettingsSection";
 import { SoulTab } from "@/components/soul-tools/SoulTab";
+import { TelegramSettingsCard } from "@/components/TelegramSettingsCard";
+import { WhatsAppSettingsCard } from "@/components/WhatsAppSettingsCard";
 import { useAuth } from "@/context/use-auth";
+import {
+  ChannelProfileContext,
+  useChannelProfileId,
+  useProfilesQuery,
+} from "@/hooks/use-app-queries";
+import { useSystemStatusQuery } from "@/hooks/use-system-status";
 import { client, formatError } from "@/lib/client";
+import { profilePath } from "@/lib/navigation";
 import { queryKeys } from "@/lib/query-keys";
 import { ProfileConfigAssignmentsSection } from "@/pages/profiles/profile-config-assignments-section";
 import { ProfileConfigIdentitySection } from "@/pages/profiles/profile-config-identity-section";
@@ -83,6 +95,14 @@ export function ProfileConfigTab({ state }: { state: ProfilesPageState }) {
       ) : null}
       <ProfileConfigIdentitySection state={state} />
       {canPack ? (
+        <ChannelProfileContext.Provider
+          key={`${activeOrg?.id}:${detail.id}`}
+          value={detail.id}
+        >
+          <ProfileConnections />
+        </ChannelProfileContext.Provider>
+      ) : null}
+      {canPack ? (
         <section className="space-y-4" id="profile-prompt">
           {canCreateProfile ? <SoulTab profileId={detail.id} /> : null}
           <details className="group/history">
@@ -101,6 +121,154 @@ export function ProfileConfigTab({ state }: { state: ProfilesPageState }) {
       ) : null}
       <ProfileSkillsSettingsSection disabled={busy} profile={detail} />
       <ProfileConfigAssignmentsSection key={detail.id} state={state} />
+    </div>
+  );
+}
+
+export function ProfileConnections() {
+  const profileId = useChannelProfileId();
+  const { data: status, isPending, error } = useSystemStatusQuery();
+  // Brand SVGs: Simple Icons v16 (CC0), https://simpleicons.org.
+  const channels = [
+    {
+      id: "telegram",
+      name: "Telegram",
+      worker: status?.telegramWorker,
+    },
+    {
+      id: "whatsapp",
+      name: "WhatsApp",
+      worker: status?.whatsappWorker,
+    },
+    {
+      id: "discord",
+      name: "Discord",
+      worker: status?.discordWorker,
+    },
+  ].map((channel) => {
+    const worker = channel.worker;
+    const connected = Boolean(
+      !error &&
+        worker?.running &&
+        worker.paired &&
+        ("connected" in worker ? worker.connected : true)
+    );
+    const unavailable = Boolean(error || !worker);
+    const action =
+      unavailable || worker?.configured || worker?.paired
+        ? "Settings"
+        : "Connect";
+    const statusLabel = isPending
+      ? "Checking…"
+      : unavailable
+        ? "Status unavailable"
+        : connected
+          ? "Connected"
+          : worker?.paired
+            ? "Offline"
+            : worker?.configured
+              ? "Setup incomplete"
+              : "Not connected";
+    return { ...channel, action, connected, statusLabel };
+  });
+
+  return (
+    <section className="space-y-2" id="profile-connections">
+      <h2 className="font-medium text-sm">Channels</h2>
+      {isPending ? (
+        <p className="text-muted-foreground text-sm" role="status">
+          Loading connections…
+        </p>
+      ) : null}
+      {error ? (
+        <p className="text-destructive text-sm" role="alert">
+          Connection status is unavailable. Open an app to check its setup.
+        </p>
+      ) : null}
+      <div className="divide-y divide-border rounded-xl border border-border bg-card">
+        {channels.map(({ id, name, action, connected, statusLabel }) => (
+          <Link
+            aria-label={`${action} ${name}`}
+            className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left outline-none transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            key={id}
+            to={`/profiles/${encodeURIComponent(profileId ?? "")}/channels/${id}`}
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <img
+                alt=""
+                className="size-5 shrink-0"
+                height={20}
+                src={`/icons/${id}.svg`}
+                width={20}
+              />
+              <span className="min-w-0">
+                <span className="block font-medium text-sm">{name}</span>
+                <span
+                  className={
+                    connected
+                      ? "block text-emerald-700 text-xs dark:text-emerald-300"
+                      : "block text-muted-foreground text-xs"
+                  }
+                >
+                  {statusLabel}
+                </span>
+              </span>
+            </span>
+            <ArrowRight01Icon
+              aria-hidden
+              className="size-4 shrink-0 text-muted-foreground"
+            />
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function ProfileChannelSettingsPage() {
+  const { profileId, channel } = useParams();
+  const { activeOrg } = useAuth();
+  const { data: profiles = [], isPending, error } = useProfilesQuery();
+  const profile = profiles.find((item) => item.id === profileId);
+  const settings = {
+    discord: { Component: DiscordSettingsCard, name: "Discord" },
+    telegram: { Component: TelegramSettingsCard, name: "Telegram" },
+    whatsapp: { Component: WhatsAppSettingsCard, name: "WhatsApp" },
+  };
+  const selected =
+    channel === "telegram" || channel === "whatsapp" || channel === "discord"
+      ? settings[channel]
+      : undefined;
+  if (isPending) {
+    return <p role="status">Loading settings…</p>;
+  }
+  if (error) {
+    return <p role="alert">{formatError(error)}</p>;
+  }
+  if (!(profile && selected)) {
+    return <p role="alert">Channel settings not found.</p>;
+  }
+  const Settings = selected.Component;
+  return (
+    <div className="mx-auto max-w-3xl space-y-6">
+      <Link
+        className="block w-fit text-muted-foreground text-sm hover:text-foreground"
+        to={`${profilePath(profile.id)}#profile-connections`}
+      >
+        ← Back to agent
+      </Link>
+      <header className="space-y-2">
+        <h1 className="font-medium text-xl">{selected.name} settings</h1>
+        <p className="text-muted-foreground text-sm">
+          Manage your {selected.name} connection and who can message this agent.
+        </p>
+      </header>
+      <ChannelProfileContext.Provider
+        key={`${activeOrg?.id}:${profile.id}:${channel}`}
+        value={profile.id}
+      >
+        <Settings embedded />
+      </ChannelProfileContext.Provider>
     </div>
   );
 }
