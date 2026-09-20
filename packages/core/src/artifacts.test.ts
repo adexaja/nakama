@@ -1,14 +1,23 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   listArtifacts,
+  listWorkspaceFiles,
   readArtifactFile,
+  readWorkspaceFile,
   writeArtifactFile,
 } from "./artifacts";
-import { getProfileArtifactsDir } from "./soul/resolve";
+import { getProfileArtifactsDir, getProfileSoulDir } from "./soul/resolve";
 
 const SAMPLE_DOCX_PATH = path.join(
   import.meta.dir,
@@ -348,4 +357,67 @@ test("a missing artifact is a 404, not a server error", async () => {
       profileId: PROFILE_ID,
     })
   ).rejects.toMatchObject({ status: 404 });
+});
+
+test("workspace browsing includes root files, empty folders and nested files", async () => {
+  const root = getProfileSoulDir(ORG_ID, PROFILE_ID);
+  await mkdir(path.join(root, "empty"));
+  await writeFile(path.join(root, "SOUL.md"), "# Soul");
+  await writeFile(path.join(root, ".env"), "LOCAL=value");
+  await writeArtifact("nested/report.md", "# Report");
+  const listing = await listWorkspaceFiles(ORG_ID, PROFILE_ID);
+  expect(
+    listing.entries.map(({ filename, kind }) => ({ filename, kind }))
+  ).toEqual([
+    { filename: "artifacts", kind: "directory" },
+    { filename: "empty", kind: "directory" },
+    { filename: ".env", kind: "file" },
+    { filename: "SOUL.md", kind: "file" },
+  ]);
+  expect(
+    (await listWorkspaceFiles(ORG_ID, PROFILE_ID, "empty")).entries
+  ).toEqual([]);
+  const nested = await listWorkspaceFiles(
+    ORG_ID,
+    PROFILE_ID,
+    "artifacts/nested"
+  );
+  expect(nested.entries[0]?.path).toBe("artifacts/nested/report.md");
+  const file = await readWorkspaceFile(ORG_ID, PROFILE_ID, "SOUL.md");
+  expect(file.contentType).toBe("text/markdown");
+  expect(await Bun.file(file.filePath).text()).toBe("# Soul");
+});
+
+test("workspace paths reject traversal and symlinks outside the profile", async () => {
+  const root = getProfileSoulDir(ORG_ID, PROFILE_ID);
+  const other = getProfileSoulDir("other_org", "other_profile");
+  await mkdir(other, { recursive: true });
+  await writeFile(path.join(other, "private.txt"), "private");
+  await symlink(other, path.join(root, "escape"));
+  for (const filename of [
+    "../other_profile/private.txt",
+    path.join(other, "private.txt"),
+    "escape/private.txt",
+    "bad\0path",
+    "..\\private.txt",
+  ]) {
+    await expect(
+      readWorkspaceFile(ORG_ID, PROFILE_ID, filename)
+    ).rejects.toMatchObject({ status: 400 });
+  }
+  await expect(
+    listWorkspaceFiles(ORG_ID, PROFILE_ID, "escape")
+  ).rejects.toMatchObject({ status: 400 });
+  expect(
+    (await listWorkspaceFiles(ORG_ID, PROFILE_ID)).entries.some(
+      (entry) => entry.filename === "escape"
+    )
+  ).toBe(false);
+  await expect(
+    readWorkspaceFile(ORG_ID, PROFILE_ID, "missing.txt")
+  ).rejects.toMatchObject({ status: 404 });
+  await expect(
+    readWorkspaceFile(ORG_ID, PROFILE_ID, "artifacts")
+  ).rejects.toMatchObject({ status: 404 });
+  expect((await listWorkspaceFiles(ORG_ID, "new_profile")).entries).toEqual([]);
 });

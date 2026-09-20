@@ -80,33 +80,11 @@ export function TelegramQrSetup({
 
   if (!pairing) {
     return (
-      <div className="px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="font-medium text-sm">Create with QR</p>
-            <p className="text-muted-foreground text-xs">
-              The manager can access your bot token. By default, this is
-              getnakama.cloud. Use manual setup to avoid manager access.
-            </p>
-          </div>
-          <Button
-            disabled={start.isPending}
-            onClick={startPairing}
-            size="sm"
-            type="button"
-          >
-            {start.isPending ? (
-              <Spinner className="size-3" />
-            ) : (
-              <QrCodeScanIcon className="size-3.5" />
-            )}
-            Create with QR
-          </Button>
-        </div>
-        {error ? (
-          <p className="mt-2 text-destructive text-xs">{error}</p>
-        ) : null}
-      </div>
+      <StartTelegramPairing
+        error={error}
+        onStart={startPairing}
+        pending={start.isPending}
+      />
     );
   }
 
@@ -190,6 +168,39 @@ export function TelegramQrSetup({
       <p className="text-muted-foreground text-xs">
         Expires {new Date(pairing.expiresAt).toLocaleTimeString()}
       </p>
+    </div>
+  );
+}
+
+function StartTelegramPairing({
+  error,
+  onStart,
+  pending,
+}: {
+  error: string | null;
+  onStart: () => void;
+  pending: boolean;
+}) {
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="font-medium text-sm">Create with QR</p>
+          <p className="text-muted-foreground text-xs">
+            The manager can access your bot token. By default, this is
+            getnakama.cloud. Use manual setup to avoid manager access.
+          </p>
+        </div>
+        <Button disabled={pending} onClick={onStart} size="sm" type="button">
+          {pending ? (
+            <Spinner className="size-3" />
+          ) : (
+            <QrCodeScanIcon className="size-3.5" />
+          )}
+          Create with QR
+        </Button>
+      </div>
+      {error ? <p className="mt-2 text-destructive text-xs">{error}</p> : null}
     </div>
   );
 }

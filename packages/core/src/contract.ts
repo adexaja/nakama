@@ -2236,6 +2236,19 @@ export interface ArtifactFile {
   updatedAt: string;
 }
 
+export interface WorkspaceEntry extends ArtifactFile {
+  kind: "file" | "directory";
+}
+
+export interface SetFilePinnedRequest {
+  path: string;
+  pinned: boolean;
+}
+
+export interface ListWorkspaceFilesResponse {
+  entries: WorkspaceEntry[];
+}
+
 export interface ListArtifactsOptions {
   folder?: string;
   limit?: number;

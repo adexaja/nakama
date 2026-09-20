@@ -1,6 +1,20 @@
-import type { ArtifactFile } from "@nakama/core/contract";
-import { useCallback, useMemo, useState } from "react";
+import type { ArtifactFile, WorkspaceEntry } from "@nakama/core/contract";
+import { Button } from "@nakama/ui/button";
+import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { ArtifactAttachmentPanelActions } from "@/components/chat/artifact-attachment-panel-actions";
+import { ArtifactAttachmentPanelBody } from "@/components/chat/artifact-attachment-panel-body";
+import {
+  artifactPanelBodyClassName,
+  artifactPanelDefaultWidth,
+  artifactPanelHeaderMeta,
+  downloadActionLabel,
+} from "@/components/chat/artifact-attachment-panel-body.shared";
+import {
+  type ArtifactPreviewMode,
+  ArtifactPreviewModeToggle,
+} from "@/components/chat/artifact-preview-mode-toggle";
 import {
   ARTIFACT_TYPE_FILTER_LABELS,
   type ArtifactTypeFilter,
@@ -11,11 +25,19 @@ import { KnowledgeTab } from "@/components/soul-tools/KnowledgeTab";
 import { ChatAttachmentPanelProvider } from "@/context/chat-attachment-panel-context";
 import { useActiveChatProfile } from "@/context/use-active-chat-profile";
 import { useAuth } from "@/context/use-auth";
+import { useChatAttachmentPanel } from "@/context/use-chat-attachment-panel";
 import { useProfilesQuery } from "@/hooks/use-app-queries";
 import {
-  useArtifactsInfiniteQuery,
+  useArtifactsQuery,
   useDeleteArtifactMutation,
+  useFilePins,
 } from "@/hooks/use-resource-mutations";
+import {
+  artifactCodeLanguage,
+  isMarkdownArtifactMimeType,
+  isTextArtifactMimeType,
+} from "@/lib/chat-artifacts";
+import { client, formatError } from "@/lib/client";
 import {
   type FilesViewMode,
   getStoredFilesViewMode,
@@ -24,12 +46,18 @@ import {
 } from "@/lib/files-page.shared";
 import { ArtifactFolderBreadcrumb } from "@/pages/files/files-artifact-folder-breadcrumb";
 import {
+  artifactBasename,
   listArtifactsInFolder,
   normalizeArtifactFolderPrefix,
 } from "@/pages/files/files-artifact-folders";
+import {
+  FileEntriesLayout,
+  FileEntry,
+} from "@/pages/files/files-artifact-list-view";
 import { FilesArtifactViews } from "@/pages/files/files-artifact-views";
 import { FilesDeleteDialog } from "@/pages/files/files-delete-dialog";
 import { FilesSearchRow } from "@/pages/files/files-search-row";
+import { FilePinsContext, toChatArtifactRef } from "@/pages/files/files-shared";
 import { FilesToolbar } from "@/pages/files/files-toolbar";
 
 const EMPTY_ARTIFACTS: ArtifactFile[] = [];
@@ -38,22 +66,129 @@ export function FilesPage() {
   const { profileId: activeProfileId } = useActiveChatProfile();
   const { data: profiles = [] } = useProfilesQuery();
   const profileId = resolveFilesProfileId({ activeProfileId, profiles });
-  const { user } = useAuth();
+  const { user, activeOrg } = useAuth();
   const canViewFiles = user?.isPlatformAdmin === true;
+  const pins = useFilePins(profileId, canViewFiles);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get("view") ?? "workspace";
+  function navigate(view: string, folder = "") {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("view", view);
+      next.delete("folder");
+      if (folder) {
+        next.set("folder", folder);
+      }
+      return next;
+    });
+  }
 
   return (
-    <ChatAttachmentPanelProvider presentation="overlay">
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-        <div className="space-y-8">
-          <section aria-label="Knowledge" className="relative min-w-0">
-            <KnowledgeTab key={profileId} profileId={profileId} />
-          </section>
+    <ChatAttachmentPanelProvider
+      key={`${activeOrg?.id}:${profileId}`}
+      presentation="overlay"
+    >
+      <FilePinsContext.Provider value={pins.controls}>
+        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto bg-muted/20 p-4 sm:p-6">
           {canViewFiles ? (
-            <FilesArtifactsPage key={profileId} profileId={profileId} />
-          ) : null}
+            <div className="space-y-4">
+              <nav aria-label="File locations" className="flex flex-wrap gap-2">
+                {(["workspace", "artifacts", "knowledge"] as const).map(
+                  (location) => (
+                    <Button
+                      aria-current={view === location ? "page" : undefined}
+                      key={location}
+                      onClick={() => navigate(location)}
+                      variant={view === location ? "secondary" : "ghost"}
+                    >
+                      {location === "workspace"
+                        ? "All files"
+                        : location === "artifacts"
+                          ? "Artifacts"
+                          : "Knowledge"}
+                    </Button>
+                  )
+                )}
+              </nav>
+              {view === "knowledge" ? null : (
+                <PinnedFilesSection
+                  entries={pins.entries}
+                  error={pins.error}
+                  key={`${activeOrg?.id}:${profileId}`}
+                  profileId={profileId}
+                />
+              )}
+              {view === "knowledge" ? (
+                <KnowledgeTab key={profileId} profileId={profileId} />
+              ) : view === "artifacts" ? (
+                <FilesArtifactsPage key={profileId} profileId={profileId} />
+              ) : (
+                <WorkspaceFilesPage
+                  folder={searchParams.get("folder") ?? ""}
+                  key={`${profileId}:${searchParams.get("folder") ?? ""}`}
+                  onNavigate={(folder) => navigate("workspace", folder)}
+                  profileId={profileId}
+                />
+              )}
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              Workspace files are available to platform administrators.
+            </p>
+          )}
         </div>
-      </div>
+      </FilePinsContext.Provider>
     </ChatAttachmentPanelProvider>
+  );
+}
+
+function PinnedFilesSection({
+  entries,
+  profileId,
+  error,
+}: {
+  entries: WorkspaceEntry[];
+  profileId: string | null;
+  error: unknown;
+}) {
+  const [selected, setSelected] = useState<WorkspaceEntry | null>(null);
+  const closePreview = useCallback(() => setSelected(null), []);
+  if (!profileId) {
+    return null;
+  }
+  return (
+    <>
+      {error ? (
+        <p className="text-destructive text-sm" role="alert">
+          {formatError(error)}
+        </p>
+      ) : null}
+      {entries.length > 0 ? (
+        <section aria-label="Pinned files" className="space-y-3">
+          <h2 className="font-medium text-sm">Pinned</h2>
+          <FileEntriesLayout viewMode="grid">
+            {entries.map((entry) => (
+              <FileEntry
+                {...entry}
+                key={entry.path}
+                onOpen={() => setSelected(entry)}
+                pinPath={entry.path}
+                viewMode="grid"
+              />
+            ))}
+          </FileEntriesLayout>
+          {selected ? (
+            <WorkspaceFilePreview
+              entry={selected}
+              id={`pinned:${profileId}:${selected.path}`}
+              key={selected.path}
+              onClose={closePreview}
+              profileId={profileId}
+            />
+          ) : null}
+        </section>
+      ) : null}
+    </>
   );
 }
 
@@ -69,27 +204,13 @@ function FilesArtifactsPage({ profileId }: { profileId: string | null }) {
   const [viewMode, setViewMode] = useState<FilesViewMode>(() =>
     getStoredFilesViewMode()
   );
-  const {
-    data,
-    isLoading,
-    isFetching,
-    isFetchingNextPage,
-    error,
-    refetch,
-    fetchNextPage,
-    hasNextPage,
-  } = useArtifactsInfiniteQuery(
+  const { data, isLoading, isFetching, error, refetch } = useArtifactsQuery(
     profileId,
     searchQuery.trim() ? "" : folderPrefix
   );
   const deleteMutation = useDeleteArtifactMutation();
-
-  const artifacts = useMemo(
-    () => data?.pages.flatMap((page) => page.artifacts) ?? EMPTY_ARTIFACTS,
-    [data]
-  );
-  const totalCount = data?.pages[0]?.total ?? 0;
-  const remainingCount = Math.max(totalCount - artifacts.length, 0);
+  const artifacts = data?.artifacts ?? EMPTY_ARTIFACTS;
+  const totalCount = artifacts.length;
   const typeOptions = useMemo(
     () => availableArtifactTypeFilters(artifacts),
     [artifacts]
@@ -198,9 +319,7 @@ function FilesArtifactsPage({ profileId }: { profileId: string | null }) {
             onViewModeChange={handleViewModeChange}
             showViewModeToggle={totalCount > 0}
             viewMode={viewMode}
-          />
-
-          {totalCount > 0 ? (
+          >
             <FilesSearchRow
               onSearchQueryChange={setSearchQuery}
               onTypeFilterChange={setTypeFilter}
@@ -208,7 +327,7 @@ function FilesArtifactsPage({ profileId }: { profileId: string | null }) {
               typeFilter={effectiveTypeFilter}
               typeOptions={typeOptions}
             />
-          ) : null}
+          </FilesToolbar>
 
           {folderPrefix && !isSearching ? (
             <ArtifactFolderBreadcrumb
@@ -224,18 +343,10 @@ function FilesArtifactsPage({ profileId }: { profileId: string | null }) {
             error={error}
             folders={listing.folders}
             isLoading={isLoading}
+            key={`${folderPrefix}:${searchQuery}:${effectiveTypeFilter}`}
             listingFiles={listing.files}
             onDelete={setDeleteTarget}
             onOpenFolder={handleFolderChange}
-            pagination={
-              hasNextPage
-                ? {
-                    loadingMore: isFetchingNextPage,
-                    onShowMore: () => void fetchNextPage(),
-                    remainingCount,
-                  }
-                : null
-            }
             profileId={profileId}
             showFullPath={isSearching}
             viewMode={viewMode}
@@ -250,5 +361,345 @@ function FilesArtifactsPage({ profileId }: { profileId: string | null }) {
         onConfirm={() => void handleDelete()}
       />
     </>
+  );
+}
+
+function WorkspaceFilesPage({
+  profileId,
+  folder,
+  onNavigate,
+}: {
+  profileId: string | null;
+  folder: string;
+  onNavigate: (folder: string) => void;
+}) {
+  const { activeOrg } = useAuth();
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<ArtifactTypeFilter>("all");
+  const [selected, setSelected] = useState<WorkspaceEntry | null>(null);
+  const closePreview = useCallback(() => setSelected(null), []);
+  const [viewMode, setViewMode] = useState<FilesViewMode>(
+    getStoredFilesViewMode
+  );
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
+    enabled: Boolean(profileId),
+    queryFn: () => client.listProfileWorkspaceFiles(profileId!, folder),
+    queryKey: ["workspace-files", activeOrg?.id, profileId, folder],
+  });
+  const typeOptions = availableArtifactTypeFilters(
+    (data?.entries ?? []).filter((entry) => entry.kind !== "directory")
+  );
+  const entries = (data?.entries ?? []).filter(
+    (entry) =>
+      artifactBasename(entry.filename)
+        .toLowerCase()
+        .includes(search.trim().toLowerCase()) &&
+      (entry.kind === "directory" ||
+        artifactMatchesTypeFilter(entry, typeFilter))
+  );
+  function openFolder(next: string) {
+    setSearch("");
+    setSelected(null);
+    onNavigate(next);
+  }
+  if (!profileId) {
+    return (
+      <p className="text-muted-foreground text-sm">No profiles available.</p>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      <FilesToolbar
+        isFetching={isFetching}
+        onRefresh={() => void refetch()}
+        onViewModeChange={(mode) => {
+          setViewMode(mode);
+          setStoredFilesViewMode(mode);
+        }}
+        showViewModeToggle
+        viewMode={viewMode}
+      >
+        <FilesSearchRow
+          onSearchQueryChange={setSearch}
+          onTypeFilterChange={setTypeFilter}
+          searchLabel="Search current folder"
+          searchQuery={search}
+          typeFilter={typeFilter}
+          typeOptions={typeOptions}
+        />
+      </FilesToolbar>
+      <ArtifactFolderBreadcrumb onNavigate={openFolder} prefix={folder} />
+      {isLoading ? (
+        <p className="text-muted-foreground text-sm">Loading files…</p>
+      ) : error ? (
+        <p className="text-destructive text-sm">{formatError(error)}</p>
+      ) : entries.length === 0 ? (
+        <p className="text-muted-foreground text-sm">
+          {search ? "No matching files." : "This folder is empty."}
+        </p>
+      ) : (
+        <FileEntriesLayout viewMode={viewMode}>
+          {entries.map((entry) => (
+            <WorkspaceEntryRow
+              entry={entry}
+              key={entry.path}
+              onOpenFolder={openFolder}
+              onSelect={setSelected}
+              viewMode={viewMode}
+            />
+          ))}
+        </FileEntriesLayout>
+      )}
+      {selected ? (
+        <WorkspaceFilePreview
+          entry={selected}
+          key={selected.path}
+          onClose={closePreview}
+          profileId={profileId}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function WorkspaceEntryRow({
+  entry,
+  viewMode,
+  onOpenFolder,
+  onSelect,
+}: {
+  entry: WorkspaceEntry;
+  viewMode: FilesViewMode;
+  onOpenFolder: (folder: string) => void;
+  onSelect: (entry: WorkspaceEntry) => void;
+}) {
+  const directory = entry.kind === "directory";
+  return (
+    <FileEntry
+      {...entry}
+      directory={directory}
+      filename={artifactBasename(entry.filename)}
+      onOpen={() => (directory ? onOpenFolder(entry.path) : onSelect(entry))}
+      pinPath={entry.path}
+      viewMode={viewMode}
+    />
+  );
+}
+
+function WorkspaceFilePreview({
+  entry,
+  profileId,
+  onClose,
+  id = `workspace:${profileId}:${entry.path}`,
+}: {
+  entry: WorkspaceEntry;
+  profileId: string;
+  onClose: () => void;
+  id?: string;
+}) {
+  const { activeOrg } = useAuth();
+  const { show, update, hide } = useChatAttachmentPanel();
+  const [fullscreen, setFullscreen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [previewMode, setPreviewMode] =
+    useState<ArtifactPreviewMode>("preview");
+  const isMarkdown = isMarkdownArtifactMimeType(entry.mimeType);
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const isImage = entry.mimeType.startsWith("image/");
+  const isVideo = entry.mimeType.startsWith("video/");
+  const isPdf = entry.mimeType === "application/pdf";
+  const isText =
+    isTextArtifactMimeType(entry.mimeType) ||
+    artifactCodeLanguage(entry.filename) !== null;
+  const canPreview =
+    entry.sizeBytes <= 10 * 1024 * 1024 &&
+    (isImage || isVideo || isPdf || isText);
+  const { data, isLoading, error } = useQuery({
+    enabled: canPreview,
+    queryFn: async () => {
+      const blob = await client.readProfileWorkspaceFile(profileId, entry.path);
+      return { blob, text: isText ? await blob.text() : null };
+    },
+    queryKey: [
+      "workspace-preview",
+      activeOrg?.id,
+      profileId,
+      entry.path,
+      entry.updatedAt,
+    ],
+  });
+  useEffect(() => {
+    if (!data) {
+      return;
+    }
+    const url = URL.createObjectURL(data.blob);
+    setObjectUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [data]);
+  const downloadUrl = `${client.baseUrl}/v1/profiles/${encodeURIComponent(profileId)}/workspace/content?${new URLSearchParams({ path: entry.path })}`;
+  useEffect(() => {
+    show({
+      content: null,
+      defaultWidth: artifactPanelDefaultWidth(entry.filename, entry.mimeType),
+      id,
+      onClose,
+      title: entry.filename,
+    });
+    return () => hide(id);
+  }, [id, entry.filename, entry.mimeType, show, hide, onClose]);
+
+  useEffect(() => {
+    if (!copied) {
+      return;
+    }
+    const timer = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  useEffect(() => {
+    const header = artifactPanelHeaderMeta({
+      filename: entry.filename,
+      mimeType: entry.mimeType,
+      showPreviewToggle: isMarkdown,
+    });
+    update(id, {
+      ...header,
+      bodyClassName: artifactPanelBodyClassName({
+        isHtml: false,
+        isImage,
+        isMarkdown,
+        isVideo,
+        previewMode,
+      }),
+      content: (
+        <WorkspacePreviewBody
+          canPreview={canPreview}
+          content={data?.text ?? null}
+          entry={entry}
+          error={error}
+          loading={isLoading}
+          objectUrl={objectUrl}
+          previewMode={previewMode}
+        />
+      ),
+      fullscreen,
+      headerActions: (
+        <ArtifactAttachmentPanelActions
+          content={data?.text ?? null}
+          copied={copied}
+          copyDisabled={data?.text == null}
+          downloadLabel={downloadActionLabel(entry.mimeType)}
+          downloadUrl={downloadUrl}
+          filename={artifactBasename(entry.filename)}
+          fullscreen={fullscreen}
+          loading={isLoading}
+          onCopy={async () => {
+            if (data?.text == null) {
+              return;
+            }
+            try {
+              await navigator.clipboard.writeText(data.text);
+              setCopied(true);
+            } catch {
+              // Clipboard may be unavailable outside secure contexts.
+            }
+          }}
+          onToggleFullscreen={() => setFullscreen((value) => !value)}
+        />
+      ),
+      leading: isMarkdown ? (
+        <ArtifactPreviewModeToggle
+          mode={previewMode}
+          onChange={setPreviewMode}
+        />
+      ) : null,
+      resizable: !fullscreen,
+    });
+  }, [
+    id,
+    update,
+    entry,
+    isMarkdown,
+    isImage,
+    isVideo,
+    fullscreen,
+    copied,
+    previewMode,
+    data,
+    isLoading,
+    error,
+    downloadUrl,
+    objectUrl,
+    canPreview,
+  ]);
+  return null;
+}
+
+function WorkspacePreviewBody({
+  previewMode,
+  entry,
+  objectUrl,
+  content,
+  loading,
+  error,
+  canPreview,
+}: {
+  entry: WorkspaceEntry;
+  objectUrl: string | null;
+  content: string | null;
+  loading: boolean;
+  error: unknown;
+  canPreview: boolean;
+  previewMode: ArtifactPreviewMode;
+}) {
+  if (!canPreview) {
+    return (
+      <p className="text-muted-foreground text-sm">
+        Download this file to view it.
+      </p>
+    );
+  }
+  const shared = {
+    artifact: toChatArtifactRef(entry),
+    canPreview,
+    error: error ? formatError(error) : null,
+    loading,
+    previewMode,
+  };
+  if (entry.mimeType.startsWith("image/")) {
+    return (
+      <ArtifactAttachmentPanelBody
+        {...shared}
+        imagePreviewUrl={objectUrl}
+        kind="image"
+      />
+    );
+  }
+  if (entry.mimeType.startsWith("video/")) {
+    return (
+      <ArtifactAttachmentPanelBody
+        {...shared}
+        kind="video"
+        videoPreviewUrl={objectUrl}
+      />
+    );
+  }
+  if (entry.mimeType === "application/pdf") {
+    return (
+      <ArtifactAttachmentPanelBody
+        {...shared}
+        kind="pdf"
+        pdfPreviewUrl={objectUrl}
+      />
+    );
+  }
+  return (
+    <ArtifactAttachmentPanelBody
+      {...shared}
+      content={content}
+      format={isMarkdownArtifactMimeType(entry.mimeType) ? "markdown" : "plain"}
+      kind="text"
+      language={artifactCodeLanguage(entry.filename)}
+    />
   );
 }

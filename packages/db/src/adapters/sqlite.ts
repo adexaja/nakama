@@ -3423,6 +3423,16 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
         .map((row) => toAttachmentRecord(row as AttachmentRow));
     },
 
+    async listFilePins(orgId, userId, profileId) {
+      return (
+        db
+          .query(
+            "SELECT path FROM file_pins WHERE org_id = ? AND user_id = ? AND profile_id = ? ORDER BY path"
+          )
+          .all(orgId, userId, profileId) as { path: string }[]
+      ).map((row) => row.path);
+    },
+
     async listLlmTurnUsage(orgId) {
       return (
         listLlmTurnUsageStmt.all(orgId) as {
@@ -3783,6 +3793,17 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     async revokeBrowserSessionsForUser(userId, revokedAt) {
       const result = revokeBrowserSessionsForUserStmt.run(revokedAt, userId);
       return result.changes;
+    },
+    async setFilePinned(orgId, userId, profileId, path, pinned) {
+      if (pinned) {
+        db.query(
+          "INSERT OR IGNORE INTO file_pins (org_id, user_id, profile_id, path) VALUES (?, ?, ?, ?)"
+        ).run(orgId, userId, profileId, path);
+      } else {
+        db.query(
+          "DELETE FROM file_pins WHERE org_id = ? AND user_id = ? AND profile_id = ? AND path = ?"
+        ).run(orgId, userId, profileId, path);
+      }
     },
 
     async setUserContext(orgId, userId, content, _updatedAt) {

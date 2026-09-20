@@ -130,16 +130,6 @@ function SkillDetailPageContent({
     queryFn: () => client.listSkillFiles(skill.id, orgId),
     queryKey: [...queryKeys.skills.detail(skill.id), "files", orgId],
   });
-  const fileQuery = useQuery({
-    enabled: Boolean(orgId) && selectedFile !== "SKILL.md",
-    queryFn: () => client.readSkillFile(skill.id, selectedFile, orgId),
-    queryKey: [
-      ...queryKeys.skills.detail(skill.id),
-      "file",
-      orgId,
-      selectedFile,
-    ],
-  });
   const busy = unassignSkillMutation.isPending || patchSkillMutation.isPending;
 
   function handleRemoveOpenChange(open: boolean) {
@@ -264,44 +254,11 @@ function SkillDetailPageContent({
               usageSummary={usageSummary}
             />
           ) : (
-            <div className="space-y-4">
-              <h2 className="break-all font-medium text-sm">{selectedFile}</h2>
-              {fileQuery.isLoading && <p role="status">Loading file…</p>}
-              {fileQuery.error && (
-                <div role="alert">
-                  <p className="text-destructive text-sm">
-                    {formatError(fileQuery.error)}
-                  </p>
-                  <Button
-                    onClick={() => void fileQuery.refetch()}
-                    variant="outline"
-                  >
-                    Retry
-                  </Button>
-                </div>
-              )}
-              {fileQuery.data?.content != null && (
-                <CodeBlock
-                  className="rounded-lg border border-border"
-                  code={fileQuery.data.content}
-                  lang={selectedFile.endsWith(".md") ? "markdown" : "text"}
-                />
-              )}
-              {fileQuery.data?.image && (
-                <div className="flex justify-center rounded-lg border border-border bg-muted/20 p-4">
-                  <img
-                    alt={selectedFile}
-                    className="max-h-[70vh] max-w-full object-contain"
-                    src={`data:${fileQuery.data.image.mediaType};base64,${fileQuery.data.image.dataBase64}`}
-                  />
-                </div>
-              )}
-              {fileQuery.data?.unavailableReason && (
-                <p className="text-muted-foreground text-sm">
-                  {fileQuery.data.unavailableReason}
-                </p>
-              )}
-            </div>
+            <SkillFilePreview
+              orgId={orgId}
+              selectedFile={selectedFile}
+              skillId={skill.id}
+            />
           )}
         </div>
       </div>
@@ -429,3 +386,61 @@ function PageState({ message }: { message: string }) {
 
 import type { SkillFilesResponse } from "@nakama/core/contract";
 import { useQuery } from "@tanstack/react-query";
+
+function SkillFilePreview({
+  orgId,
+  selectedFile,
+  skillId,
+}: {
+  orgId: string;
+  selectedFile: string;
+  skillId: string;
+}) {
+  const fileQuery = useQuery({
+    enabled: Boolean(orgId) && selectedFile !== "SKILL.md",
+    queryFn: () => client.readSkillFile(skillId, selectedFile, orgId),
+    queryKey: [
+      ...queryKeys.skills.detail(skillId),
+      "file",
+      orgId,
+      selectedFile,
+    ],
+  });
+  return (
+    <div className="space-y-4">
+      <h2 className="break-all font-medium text-sm">{selectedFile}</h2>
+      {fileQuery.isLoading && <p role="status">Loading file…</p>}
+      {fileQuery.error && (
+        <div role="alert">
+          <p className="text-destructive text-sm">
+            {formatError(fileQuery.error)}
+          </p>
+          <Button onClick={() => void fileQuery.refetch()} variant="outline">
+            Retry
+          </Button>
+        </div>
+      )}
+      {fileQuery.data?.content != null && (
+        <CodeBlock
+          className="rounded-lg border border-border"
+          code={fileQuery.data.content}
+          lang={selectedFile.endsWith(".md") ? "markdown" : "text"}
+        />
+      )}
+      {fileQuery.data?.image && (
+        <div className="flex justify-center rounded-lg border border-border bg-muted/20 p-4">
+          <img
+            alt={selectedFile}
+            className="max-h-[70vh] max-w-full object-contain"
+            src={`data:${fileQuery.data.image.mediaType};base64,${fileQuery.data.image.dataBase64}`}
+          />
+        </div>
+      )}
+      {fileQuery.data?.unavailableReason && (
+        <p className="text-muted-foreground text-sm">
+          {fileQuery.data.unavailableReason}
+        </p>
+      )}
+    </div>
+  );
+}

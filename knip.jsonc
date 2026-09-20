@@ -16,12 +16,15 @@
         "ui/app.js",
         "extension/background.js",
         "extension/content.js",
+        "extension/microphone.js",
         "extension/offscreen.js",
         "extension/popup.js"
       ]
     },
     "apps/desktop": {
       "entry": ["preload.cjs", "tests/smoke.mjs"],
+      // The packaged runtime copies workspace sources and generated declarations.
+      "ignore": ["dist/**"],
       // PowerShell 7 is supplied by the Windows build host.
       "ignoreBinaries": ["pwsh"],
       "project": ["*.mjs", "*.cjs", "tests/*.mjs", "scripts/*.mjs"]

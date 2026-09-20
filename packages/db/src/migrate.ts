@@ -58,6 +58,7 @@ export function migrateDatabase(db: Database): void {
   atomic(migrateComposioUserConnections);
   atomic(migrateProfileChangeEventsTable);
   atomic(migratePluginTables);
+  atomic(migrateFilePinsTable);
 }
 
 function applyBootstrapSchema(db: Database): void {
@@ -1739,5 +1740,17 @@ function migrateComposioTables(db: Database): void {
       FOREIGN KEY (profile_id) REFERENCES profiles (id) ON DELETE CASCADE,
       FOREIGN KEY (toolkit_id) REFERENCES composio_toolkits (id) ON DELETE CASCADE
     );
+  `);
+}
+
+function migrateFilePinsTable(db: Database): void {
+  db.exec(`
+CREATE TABLE IF NOT EXISTS file_pins (
+  org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  PRIMARY KEY (org_id, user_id, profile_id, path)
+);
   `);
 }

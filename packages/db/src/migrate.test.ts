@@ -1109,3 +1109,31 @@ describe("ephemeral attachment marking", () => {
     }
   });
 });
+
+test("file pins migrate existing databases, survive reopen and cascade with profiles", () => {
+  const directory = mkdtempSync(join(tmpdir(), "nakama-file-pins-"));
+  const filename = join(directory, "pins.sqlite");
+  let db = new Database(filename);
+  try {
+    migrateDatabase(db);
+    db.exec("DROP TABLE file_pins");
+    migrateDatabase(db);
+    db.exec(`
+      INSERT INTO organizations (id, name, slug, created_at, updated_at) VALUES ('pin-org', 'Pins', 'pins', 'now', 'now');
+      INSERT INTO users (id, email, password_hash, created_at, updated_at) VALUES ('pin-user', 'pins@example.com', 'unused', 'now', 'now');
+      INSERT INTO profiles (id, name, org_id, created_at, updated_at) VALUES ('pin-profile', 'Pins', 'pin-org', 'now', 'now');
+      INSERT INTO file_pins VALUES ('pin-org', 'pin-user', 'pin-profile', 'notes.md');
+    `);
+    db.close();
+    db = new Database(filename);
+    migrateDatabase(db);
+    expect(db.query("SELECT path FROM file_pins").all()).toEqual([
+      { path: "notes.md" },
+    ]);
+    db.exec("DELETE FROM profiles WHERE id = 'pin-profile'");
+    expect(db.query("SELECT path FROM file_pins").all()).toEqual([]);
+  } finally {
+    db.close();
+    rmSync(directory, { force: true, recursive: true });
+  }
+});

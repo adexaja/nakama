@@ -108,6 +108,7 @@ import type {
   ListUserOrgsResponse,
   ListWorkflowRunsResponse,
   ListWorkflowsResponse,
+  ListWorkspaceFilesResponse,
   MarkAutomationRunsReadResponse,
   McpServerResponse,
   ModelsResponse,
@@ -161,6 +162,7 @@ import type {
   SessionMessagesResponse,
   SessionStatusResponse,
   SetActiveOrgRequest,
+  SetFilePinnedRequest,
   SetupAuthRequest,
   SetupRestoreDataImportResponse,
   SkillCuratorLatestResponse,
@@ -1226,6 +1228,45 @@ export class NakamaClient {
         body: JSON.stringify({ content } satisfies UpdateSoulFileRequest),
         method: "PUT",
       }
+    );
+  }
+
+  async listProfileWorkspaceFiles(
+    profileId: string,
+    folder = ""
+  ): Promise<ListWorkspaceFilesResponse> {
+    const query = new URLSearchParams({ folder });
+    return this.request<ListWorkspaceFilesResponse>(
+      `/v1/profiles/${encodeURIComponent(profileId)}/workspace?${query}`
+    );
+  }
+
+  async readProfileWorkspaceFile(
+    profileId: string,
+    filename: string
+  ): Promise<Blob> {
+    const query = new URLSearchParams({ path: filename });
+    const response = await this.fetchRaw(
+      `/v1/profiles/${encodeURIComponent(profileId)}/workspace/content?${query}`
+    );
+    return response.blob();
+  }
+
+  async listProfileFilePins(
+    profileId: string
+  ): Promise<ListWorkspaceFilesResponse> {
+    return this.request(
+      `/v1/profiles/${encodeURIComponent(profileId)}/workspace/pins`
+    );
+  }
+
+  async setProfileFilePinned(
+    profileId: string,
+    body: SetFilePinnedRequest
+  ): Promise<void> {
+    await this.request(
+      `/v1/profiles/${encodeURIComponent(profileId)}/workspace/pins`,
+      { body: JSON.stringify(body), method: "PUT" }
     );
   }
 

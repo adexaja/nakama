@@ -9,14 +9,16 @@ import type {
   UpdateProfileRequest,
   UpdateSessionRequest,
   UserContextStatusResponse,
+  WorkspaceEntry,
 } from "@nakama/core/contract";
 import {
-  useInfiniteQuery,
   useMutation,
   useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useAuth } from "@/context/use-auth";
 import { HISTORY_SESSION_CHANNELS } from "@/lib/chat-history";
 import { client } from "@/lib/client";
 import { queryKeys } from "@/lib/query-keys";
@@ -556,26 +558,45 @@ export function useKnowledgeBaseQuery(profileId: string | null) {
   });
 }
 
-export const ARTIFACTS_PAGE_SIZE = 30;
+const EMPTY_PINNED_FILES: WorkspaceEntry[] = [];
 
-export function useArtifactsInfiniteQuery(
-  profileId: string | null,
-  folder = ""
-) {
-  return useInfiniteQuery({
+export function useFilePins(profileId: string | null, enabled: boolean) {
+  const { activeOrg, user } = useAuth();
+  const queryClient = useQueryClient();
+  const pins = useQuery({
+    enabled: Boolean(enabled && profileId && activeOrg),
+    queryFn: () => client.listProfileFilePins(profileId!),
+    queryKey: ["file-pins", activeOrg?.id, user?.id, profileId],
+  });
+  const mutation = useMutation({
+    mutationFn: (body: { path: string; pinned: boolean }) =>
+      client.setProfileFilePinned(profileId!, body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["file-pins"] }),
+  });
+  const entries = pins.data?.entries ?? EMPTY_PINNED_FILES;
+  const pending = pins.isPending || pins.isError || mutation.isPending;
+  const { mutate } = mutation;
+  const controls = useMemo(
+    () => ({
+      paths: new Set(entries.map((entry) => entry.path)),
+      pending,
+      toggle: (path: string, pinned: boolean) => mutate({ path, pinned }),
+    }),
+    [entries, pending, mutate]
+  );
+  return { controls, entries, error: pins.error || mutation.error };
+}
+
+export function useArtifactsQuery(profileId: string | null, folder = "") {
+  return useQuery({
     enabled: Boolean(profileId),
-    getNextPageParam: (lastPage) => {
-      const nextOffset = (lastPage.offset ?? 0) + lastPage.artifacts.length;
-      return nextOffset < lastPage.total ? nextOffset : undefined;
-    },
-    initialPageParam: 0,
-    queryFn: ({ pageParam }: { pageParam: number }) =>
-      client.listProfileArtifacts(profileId!, {
-        folder,
-        limit: ARTIFACTS_PAGE_SIZE,
-        offset: pageParam,
-      }),
-    queryKey: [...queryKeys.artifacts.profile(profileId ?? ""), folder],
+    // ponytail: fetch metadata once; paginate directory entries server-side if listings outgrow this response.
+    queryFn: () => client.listProfileArtifacts(profileId!, { folder }),
+    queryKey: [
+      ...queryKeys.artifacts.profile(profileId ?? ""),
+      "listing",
+      folder,
+    ],
   });
 }
 
@@ -612,6 +633,7 @@ export function useDeleteArtifactMutation() {
       filename: string;
     }) => client.deleteProfileArtifact(profileId, filename),
     onSuccess: async (_data, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ["file-pins"] });
       await queryClient.invalidateQueries({
         queryKey: queryKeys.artifacts.profile(variables.profileId),
       });

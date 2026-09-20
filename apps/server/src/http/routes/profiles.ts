@@ -26,8 +26,10 @@ import {
   detachSharedKnowledgeBaseDocument,
   getProfileSharedDocumentIds,
   KnowledgeBaseDocumentInUseError,
+  listWorkspaceFiles,
   NakamaApiError,
   readOrganizationKnowledgeBaseDocumentContent,
+  readWorkspaceFile,
 } from "@nakama/core";
 import { filterProfilesForChatAccess } from "@nakama/core/profiles";
 import { ArtifactShareService } from "../../services/artifact-share-service";
@@ -177,6 +179,70 @@ export function registerProfileRoutes(
     .object({})
     .passthrough()
     .openapi("ImageAttachment");
+
+  for (const method of ["get", "put"] as const) {
+    app.openAPIRegistry.registerPath(
+      createRoute({
+        method,
+        path: "/v1/profiles/{profileId}/workspace/pins",
+        operationId:
+          method === "get" ? "listProfileFilePins" : "setProfileFilePinned",
+        tags: ["Profiles"],
+        summary:
+          method === "get"
+            ? "List your pinned files"
+            : "Pin or unpin a file for your account",
+        request: {
+          params: profileIdParam,
+          ...(method === "put"
+            ? {
+                body: {
+                  required: true,
+                  content: {
+                    "application/json": {
+                      schema: z.object({
+                        path: z.string(),
+                        pinned: z.boolean(),
+                      }),
+                    },
+                  },
+                },
+              }
+            : {}),
+        },
+        responses:
+          method === "get"
+            ? {
+                200: {
+                  description: "Pinned workspace files",
+                  content: {
+                    "application/json": {
+                      schema: z.object({
+                        entries: z.array(
+                          z.object({
+                            filename: z.string(),
+                            path: z.string(),
+                            kind: z.literal("file"),
+                            mimeType: z.string(),
+                            sizeBytes: z.number(),
+                            updatedAt: z.string(),
+                          })
+                        ),
+                      }),
+                    },
+                  },
+                },
+                403: { description: "Forbidden" },
+              }
+            : {
+                204: { description: "Pin updated" },
+                400: { description: "Invalid path" },
+                403: { description: "Forbidden" },
+                404: { description: "File not found" },
+              },
+      })
+    );
+  }
 
   app.openAPIRegistry.registerPath(
     createRoute({
@@ -434,6 +500,65 @@ export function registerProfileRoutes(
       },
       summary: "Write a profile soul file",
       tags: ["Soul", "Profiles"],
+    })
+  );
+  app.openAPIRegistry.registerPath(
+    createRoute({
+      method: "get",
+      operationId: "listProfileWorkspaceFiles",
+      path: "/v1/profiles/{profileId}/workspace",
+      request: {
+        params: profileIdParam,
+        query: z.object({ folder: z.string().optional() }),
+      },
+      responses: {
+        200: {
+          description: "Workspace directory entries",
+          content: {
+            "application/json": {
+              schema: z.object({
+                entries: z.array(
+                  z.object({
+                    filename: z.string(),
+                    path: z.string(),
+                    kind: z.enum(["file", "directory"]),
+                    mimeType: z.string(),
+                    sizeBytes: z.number(),
+                    updatedAt: z.string(),
+                  })
+                ),
+              }),
+            },
+          },
+        },
+        400: { description: "Invalid workspace path" },
+        403: { description: "Platform administrator required" },
+        404: { description: "Profile or folder not found" },
+      },
+      summary: "List a profile workspace folder (platform admin)",
+      tags: ["Profiles"],
+    })
+  );
+  app.openAPIRegistry.registerPath(
+    createRoute({
+      method: "get",
+      operationId: "readProfileWorkspaceFile",
+      path: "/v1/profiles/{profileId}/workspace/content",
+      request: {
+        params: profileIdParam,
+        query: z.object({ path: z.string().min(1) }),
+      },
+      responses: {
+        200: {
+          description: "Workspace file bytes",
+          content: { "*/*": { schema: z.string() } },
+        },
+        400: { description: "Invalid workspace path" },
+        403: { description: "Platform administrator required" },
+        404: { description: "Profile or file not found" },
+      },
+      summary: "Download a profile workspace file (platform admin)",
+      tags: ["Profiles"],
     })
   );
   app.openAPIRegistry.registerPath(
@@ -986,6 +1111,112 @@ export function registerProfileRoutes(
       { actorUserId: auth.user.id, source: "dashboard" }
     );
     return new Response(null, { status: 204 });
+  });
+
+  app.get("/v1/profiles/:profileId/workspace/pins", async (c) => {
+    const auth = requirePlatformAdminFromContext(c);
+    const orgId = requireActiveOrgIdFromContext(c);
+    const profileId = decodeURIComponent(c.req.param("profileId"));
+    await agent.getProfile(orgId, profileId);
+    if (!options.databaseAdapter) {
+      throw new NakamaApiError("Database unavailable", 503);
+    }
+    const paths = await options.databaseAdapter.listFilePins(
+      orgId,
+      auth.user.id,
+      profileId
+    );
+    const entries = [];
+    for (const filename of paths) {
+      try {
+        entries.push(
+          (await readWorkspaceFile(orgId, profileId, filename)).entry
+        );
+      } catch (error) {
+        // Missing files and paths that no longer pass workspace guards stay hidden.
+        if (
+          !(
+            error instanceof NakamaApiError &&
+            (error.status === 404 || error.status === 400)
+          )
+        ) {
+          throw error;
+        }
+      }
+    }
+    return json({ entries });
+  });
+
+  app.put("/v1/profiles/:profileId/workspace/pins", async (c) => {
+    const auth = requirePlatformAdminFromContext(c);
+    const orgId = requireActiveOrgIdFromContext(c);
+    const profileId = decodeURIComponent(c.req.param("profileId"));
+    await agent.getProfile(orgId, profileId);
+    const parsed = z
+      .object({
+        path: z
+          .string()
+          .min(1)
+          .max(4096)
+          .refine(
+            (value) =>
+              !(value.includes("\\") || value.includes("\0")) &&
+              value
+                .split("/")
+                .every((part) => part !== "" && part !== "." && part !== "..")
+          ),
+        pinned: z.boolean(),
+      })
+      .strict()
+      .safeParse(await readJson(c.req.raw));
+    if (!parsed.success) {
+      throw new NakamaApiError("Invalid file pin", 400);
+    }
+    if (!options.databaseAdapter) {
+      throw new NakamaApiError("Database unavailable", 503);
+    }
+    if (parsed.data.pinned) {
+      await readWorkspaceFile(orgId, profileId, parsed.data.path);
+    }
+    await options.databaseAdapter.setFilePinned(
+      orgId,
+      auth.user.id,
+      profileId,
+      parsed.data.path,
+      parsed.data.pinned
+    );
+    return new Response(null, { status: 204 });
+  });
+
+  app.get("/v1/profiles/:profileId/workspace", async (c) => {
+    requirePlatformAdminFromContext(c);
+    const orgId = requireActiveOrgIdFromContext(c);
+    const profileId = decodeURIComponent(c.req.param("profileId"));
+    await agent.getProfile(orgId, profileId);
+    return json(
+      await listWorkspaceFiles(orgId, profileId, c.req.query("folder") ?? "")
+    );
+  });
+
+  app.get("/v1/profiles/:profileId/workspace/content", async (c) => {
+    requirePlatformAdminFromContext(c);
+    const orgId = requireActiveOrgIdFromContext(c);
+    const profileId = decodeURIComponent(c.req.param("profileId"));
+    await agent.getProfile(orgId, profileId);
+    const filename = c.req.query("path");
+    if (!filename) {
+      return json({ error: "path is required" }, 400);
+    }
+    const file = await readWorkspaceFile(orgId, profileId, filename);
+    return new Response(Bun.file(file.filePath), {
+      headers: {
+        "Content-Type": file.contentType,
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename.split("/").pop() ?? "file")}`,
+        "Content-Security-Policy": "sandbox",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store",
+      },
+    });
   });
 
   app.get("/v1/profiles/:profileId/artifacts", async (c) => {

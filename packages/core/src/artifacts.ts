@@ -20,12 +20,14 @@ import type {
   DeleteArtifactResponse,
   ListArtifactsOptions,
   ListArtifactsResponse,
+  ListWorkspaceFilesResponse,
   UpdateArtifactResponse,
+  WorkspaceEntry,
 } from "./contract";
 import { convertDocxToMarkdown } from "./docx-text";
 import { pathExists } from "./fs";
-import { getProfileArtifactsDir } from "./soul/resolve";
-import { guardFilePath } from "./tools/paths";
+import { getProfileArtifactsDir, getProfileSoulDir } from "./soul/resolve";
+import { guardFilePath, PathGuardError } from "./tools/paths";
 
 const ARTIFACT_META_SUFFIX = ".nakama-meta.json";
 
@@ -317,4 +319,96 @@ export async function deleteArtifactFile(input: {
     filename: path.relative(resolvedArtifactsDir, filePath),
     profileId: input.profileId,
   };
+}
+
+async function resolveWorkspacePath(
+  orgId: string,
+  profileId: string,
+  filename: string
+) {
+  const root = getProfileSoulDir(orgId, profileId);
+  if (
+    path.isAbsolute(filename) ||
+    filename.includes("\\") ||
+    filename.split("/").includes("..")
+  ) {
+    throw new NakamaApiError("Invalid workspace path", 400);
+  }
+  try {
+    return (
+      await guardFilePath(filename || ".", null, undefined, {
+        allowedDirs: [root],
+        cwd: root,
+      })
+    ).resolved;
+  } catch (error) {
+    if (error instanceof PathGuardError) {
+      throw new NakamaApiError("Invalid workspace path", 400);
+    }
+    throw error;
+  }
+}
+
+export async function listWorkspaceFiles(
+  orgId: string,
+  profileId: string,
+  folder = ""
+): Promise<ListWorkspaceFilesResponse> {
+  const directory = await resolveWorkspacePath(orgId, profileId, folder);
+  let children;
+  try {
+    children = await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT" && !folder) {
+      return { entries: [] };
+    }
+    throw artifactNotFoundOr(error, folder);
+  }
+  const entries: WorkspaceEntry[] = [];
+  for (const child of children) {
+    // Do not follow symlinks into another profile or outside the workspace.
+    if (!(child.isFile() || child.isDirectory())) {
+      continue;
+    }
+    const filename = path.posix.join(folder, child.name);
+    const filePath = await resolveWorkspacePath(orgId, profileId, filename);
+    const info = await stat(filePath);
+    entries.push({
+      filename,
+      kind: child.isDirectory() ? "directory" : "file",
+      mimeType: inferArtifactMimeType(child.name),
+      path: filename,
+      sizeBytes: info.size,
+      updatedAt: info.mtime.toISOString(),
+    });
+  }
+  entries.sort(
+    (a, b) =>
+      Number(b.kind === "directory") - Number(a.kind === "directory") ||
+      a.filename.localeCompare(b.filename)
+  );
+  return { entries };
+}
+
+export async function readWorkspaceFile(
+  orgId: string,
+  profileId: string,
+  filename: string
+) {
+  const filePath = await resolveWorkspacePath(orgId, profileId, filename);
+  const info = await stat(filePath).catch((error: unknown) => {
+    throw artifactNotFoundOr(error, filename);
+  });
+  if (!info.isFile()) {
+    throw new NakamaApiError("File not found", 404);
+  }
+  const entry: WorkspaceEntry = {
+    filename,
+    kind: "file",
+    mimeType: inferArtifactMimeType(filename),
+    path: filename,
+    sizeBytes: info.size,
+    updatedAt: info.mtime.toISOString(),
+  };
+  return { contentType: entry.mimeType, entry, filePath };
 }

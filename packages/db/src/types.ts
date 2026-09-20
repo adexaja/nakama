@@ -942,6 +942,11 @@ export interface DatabaseAdapter {
     userId: string
   ): Promise<StoredComposioUserConnectionRecord[]>;
   listEphemeralAttachments(): Promise<StoredAttachmentRecord[]>;
+  listFilePins(
+    orgId: string,
+    userId: string,
+    profileId: string
+  ): Promise<string[]>;
   listLlmTurnUsage(orgId: string): Promise<StoredLlmTurnUsageRecord[]>;
   listLlmUsageStatsByModel(): Promise<StoredLlmUsageModelStatsRecord[]>;
   listMcpServerProfileCounts(): Promise<Record<string, number>>;
@@ -1062,6 +1067,13 @@ export interface DatabaseAdapter {
     userId: string,
     revokedAt: string
   ): Promise<number>;
+  setFilePinned(
+    orgId: string,
+    userId: string,
+    profileId: string,
+    path: string,
+    pinned: boolean
+  ): Promise<void>;
   setUserContext(
     orgId: string,
     userId: string,

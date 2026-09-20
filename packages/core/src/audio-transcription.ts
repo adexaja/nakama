@@ -21,7 +21,7 @@ export async function transcribeAudio(options: {
   const body = new FormData();
   body.append(
     "file",
-    new Blob([audio.bytes], { type: audio.mediaType }),
+    new Blob([new Uint8Array(audio.bytes)], { type: audio.mediaType }),
     audio.filename
   );
   body.append("model", model);

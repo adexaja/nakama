@@ -307,50 +307,64 @@ export function McpTab({ embedded = false }: { embedded?: boolean } = {}) {
         server={editServer}
       />
 
-      <Dialog
-        onOpenChange={(open) => {
-          if (!(open || deleteMutation.isPending)) {
-            setDeleteTarget(null);
-          }
-        }}
-        open={deleteTarget !== null}
-      >
-        <DialogContent className="gap-6 p-6 sm:max-w-md">
-          <DialogHeader className="gap-3">
-            <DialogTitle>Delete MCP server?</DialogTitle>
-            <DialogDescription>
-              Remove{" "}
-              {deleteTarget?.name
-                ? `"${deleteTarget.name}"`
-                : "this MCP server"}
-              . This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-
-          <DialogFooter className="mx-0 mb-0 gap-2 border-0 bg-transparent p-0 sm:flex-row sm:justify-end">
-            <Button
-              disabled={deleteMutation.isPending}
-              onClick={() => setDeleteTarget(null)}
-              type="button"
-              variant="outline"
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={deleteMutation.isPending}
-              onClick={() => void confirmDelete()}
-              type="button"
-              variant="destructive"
-            >
-              {deleteMutation.isPending ? (
-                <Spinner className="size-4" />
-              ) : (
-                "Delete"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteMcpServerDialog
+        busy={deleteMutation.isPending}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => void confirmDelete()}
+        target={deleteTarget}
+      />
     </>
+  );
+}
+
+function DeleteMcpServerDialog({
+  busy,
+  onClose,
+  onConfirm,
+  target,
+}: {
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  target: McpServerSummary | null;
+}) {
+  return (
+    <Dialog
+      onOpenChange={(open) => {
+        if (!(open || busy)) {
+          onClose();
+        }
+      }}
+      open={target !== null}
+    >
+      <DialogContent className="gap-6 p-6 sm:max-w-md">
+        <DialogHeader className="gap-3">
+          <DialogTitle>Delete MCP server?</DialogTitle>
+          <DialogDescription>
+            Remove {target?.name ? `"${target.name}"` : "this MCP server"}. This
+            cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogFooter className="mx-0 mb-0 gap-2 border-0 bg-transparent p-0 sm:flex-row sm:justify-end">
+          <Button
+            disabled={busy}
+            onClick={() => onClose()}
+            type="button"
+            variant="outline"
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={busy}
+            onClick={onConfirm}
+            type="button"
+            variant="destructive"
+          >
+            {busy ? <Spinner className="size-4" /> : "Delete"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
