@@ -942,6 +942,9 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
   });
 
   const listSessionsStmt = db.prepare("SELECT * FROM sessions");
+  const listSessionsForUserStmt = db.prepare(
+    "SELECT * FROM sessions WHERE user_id = ? ORDER BY created_at ASC"
+  );
   const getSessionStmt = db.prepare("SELECT * FROM sessions WHERE id = ?");
   const upsertSessionStmt = db.prepare(`
     INSERT INTO sessions (id, profile_id, channel, created_at, updated_at, user_id, model, pinned)
@@ -3602,6 +3605,12 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     async listSessions() {
       return listSessionsStmt
         .all()
+        .map((row) => toSessionRecord(row as SessionRow));
+    },
+
+    async listSessionsForUser(userId) {
+      return listSessionsForUserStmt
+        .all(userId)
         .map((row) => toSessionRecord(row as SessionRow));
     },
 

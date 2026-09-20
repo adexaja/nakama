@@ -399,6 +399,21 @@ export class NakamaClient {
     };
   }
 
+  async exportUserData(userId: string): Promise<{
+    filename: string;
+    data: ArrayBuffer;
+  }> {
+    const response = await this.fetchRaw(
+      `/v1/platform/users/${encodeURIComponent(userId)}/data/export`
+    );
+    return {
+      data: await response.arrayBuffer(),
+      filename:
+        readContentDispositionFilename(response.headers) ??
+        "nakama-user-export.zip",
+    };
+  }
+
   async previewDataImport(
     data: Blob | BufferSource | string
   ): Promise<DataImportPreviewResponse> {
