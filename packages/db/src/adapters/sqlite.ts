@@ -3764,6 +3764,34 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     async publishOrgPluginRelease(input) {
       return publishOrgPluginReleaseTx(input);
     },
+
+    async renameFilePins(orgId, profileId, oldPath, newPath) {
+      if (oldPath === newPath) {
+        return;
+      }
+      db.transaction(() => {
+        db.query(`INSERT OR IGNORE INTO file_pins (org_id, user_id, profile_id, path)
+          SELECT org_id, user_id, profile_id, ? || substr(path, length(?) + 1)
+          FROM file_pins WHERE org_id = ? AND profile_id = ?
+          AND (path = ? OR substr(path, 1, length(?) + 1) = ? || '/')`).run(
+          newPath,
+          oldPath,
+          orgId,
+          profileId,
+          oldPath,
+          oldPath,
+          oldPath
+        );
+        db.query(`DELETE FROM file_pins WHERE org_id = ? AND profile_id = ?
+          AND (path = ? OR substr(path, 1, length(?) + 1) = ? || '/')`).run(
+          orgId,
+          profileId,
+          oldPath,
+          oldPath,
+          oldPath
+        );
+      })();
+    },
     async renameSessionTitle(sessionId, title) {
       const result = renameSessionTitleStmt.run(title, sessionId);
       return result.changes > 0;

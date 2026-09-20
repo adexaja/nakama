@@ -10,7 +10,10 @@ import {
   artifactBasename,
 } from "@/pages/files/files-artifact-folders";
 import { ArtifactIcon } from "@/pages/files/files-artifact-icon";
-import { ArtifactRowMenu } from "@/pages/files/files-artifact-row-menu";
+import {
+  ArtifactRowMenu,
+  FileRenameMenu,
+} from "@/pages/files/files-artifact-row-menu";
 import { FilePinsContext, toChatArtifactRef } from "@/pages/files/files-shared";
 
 export function FileEntriesLayout({
@@ -70,7 +73,6 @@ export function FileEntry({
   sizeBytes = 0,
   updatedAt = "",
   directory = false,
-  fileCount,
   viewMode,
   onOpen,
   actions,
@@ -81,25 +83,19 @@ export function FileEntry({
   sizeBytes?: number;
   updatedAt?: string;
   directory?: boolean;
-  fileCount?: number;
   viewMode: FilesViewMode;
   onOpen: () => void;
   actions?: ReactNode;
   pinPath?: string;
 }) {
-  const pins = useContext(FilePinsContext);
-  const pinAction =
-    !directory && pinPath && pins ? (
-      <FilePinButton filename={filename} path={pinPath} pins={pins} />
-    ) : null;
   const controls =
-    actions || pinAction ? (
-      <div
-        className={`flex gap-2 ${viewMode === "grid" ? "flex-col" : "items-center justify-end"}`}
-      >
-        {pinAction}
-        {actions}
-      </div>
+    actions || pinPath ? (
+      <FileEntryActions
+        actions={actions}
+        filename={filename}
+        pinPath={pinPath}
+        viewMode={viewMode}
+      />
     ) : null;
   const date = new Date(updatedAt);
   const modified = Number.isNaN(date.getTime())
@@ -118,7 +114,7 @@ export function FileEntry({
       aria-hidden
       className={
         viewMode === "grid"
-          ? "size-8 fill-muted-foreground/10 text-muted-foreground"
+          ? "size-10 fill-muted-foreground/10 text-muted-foreground"
           : "size-5 text-muted-foreground"
       }
     />
@@ -127,7 +123,7 @@ export function FileEntry({
   );
   if (viewMode === "list") {
     return (
-      <tr className="hover:bg-muted/30">
+      <tr className="group/file hover:bg-muted/30">
         <td className="p-0">
           <button
             className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -136,7 +132,12 @@ export function FileEntry({
             type="button"
           >
             <span className="shrink-0">{icon}</span>
-            <span className="truncate font-medium">{filename}</span>
+            <span
+              className="min-w-0 truncate font-medium data-[directory=true]:line-clamp-3 data-[directory=true]:whitespace-normal data-[directory=true]:break-all"
+              data-directory={directory}
+            >
+              {filename}
+            </span>
           </button>
         </td>
         <td className="hidden truncate px-3 py-3 text-muted-foreground md:table-cell">
@@ -157,7 +158,6 @@ export function FileEntry({
       actions={actions}
       controls={controls}
       directory={directory}
-      fileCount={fileCount}
       filename={filename}
       icon={icon}
       modified={modified}
@@ -170,7 +170,6 @@ function GridFileEntry({
   actions,
   controls,
   directory,
-  fileCount,
   filename,
   icon,
   modified,
@@ -179,14 +178,13 @@ function GridFileEntry({
   actions: ReactNode;
   controls: ReactNode;
   directory: boolean;
-  fileCount?: number;
   filename: string;
   icon: ReactNode;
   modified: string;
   onOpen: () => void;
 }) {
   return (
-    <li className="relative min-w-0 rounded-xl border border-border bg-card transition-colors hover:border-foreground/20">
+    <li className="group/file relative min-w-0 rounded-xl border border-border bg-card transition-colors hover:border-foreground/20">
       <button
         className={`flex w-full gap-3 rounded-xl p-4 text-left hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${directory ? "min-h-36 flex-col items-start" : actions ? "min-h-24 items-center" : "min-h-20 items-center"} ${controls ? "pr-12" : ""}`}
         onClick={onOpen}
@@ -199,14 +197,16 @@ function GridFileEntry({
           {icon}
         </span>
         <span className="min-w-0 max-w-full space-y-1">
-          <span className="block truncate font-medium text-sm">{filename}</span>
-          <span className="block text-muted-foreground text-xs tabular-nums">
-            {directory
-              ? fileCount === undefined
-                ? "Folder"
-                : `${fileCount} ${fileCount === 1 ? "file" : "files"}`
-              : modified}
+          <span
+            className={`font-medium text-sm ${directory ? "line-clamp-3 break-all" : "block truncate"}`}
+          >
+            {filename}
           </span>
+          {directory ? null : (
+            <span className="block text-muted-foreground text-xs tabular-nums">
+              {modified}
+            </span>
+          )}
         </span>
       </button>
       {controls ? (
@@ -280,6 +280,7 @@ export function ArtifactListView({
           filename={folder.name}
           key={folder.prefix}
           onOpen={() => onOpenFolder(folder.prefix)}
+          pinPath={`artifacts/${folder.prefix}`}
           updatedAt={folder.latestUpdatedAt}
           viewMode="list"
         />
@@ -312,11 +313,11 @@ function FilePinButton({
     <Button
       aria-label={`${pinned ? "Unpin" : "Pin"} ${filename}`}
       aria-pressed={pinned}
-      className="size-9"
+      className="size-9 opacity-0 group-focus-within/file:opacity-100 group-hover/file:opacity-100 [@media(hover:none)]:opacity-100"
       disabled={pins.pending}
       onClick={() => pins.toggle(path, !pinned)}
       size="icon-sm"
-      title={pinned ? "Unpin file" : "Pin file"}
+      title={pinned ? "Unpin" : "Pin"}
       type="button"
       variant={pinned ? "secondary" : "ghost"}
     >
@@ -327,4 +328,33 @@ function FilePinButton({
       )}
     </Button>
   );
+}
+
+function FileEntryActions({
+  actions,
+  filename,
+  pinPath,
+  viewMode,
+}: {
+  actions: ReactNode;
+  filename: string;
+  pinPath?: string;
+  viewMode: FilesViewMode;
+}) {
+  const pins = useContext(FilePinsContext);
+  const entryActions =
+    actions ??
+    (pinPath && <FileRenameMenu filename={filename} path={pinPath} />);
+  const pinAction =
+    pinPath && pins ? (
+      <FilePinButton filename={filename} path={pinPath} pins={pins} />
+    ) : null;
+  return entryActions || pinAction ? (
+    <div
+      className={`flex gap-2 ${viewMode === "grid" ? "flex-col" : "items-center justify-end"}`}
+    >
+      {pinAction}
+      {entryActions}
+    </div>
+  ) : null;
 }

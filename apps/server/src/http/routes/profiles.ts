@@ -25,11 +25,13 @@ import {
   attachSharedKnowledgeBaseDocument,
   detachSharedKnowledgeBaseDocument,
   getProfileSharedDocumentIds,
+  getWorkspaceEntry,
   KnowledgeBaseDocumentInUseError,
   listWorkspaceFiles,
   NakamaApiError,
   readOrganizationKnowledgeBaseDocumentContent,
   readWorkspaceFile,
+  renameWorkspaceEntry,
 } from "@nakama/core";
 import { filterProfilesForChatAccess } from "@nakama/core/profiles";
 import { ArtifactShareService } from "../../services/artifact-share-service";
@@ -73,6 +75,12 @@ export function registerProfileRoutes(
   const errorSchema = z
     .object({ error: z.string() })
     .openapi("ApiErrorResponse");
+  const renameWorkspaceSchema = z
+    .object({
+      path: z.string().min(1).max(4096),
+      newName: z.string().min(1).max(255),
+    })
+    .strict();
   const profileIdParam = z.object({
     profileId: z.string().openapi({ param: { in: "path", name: "profileId" } }),
   });
@@ -82,6 +90,43 @@ export function registerProfileRoutes(
       .openapi({ param: { in: "path", name: "documentId" } }),
     profileId: z.string().openapi({ param: { in: "path", name: "profileId" } }),
   });
+  app.openAPIRegistry.registerPath(
+    createRoute({
+      method: "patch",
+      path: "/v1/profiles/{profileId}/workspace/rename",
+      operationId: "renameProfileWorkspaceEntry",
+      summary: "Rename a workspace file or folder (platform admin)",
+      tags: ["Profiles"],
+      request: {
+        params: profileIdParam,
+        body: {
+          required: true,
+          content: { "application/json": { schema: renameWorkspaceSchema } },
+        },
+      },
+      responses: {
+        200: {
+          description: "Renamed entry",
+          content: {
+            "application/json": {
+              schema: z.object({
+                filename: z.string(),
+                path: z.string(),
+                kind: z.enum(["file", "directory"]),
+                mimeType: z.string(),
+                sizeBytes: z.number(),
+                updatedAt: z.string(),
+              }),
+            },
+          },
+        },
+        400: { description: "Invalid or protected path" },
+        403: { description: "Platform administrator required" },
+        404: { description: "Profile or entry not found" },
+        409: { description: "Name already exists" },
+      },
+    })
+  );
   const orgIdParam = z.object({
     orgId: z.string().openapi({ param: { in: "path", name: "orgId" } }),
   });
@@ -222,7 +267,7 @@ export function registerProfileRoutes(
                           z.object({
                             filename: z.string(),
                             path: z.string(),
-                            kind: z.literal("file"),
+                            kind: z.enum(["file", "directory"]),
                             mimeType: z.string(),
                             sizeBytes: z.number(),
                             updatedAt: z.string(),
@@ -1130,7 +1175,7 @@ export function registerProfileRoutes(
     for (const filename of paths) {
       try {
         entries.push(
-          (await readWorkspaceFile(orgId, profileId, filename)).entry
+          (await getWorkspaceEntry(orgId, profileId, filename)).entry
         );
       } catch (error) {
         // Missing files and paths that no longer pass workspace guards stay hidden.
@@ -1145,6 +1190,30 @@ export function registerProfileRoutes(
       }
     }
     return json({ entries });
+  });
+
+  app.patch("/v1/profiles/:profileId/workspace/rename", async (c) => {
+    requirePlatformAdminFromContext(c);
+    const orgId = requireActiveOrgIdFromContext(c);
+    const profileId = decodeURIComponent(c.req.param("profileId"));
+    await agent.getProfile(orgId, profileId);
+    const parsed = renameWorkspaceSchema.safeParse(await readJson(c.req.raw));
+    if (!parsed.success) {
+      throw new NakamaApiError("Invalid rename request", 400);
+    }
+    const database = options.databaseAdapter;
+    if (!database) {
+      throw new NakamaApiError("Database unavailable", 503);
+    }
+    return json(
+      await renameWorkspaceEntry({
+        ...parsed.data,
+        orgId,
+        profileId,
+        updateReferences: (newPath) =>
+          database.renameFilePins(orgId, profileId, parsed.data.path, newPath),
+      })
+    );
   });
 
   app.put("/v1/profiles/:profileId/workspace/pins", async (c) => {
@@ -1176,7 +1245,7 @@ export function registerProfileRoutes(
       throw new NakamaApiError("Database unavailable", 503);
     }
     if (parsed.data.pinned) {
-      await readWorkspaceFile(orgId, profileId, parsed.data.path);
+      await getWorkspaceEntry(orgId, profileId, parsed.data.path);
     }
     await options.databaseAdapter.setFilePinned(
       orgId,

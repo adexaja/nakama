@@ -15,6 +15,7 @@ import {
   listWorkspaceFiles,
   readArtifactFile,
   readWorkspaceFile,
+  renameWorkspaceEntry,
   writeArtifactFile,
 } from "./artifacts";
 import { getProfileArtifactsDir, getProfileSoulDir } from "./soul/resolve";
@@ -27,6 +28,221 @@ const SAMPLE_DOCX_PATH = path.join(
 
 const ORG_ID = "org_test";
 const PROFILE_ID = "profile_test";
+
+test("workspace rename preserves files, folder contents and sidecars, and rolls back failed reference updates", async () => {
+  await writeArtifact("notes/report.md", "report");
+  await writeArtifact(
+    "notes/report.md.nakama-meta.json",
+    JSON.stringify({
+      mimeType: "text/markdown",
+      savedAt: "2026-09-20T00:00:00.000Z",
+      sizeBytes: 6,
+    })
+  );
+  const references: string[] = [];
+  const rename = (
+    filename: string,
+    newName: string,
+    updateReferences = async (next: string) => {
+      references.push(next);
+    }
+  ) =>
+    renameWorkspaceEntry({
+      newName,
+      orgId: ORG_ID,
+      path: filename,
+      profileId: PROFILE_ID,
+      updateReferences,
+    });
+  const entry = await rename("artifacts/notes/report.md", "summary.md");
+  expect(entry.path).toBe("artifacts/notes/summary.md");
+  expect((await listArtifacts(ORG_ID, PROFILE_ID)).artifacts[0]).toMatchObject({
+    filename: "notes/summary.md",
+    mimeType: "text/markdown",
+    updatedAt: "2026-09-20T00:00:00.000Z",
+  });
+  await rename("artifacts/notes", "drafts");
+  expect(
+    (await readWorkspaceFile(ORG_ID, PROFILE_ID, "artifacts/drafts/summary.md"))
+      .entry.kind
+  ).toBe("file");
+  expect(references).toEqual([
+    "artifacts/notes/summary.md",
+    "artifacts/drafts",
+  ]);
+  await expect(
+    rename("artifacts/drafts", "renamed", async () => {
+      throw new Error("database failed");
+    })
+  ).rejects.toThrow("database failed");
+  await expect(
+    rename("artifacts/drafts/summary.md", "failed.md", async () => {
+      throw new Error("database failed");
+    })
+  ).rejects.toThrow("database failed");
+  expect((await listArtifacts(ORG_ID, PROFILE_ID)).artifacts[0]?.filename).toBe(
+    "drafts/summary.md"
+  );
+  expect(
+    readFileSync(
+      path.join(
+        getProfileArtifactsDir(ORG_ID, PROFILE_ID),
+        "drafts/summary.md"
+      ),
+      "utf8"
+    )
+  ).toBe("report");
+  await expect(
+    readWorkspaceFile(ORG_ID, PROFILE_ID, "artifacts/renamed/summary.md")
+  ).rejects.toMatchObject({ status: 404 });
+});
+
+test("workspace rename rejects invalid names, managed paths, symlinks and collisions without overwriting", async () => {
+  await writeArtifact("report.md", "source");
+  await writeArtifact("existing.md", "destination");
+  const rename = (filename: string, newName: string) =>
+    renameWorkspaceEntry({
+      newName,
+      orgId: ORG_ID,
+      path: filename,
+      profileId: PROFILE_ID,
+      updateReferences: async () => {},
+    });
+  for (const name of [
+    "",
+    ".",
+    "..",
+    "../escape",
+    "nested/name",
+    "a\\b",
+    "a\0b",
+    " spaced ",
+    "bad.",
+  ]) {
+    await expect(rename("artifacts/report.md", name)).rejects.toMatchObject({
+      status: 400,
+    });
+  }
+  for (const filename of [
+    "",
+    "../outside",
+    "/tmp/file",
+    "artifacts/../SOUL.md",
+    "SOUL.md",
+    "USER.md",
+    "artifacts",
+    "data",
+    "examples",
+    "attachments",
+    "attachments/upload.txt",
+    "ATTACHMENTS/upload.txt",
+    "knowledge-base",
+    "knowledge-base/index.json",
+    "memory-archive",
+    "memory-archive/2026-09.md",
+    "skills",
+    "skills/test",
+    "artifacts/coding-agent-runs",
+    "artifacts/coding-agent-runs/run.log",
+    "data/knowledge-base",
+    "data/knowledge-base/index.json",
+    "data/memory-archive",
+    "data/memory-archive/2026-09.md",
+    "artifacts/report.md.nakama-meta.json",
+  ]) {
+    await expect(rename(filename, "changed")).rejects.toMatchObject({
+      status: 400,
+    });
+  }
+  await symlink(
+    "report.md",
+    path.join(getProfileArtifactsDir(ORG_ID, PROFILE_ID), "link.md")
+  );
+  await expect(rename("artifacts/link.md", "changed.md")).rejects.toMatchObject(
+    { status: 400 }
+  );
+  await symlink(
+    "missing",
+    path.join(getProfileArtifactsDir(ORG_ID, PROFILE_ID), "dangling.md")
+  );
+  await expect(
+    rename("artifacts/report.md", "dangling.md")
+  ).rejects.toMatchObject({ status: 409 });
+  await expect(
+    rename("artifacts/report.md", "existing.md")
+  ).rejects.toMatchObject({ status: 409 });
+  await expect(
+    rename("artifacts/missing.md", "changed.md")
+  ).rejects.toMatchObject({ status: 404 });
+  expect(
+    readFileSync(
+      path.join(getProfileArtifactsDir(ORG_ID, PROFILE_ID), "existing.md"),
+      "utf8"
+    )
+  ).toBe("destination");
+  const concurrent = await Promise.allSettled([
+    rename("artifacts/report.md", "winner.md"),
+    rename("artifacts/existing.md", "winner.md"),
+  ]);
+  expect(
+    concurrent.filter((result) => result.status === "fulfilled")
+  ).toHaveLength(1);
+  expect(
+    concurrent.filter((result) => result.status === "rejected")
+  ).toHaveLength(1);
+  expect(
+    (await listArtifacts(ORG_ID, PROFILE_ID)).artifacts
+      .map((file) => file.filename)
+      .sort()
+  ).toEqual(["existing.md", "winner.md"]);
+});
+
+test("workspace rename reserves managed destinations but allows ordinary folders", async () => {
+  const root = getProfileSoulDir(ORG_ID, PROFILE_ID);
+  const rename = (filename: string, newName: string) =>
+    renameWorkspaceEntry({
+      newName,
+      orgId: ORG_ID,
+      path: filename,
+      profileId: PROFILE_ID,
+      updateReferences: async () => {},
+    });
+  for (const [filename, reservedName] of [
+    ["notes", "attachments"],
+    ["artifacts/reports", "coding-agent-runs"],
+    ["data/reports", "knowledge-base"],
+    ["data/archives", "memory-archive"],
+  ] as const) {
+    await mkdir(path.join(root, filename), { recursive: true });
+    await writeFile(path.join(root, filename, "report.txt"), "report");
+    await expect(rename(filename, reservedName)).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(readFileSync(path.join(root, filename, "report.txt"), "utf8")).toBe(
+      "report"
+    );
+  }
+  for (const filename of [
+    "data/reports",
+    "memory-history",
+    "attachments-backup",
+    "artifacts/coding-agent-runs-backup",
+    "notes/skills",
+    "examples/custom",
+  ]) {
+    await mkdir(path.join(root, filename), { recursive: true });
+    await writeFile(path.join(root, filename, "report.txt"), "report");
+    const newPath = path.posix.join(path.posix.dirname(filename), "renamed");
+    expect(await rename(filename, "renamed")).toMatchObject({
+      kind: "directory",
+      path: newPath,
+    });
+    expect(readFileSync(path.join(root, newPath, "report.txt"), "utf8")).toBe(
+      "report"
+    );
+    await rm(path.join(root, newPath), { recursive: true });
+  }
+});
 
 let configDir: string;
 let previousConfigDir: string | undefined;

@@ -1049,6 +1049,12 @@ export interface DatabaseAdapter {
   publishOrgPluginRelease(
     input: PublishOrgPluginReleaseInput
   ): Promise<PluginPublishResult>;
+  renameFilePins(
+    orgId: string,
+    profileId: string,
+    oldPath: string,
+    newPath: string
+  ): Promise<void>;
   renameSessionTitle(sessionId: string, title: string): Promise<boolean>;
   replaceMessagesForSession(
     sessionId: string,

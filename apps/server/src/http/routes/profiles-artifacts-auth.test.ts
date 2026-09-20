@@ -14,6 +14,212 @@ import {
 
 setupTestConfigDir("nakama-profiles-artifacts-auth-test-");
 
+test("workspace rename requires platform admin access and updates pins for every user only in this profile", async () => {
+  const databaseAdapter = createInMemoryDatabaseAdapter();
+  const { app, authService } = createMinimalHonoApp({
+    databaseAdapter,
+    agent: {
+      getProfile: async (orgId: string, profileId: string) => {
+        const profile = await databaseAdapter.getProfile(profileId);
+        if (!profile || profile.orgId !== orgId) {
+          throw new NakamaApiError("Not found", 404);
+        }
+        return profile;
+      },
+    },
+  });
+  const owner = await setupFreshInstallSession(
+    app,
+    databaseAdapter,
+    "rename@example.com"
+  );
+  const other = await loginPlatformAdminSession(
+    app,
+    authService,
+    databaseAdapter,
+    "rename-other@example.com"
+  );
+  const ownerUser = (await databaseAdapter.getUserByEmail(
+    "rename@example.com"
+  ))!;
+  const otherUser = (await databaseAdapter.getUserByEmail(
+    "rename-other@example.com"
+  ))!;
+  const now = new Date().toISOString();
+  await databaseAdapter.upsertOrganization({
+    id: "rename-foreign-org",
+    name: "Foreign",
+    slug: "rename-foreign-org",
+    createdAt: now,
+    updatedAt: now,
+  });
+  for (const [id, orgId] of [
+    ["rename-profile", owner.orgId!],
+    ["rename-other-profile", owner.orgId!],
+    ["rename-foreign-profile", "rename-foreign-org"],
+  ]) {
+    await databaseAdapter.upsertProfile({
+      id: id!,
+      orgId,
+      name: id!,
+      isSuper: false,
+      model: null,
+      systemPrompt: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  const root = getProfileSoulDir(owner.orgId!, "rename-profile");
+  await mkdir(path.join(root, "notes_%/nested"), { recursive: true });
+  await writeFile(path.join(root, "notes_%/nested/report.md"), "report");
+  for (const user of [ownerUser, otherUser]) {
+    await databaseAdapter.setFilePinned(
+      owner.orgId!,
+      user.id,
+      "rename-profile",
+      "notes_%",
+      true
+    );
+    await databaseAdapter.setFilePinned(
+      owner.orgId!,
+      user.id,
+      "rename-profile",
+      "notes_%/nested/report.md",
+      true
+    );
+    await databaseAdapter.setFilePinned(
+      owner.orgId!,
+      user.id,
+      "rename-profile",
+      "notes_%suffix/file.md",
+      true
+    );
+  }
+  await databaseAdapter.setFilePinned(
+    owner.orgId!,
+    ownerUser.id,
+    "rename-other-profile",
+    "notes_%",
+    true
+  );
+  const request = (
+    body: unknown,
+    session = owner,
+    profile = "rename-profile"
+  ) =>
+    app.fetch(
+      new Request(
+        `http://localhost:4310/v1/profiles/${profile}/workspace/rename`,
+        {
+          method: "PATCH",
+          headers: session.headers(
+            {
+              "Content-Type": "application/json",
+              "X-CSRF-Token": session.csrfToken,
+            },
+            session.orgId
+          ),
+          body: JSON.stringify(body),
+        }
+      )
+    );
+  const renamed = await request({ path: "notes_%", newName: "drafts" });
+  expect(renamed.status).toBe(200);
+  expect(await renamed.json()).toMatchObject({
+    path: "drafts",
+    filename: "drafts",
+    kind: "directory",
+  });
+  for (const user of [ownerUser, otherUser]) {
+    expect(
+      await databaseAdapter.listFilePins(
+        owner.orgId!,
+        user.id,
+        "rename-profile"
+      )
+    ).toEqual(["drafts", "drafts/nested/report.md", "notes_%suffix/file.md"]);
+  }
+  expect(
+    await databaseAdapter.listFilePins(
+      owner.orgId!,
+      ownerUser.id,
+      "rename-other-profile"
+    )
+  ).toEqual(["notes_%"]);
+  expect(
+    (await request({ path: "drafts/nested/report.md", newName: "summary.md" }))
+      .status
+  ).toBe(200);
+  expect(
+    await databaseAdapter.listFilePins(
+      owner.orgId!,
+      ownerUser.id,
+      "rename-profile"
+    )
+  ).toContain("drafts/nested/summary.md");
+  expect((await request({ path: "drafts", newName: "../escape" })).status).toBe(
+    400
+  );
+  expect(
+    (await request({ path: "SOUL.md", newName: "renamed.md" })).status
+  ).toBe(400);
+  expect(
+    (
+      await request(
+        { path: "drafts", newName: "other" },
+        owner,
+        "rename-foreign-profile"
+      )
+    ).status
+  ).toBe(404);
+  expect(
+    (await request({ path: "drafts", newName: "other" }, other)).status
+  ).toBe(400);
+  expect((await request({ path: "missing", newName: "other" })).status).toBe(
+    404
+  );
+  await writeFile(path.join(root, "existing"), "keep");
+  expect((await request({ path: "drafts", newName: "existing" })).status).toBe(
+    409
+  );
+  await databaseAdapter.createUser({
+    id: "rename-member",
+    email: "rename-member@example.com",
+    passwordHash: await authService.hashPassword("password123"),
+    createdAt: now,
+    updatedAt: now,
+  });
+  await databaseAdapter.upsertOrgMember({
+    orgId: owner.orgId!,
+    userId: "rename-member",
+    role: "admin",
+    createdAt: now,
+  });
+  const member = await loginUserSession(
+    app,
+    "rename-member@example.com",
+    "password123",
+    owner.orgId
+  );
+  expect(
+    (await request({ path: "drafts", newName: "other" }, member)).status
+  ).toBe(403);
+  expect(
+    (
+      await app.fetch(
+        new Request(
+          "http://localhost:4310/v1/profiles/rename-profile/workspace/rename",
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path: "drafts", newName: "other" }),
+          }
+        )
+      )
+    ).status
+  ).toBe(401);
+});
+
 function createApp() {
   const readCalls: Array<{ render?: "markdown" }> = [];
   const writeCalls: Array<{ content: string; filename: string }> = [];
@@ -496,7 +702,23 @@ test("personal file pins persist and enforce user, org, profile and path boundar
   }
   expect(
     (await request(owner, { path: "artifacts", pinned: true })).status
+  ).toBe(204);
+  expect((await (await request()).json()).entries).toContainEqual(
+    expect.objectContaining({ path: "artifacts", kind: "directory" })
+  );
+  expect(
+    (
+      await app.fetch(
+        new Request(
+          "http://localhost:4310/v1/profiles/pins-profile/workspace/content?path=artifacts",
+          { headers: owner.headers({}, owner.orgId) }
+        )
+      )
+    ).status
   ).toBe(404);
+  expect(
+    (await request(owner, { path: "artifacts", pinned: false })).status
+  ).toBe(204);
   expect(
     (await request(owner, { path: "missing.txt", pinned: true })).status
   ).toBe(404);

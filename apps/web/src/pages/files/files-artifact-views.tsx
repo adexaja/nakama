@@ -61,17 +61,13 @@ function ArtifactGridView({
   profileId,
   folders,
   artifacts,
-  deletePending,
   showFullPath,
-  onDelete,
   onOpenFolder,
 }: {
   profileId: string;
   folders: ArtifactFolderEntry[];
   artifacts: ArtifactFile[];
-  deletePending: boolean;
   showFullPath: boolean;
-  onDelete: (artifact: ArtifactFile) => void;
   onOpenFolder: (prefix: string) => void;
 }) {
   return (
@@ -86,9 +82,7 @@ function ArtifactGridView({
       {artifacts.map((artifact) => (
         <ArtifactGridCard
           artifact={artifact}
-          deletePending={deletePending}
           key={artifact.filename}
-          onDelete={() => onDelete(artifact)}
           profileId={profileId}
           showFullPath={showFullPath}
         />
@@ -160,9 +154,7 @@ function FilesArtifactViewsBody({
     return (
       <ArtifactGridView
         artifacts={listingFiles}
-        deletePending={deletePending}
         folders={folders}
-        onDelete={onDelete}
         onOpenFolder={onOpenFolder}
         profileId={profileId}
         showFullPath={showFullPath}

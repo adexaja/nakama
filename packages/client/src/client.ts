@@ -140,6 +140,7 @@ import type {
   PublishArtifactShareRequest,
   PublishArtifactShareResponse,
   RegenerateNotificationDestinationKeyResponse,
+  RenameWorkspaceEntryRequest,
   RequestPasswordResetRequest,
   RequestPasswordResetResponse,
   ResetPasswordRequest,
@@ -239,6 +240,7 @@ import type {
   WebSearchSettingsResponse,
   WhatsAppSettingsResponse,
   WorkerLogsResponse,
+  WorkspaceEntry,
   XaiOAuthDeviceCompleteRequest,
   XaiOAuthDeviceCompleteResponse,
   XaiOAuthDeviceStartResponse,
@@ -1238,6 +1240,19 @@ export class NakamaClient {
     const query = new URLSearchParams({ folder });
     return this.request<ListWorkspaceFilesResponse>(
       `/v1/profiles/${encodeURIComponent(profileId)}/workspace?${query}`
+    );
+  }
+
+  async renameProfileWorkspaceEntry(
+    profileId: string,
+    body: RenameWorkspaceEntryRequest
+  ): Promise<WorkspaceEntry> {
+    return this.request(
+      `/v1/profiles/${encodeURIComponent(profileId)}/workspace/rename`,
+      {
+        body: JSON.stringify(body),
+        method: "PATCH",
+      }
     );
   }
 

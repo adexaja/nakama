@@ -1,6 +1,7 @@
 import type { ArtifactFile, WorkspaceEntry } from "@nakama/core/contract";
 import { Button } from "@nakama/ui/button";
 import { useQuery } from "@tanstack/react-query";
+import { Download04Icon } from "hugeicons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ArtifactAttachmentPanelActions } from "@/components/chat/artifact-attachment-panel-actions";
@@ -44,18 +45,23 @@ import {
   resolveFilesProfileId,
   setStoredFilesViewMode,
 } from "@/lib/files-page.shared";
+import { formatBytes } from "@/lib/knowledge-base-files";
 import { ArtifactFolderBreadcrumb } from "@/pages/files/files-artifact-folder-breadcrumb";
 import {
   artifactBasename,
   listArtifactsInFolder,
   normalizeArtifactFolderPrefix,
 } from "@/pages/files/files-artifact-folders";
+import { ArtifactIcon } from "@/pages/files/files-artifact-icon";
 import {
   FileEntriesLayout,
   FileEntry,
 } from "@/pages/files/files-artifact-list-view";
 import { FilesArtifactViews } from "@/pages/files/files-artifact-views";
-import { FilesDeleteDialog } from "@/pages/files/files-delete-dialog";
+import {
+  FilesDeleteDialog,
+  FilesRename,
+} from "@/pages/files/files-delete-dialog";
 import { FilesSearchRow } from "@/pages/files/files-search-row";
 import { FilePinsContext, toChatArtifactRef } from "@/pages/files/files-shared";
 import { FilesToolbar } from "@/pages/files/files-toolbar";
@@ -84,61 +90,83 @@ export function FilesPage() {
   }
 
   return (
-    <ChatAttachmentPanelProvider
+    <FilesRename
       key={`${activeOrg?.id}:${profileId}`}
-      presentation="overlay"
+      onRenamed={(oldPath, newPath) => {
+        const folder = searchParams.get("folder") ?? "";
+        const prefix = view === "artifacts" ? "artifacts/" : "";
+        const currentPath = `${prefix}${folder}`.replace(/\/$/, "");
+        if (currentPath === oldPath || currentPath.startsWith(`${oldPath}/`)) {
+          navigate(
+            view,
+            `${newPath}${currentPath.slice(oldPath.length)}`.slice(
+              prefix.length
+            )
+          );
+        }
+      }}
+      profileId={canViewFiles ? profileId : null}
     >
-      <FilePinsContext.Provider value={pins.controls}>
-        <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto bg-muted/20 p-4 sm:p-6">
-          {canViewFiles ? (
-            <div className="space-y-4">
-              <nav aria-label="File locations" className="flex flex-wrap gap-2">
-                {(["workspace", "artifacts", "knowledge"] as const).map(
-                  (location) => (
-                    <Button
-                      aria-current={view === location ? "page" : undefined}
-                      key={location}
-                      onClick={() => navigate(location)}
-                      variant={view === location ? "secondary" : "ghost"}
-                    >
-                      {location === "workspace"
-                        ? "All files"
-                        : location === "artifacts"
-                          ? "Artifacts"
-                          : "Knowledge"}
-                    </Button>
-                  )
+      <ChatAttachmentPanelProvider
+        key={`${activeOrg?.id}:${profileId}`}
+        presentation="overlay"
+      >
+        <FilePinsContext.Provider value={pins.controls}>
+          <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto bg-muted/20 p-4 sm:p-6">
+            {canViewFiles ? (
+              <div className="space-y-4">
+                <nav
+                  aria-label="File locations"
+                  className="flex flex-wrap gap-2"
+                >
+                  {(["workspace", "artifacts", "knowledge"] as const).map(
+                    (location) => (
+                      <Button
+                        aria-current={view === location ? "page" : undefined}
+                        key={location}
+                        onClick={() => navigate(location)}
+                        variant={view === location ? "secondary" : "ghost"}
+                      >
+                        {location === "workspace"
+                          ? "All files"
+                          : location === "artifacts"
+                            ? "Artifacts"
+                            : "Knowledge"}
+                      </Button>
+                    )
+                  )}
+                </nav>
+                {view === "knowledge" ? null : (
+                  <PinnedFilesSection
+                    entries={pins.entries}
+                    error={pins.error}
+                    key={`${activeOrg?.id}:${profileId}`}
+                    onOpenFolder={(folder) => navigate("workspace", folder)}
+                    profileId={profileId}
+                  />
                 )}
-              </nav>
-              {view === "knowledge" ? null : (
-                <PinnedFilesSection
-                  entries={pins.entries}
-                  error={pins.error}
-                  key={`${activeOrg?.id}:${profileId}`}
-                  profileId={profileId}
-                />
-              )}
-              {view === "knowledge" ? (
-                <KnowledgeTab key={profileId} profileId={profileId} />
-              ) : view === "artifacts" ? (
-                <FilesArtifactsPage key={profileId} profileId={profileId} />
-              ) : (
-                <WorkspaceFilesPage
-                  folder={searchParams.get("folder") ?? ""}
-                  key={`${profileId}:${searchParams.get("folder") ?? ""}`}
-                  onNavigate={(folder) => navigate("workspace", folder)}
-                  profileId={profileId}
-                />
-              )}
-            </div>
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              Workspace files are available to platform administrators.
-            </p>
-          )}
-        </div>
-      </FilePinsContext.Provider>
-    </ChatAttachmentPanelProvider>
+                {view === "knowledge" ? (
+                  <KnowledgeTab key={profileId} profileId={profileId} />
+                ) : view === "artifacts" ? (
+                  <FilesArtifactsPage key={profileId} profileId={profileId} />
+                ) : (
+                  <WorkspaceFilesPage
+                    folder={searchParams.get("folder") ?? ""}
+                    key={`${profileId}:${searchParams.get("folder") ?? ""}`}
+                    onNavigate={(folder) => navigate("workspace", folder)}
+                    profileId={profileId}
+                  />
+                )}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                Workspace files are available to platform administrators.
+              </p>
+            )}
+          </div>
+        </FilePinsContext.Provider>
+      </ChatAttachmentPanelProvider>
+    </FilesRename>
   );
 }
 
@@ -146,10 +174,12 @@ function PinnedFilesSection({
   entries,
   profileId,
   error,
+  onOpenFolder,
 }: {
   entries: WorkspaceEntry[];
   profileId: string | null;
   error: unknown;
+  onOpenFolder: (folder: string) => void;
 }) {
   const [selected, setSelected] = useState<WorkspaceEntry | null>(null);
   const closePreview = useCallback(() => setSelected(null), []);
@@ -170,8 +200,16 @@ function PinnedFilesSection({
             {entries.map((entry) => (
               <FileEntry
                 {...entry}
+                directory={entry.kind === "directory"}
                 key={entry.path}
-                onOpen={() => setSelected(entry)}
+                onOpen={() => {
+                  setSelected(null);
+                  if (entry.kind === "directory") {
+                    onOpenFolder(entry.path);
+                  } else {
+                    setSelected(entry);
+                  }
+                }}
                 pinPath={entry.path}
                 viewMode="grid"
               />
@@ -575,6 +613,7 @@ function WorkspaceFilePreview({
         <WorkspacePreviewBody
           canPreview={canPreview}
           content={data?.text ?? null}
+          downloadUrl={downloadUrl}
           entry={entry}
           error={error}
           loading={isLoading}
@@ -643,6 +682,7 @@ function WorkspacePreviewBody({
   loading,
   error,
   canPreview,
+  downloadUrl,
 }: {
   entry: WorkspaceEntry;
   objectUrl: string | null;
@@ -650,13 +690,43 @@ function WorkspacePreviewBody({
   loading: boolean;
   error: unknown;
   canPreview: boolean;
+  downloadUrl: string;
   previewMode: ArtifactPreviewMode;
 }) {
   if (!canPreview) {
     return (
-      <p className="text-muted-foreground text-sm">
-        Download this file to view it.
-      </p>
+      <div className="flex min-h-64 flex-1 items-center justify-center p-6">
+        <div className="flex w-full max-w-sm flex-col items-center rounded-xl border border-border bg-muted/20 px-6 py-8 text-center">
+          <div className="mb-4 flex size-14 items-center justify-center rounded-xl border border-border bg-background">
+            <ArtifactIcon
+              className="size-7"
+              filename={entry.filename}
+              mimeType={entry.mimeType}
+            />
+          </div>
+          <h3 className="font-medium text-sm">Preview unavailable</h3>
+          <p className="mt-2 max-w-full break-all text-muted-foreground text-sm">
+            {artifactBasename(entry.filename)}
+          </p>
+          <p className="mt-1 text-muted-foreground text-xs tabular-nums">
+            {formatBytes(entry.sizeBytes)}
+          </p>
+          <Button
+            className="mt-5 min-h-10"
+            nativeButton={false}
+            render={
+              <a
+                aria-label={`Download ${artifactBasename(entry.filename)}`}
+                download={artifactBasename(entry.filename)}
+                href={downloadUrl}
+              />
+            }
+          >
+            <Download04Icon aria-hidden className="size-4" />
+            Download file
+          </Button>
+        </div>
+      </div>
     );
   }
   const shared = {

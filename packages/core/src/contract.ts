@@ -2245,6 +2245,11 @@ export interface SetFilePinnedRequest {
   pinned: boolean;
 }
 
+export interface RenameWorkspaceEntryRequest {
+  newName: string;
+  path: string;
+}
+
 export interface ListWorkspaceFilesResponse {
   entries: WorkspaceEntry[];
 }

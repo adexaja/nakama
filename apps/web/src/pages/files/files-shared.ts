@@ -30,3 +30,7 @@ export const FilePinsContext = createContext<{
   pending: boolean;
   toggle: (path: string, pinned: boolean) => void;
 } | null>(null);
+
+export const FileRenameContext = createContext<((path: string) => void) | null>(
+  null
+);

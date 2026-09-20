@@ -11,9 +11,9 @@ export function ArtifactFolderCard({
   return (
     <FileEntry
       directory
-      fileCount={folder.fileCount}
       filename={folder.name}
       onOpen={() => onOpen(folder.prefix)}
+      pinPath={`artifacts/${folder.prefix}`}
       viewMode="grid"
     />
   );

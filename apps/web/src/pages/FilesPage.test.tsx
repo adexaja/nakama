@@ -13,6 +13,101 @@ import { client } from "@/lib/client";
 import { queryKeys } from "@/lib/query-keys";
 import { FilesPage } from "./FilesPage";
 
+test("rename menu submits the full name, retains failures, and refreshes file listings", async () => {
+  const { FilesRename } = await import("./files/files-delete-dialog");
+  const { FileEntry } = await import("./files/files-artifact-list-view");
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const rename = spyOn(
+    client,
+    "renameProfileWorkspaceEntry"
+  ).mockRejectedValueOnce(new Error("Name exists"));
+  const invalidation = spyOn(queryClient, "invalidateQueries");
+  const renamed: string[][] = [];
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <FilesRename
+            onRenamed={(before, after) => renamed.push([before, after])}
+            profileId="rename-profile"
+          >
+            <ul>
+              <FileEntry
+                filename="report.md"
+                onOpen={() => {}}
+                pinPath="notes/report.md"
+                viewMode="grid"
+              />
+            </ul>
+          </FilesRename>
+        </QueryClientProvider>
+      )
+    );
+    await act(async () =>
+      (
+        container.querySelector(
+          '[aria-label="Actions for report.md"]'
+        ) as HTMLButtonElement
+      ).click()
+    );
+    await act(async () =>
+      (document.querySelector('[role="menuitem"]') as HTMLElement).click()
+    );
+    const input = document.querySelector(
+      'input[aria-label="Name"]'
+    ) as HTMLInputElement;
+    expect(input.value).toBe("report.md");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value"
+      )!.set!;
+      setter.call(input, "summary.md");
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    const submit = async () => {
+      await act(async () => {
+        document
+          .querySelector("form")!
+          .dispatchEvent(
+            new window.Event("submit", { bubbles: true, cancelable: true })
+          );
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    };
+    await submit();
+    expect(rename).toHaveBeenCalledWith("rename-profile", {
+      newName: "summary.md",
+      path: "notes/report.md",
+    });
+    expect(document.querySelector('[role="alert"]')).not.toBeNull();
+    expect(input.value).toBe("summary.md");
+    expect(renamed).toEqual([]);
+    rename.mockResolvedValueOnce({
+      filename: "notes/summary.md",
+      kind: "file",
+      mimeType: "text/markdown",
+      path: "notes/summary.md",
+      sizeBytes: 1,
+      updatedAt: "",
+    });
+    await submit();
+    expect(renamed).toEqual([["notes/report.md", "notes/summary.md"]]);
+    expect(invalidation).toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    queryClient.clear();
+    rename.mockRestore();
+    invalidation.mockRestore();
+  }
+});
+
 test("Files starts at the workspace root and opens nested files read-only", async () => {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -78,14 +173,14 @@ test("Files starts at the workspace root and opens nested files read-only", asyn
   );
   const pinsKey = ["file-pins", "org-files", "admin", "profile-files"];
   queryClient.setQueryData(pinsKey, { entries: [] });
-  let pinned = false;
+  let pinned: WorkspaceEntry | null = null;
   const pinRequest = spyOn(client, "setProfileFilePinned").mockImplementation(
     async (_profileId, body) => {
-      pinned = body.pinned;
+      pinned = body.pinned ? (body.path === folder.path ? folder : file) : null;
     }
   );
   const listPins = spyOn(client, "listProfileFilePins").mockImplementation(
-    async () => ({ entries: pinned ? [file] : [] })
+    async () => ({ entries: pinned ? [pinned] : [] })
   );
   const container = document.createElement("div");
   document.body.append(container);
@@ -118,7 +213,32 @@ test("Files starts at the workspace root and opens nested files read-only", asyn
       (button) => button.textContent?.startsWith("notes")
     );
     expect(folderButton).toBeDefined();
-    await act(async () => folderButton!.click());
+    await act(async () => {
+      (
+        container.querySelector('[aria-label="Pin notes"]') as HTMLButtonElement
+      ).click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(pinRequest).toHaveBeenCalledWith("profile-files", {
+      path: "notes",
+      pinned: true,
+    });
+    const pinnedFolder = container.querySelector(
+      '[aria-label="Pinned files"] button[title="notes"]'
+    ) as HTMLButtonElement;
+    expect(pinnedFolder).not.toBeNull();
+    await act(async () => pinnedFolder.click());
+    expect(
+      container.querySelector('[data-slot="attachment-detail-panel"]')
+    ).toBeNull();
+    await act(async () => {
+      (
+        container.querySelector(
+          '[aria-label="Unpin notes"]'
+        ) as HTMLButtonElement
+      ).click();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
     expect(
       container.querySelector('nav[aria-label="Folder"]')?.textContent
     ).toContain("notes");
@@ -231,6 +351,37 @@ test("Files starts at the workspace root and opens nested files read-only", asyn
     expect(
       panel()!.querySelector('[aria-label="Enter fullscreen"]')
     ).not.toBeNull();
+    const unsupported = {
+      ...file,
+      filename: "notes/captions & notes.vtt",
+      mimeType: "application/octet-stream",
+      path: "notes/captions & notes.vtt",
+    };
+    await act(async () =>
+      (
+        panel()!.querySelector(
+          '[aria-label="Close attachment panel"]'
+        ) as HTMLButtonElement
+      ).click()
+    );
+    await act(async () => {
+      queryClient.setQueryData(
+        ["workspace-files", "org-files", "profile-files", "notes"],
+        { entries: [file, unsupported] }
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    const unsupportedButton = container.querySelector(
+      'button[title="captions & notes.vtt"]'
+    ) as HTMLButtonElement;
+    expect(unsupportedButton).not.toBeNull();
+    await act(async () => unsupportedButton.click());
+    const download = panel()!.querySelector("a[download]") as HTMLAnchorElement;
+    expect(download).not.toBeNull();
+    expect(download.download).toBe("captions & notes.vtt");
+    const url = new URL(download.href);
+    expect(url.pathname).toBe("/v1/profiles/profile-files/workspace/content");
+    expect(url.searchParams.get("path")).toBe(unsupported.path);
   } finally {
     await act(async () => root.unmount());
     container.remove();
