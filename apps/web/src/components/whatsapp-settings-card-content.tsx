@@ -1,12 +1,5 @@
-import type { ProfileSummary } from "@nakama/core/contract";
 import { Button } from "@nakama/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@nakama/ui/select";
+import { Card, CardContent } from "@nakama/ui/card";
 import { Switch } from "@nakama/ui/switch";
 import { cn } from "@nakama/ui/utils";
 import {
@@ -14,23 +7,18 @@ import {
   IntegrationStatusHeader,
   SettingsRow,
 } from "@/components/integration-settings.shared";
-import { ProfileAvatar } from "@/components/ProfileAvatar";
 import { WorkerActionBar } from "@/components/WorkerActionBar";
 import { WhatsAppSettingsLinkingSection } from "@/components/whatsapp-settings-linking-section";
 
 export function WhatsAppSettingsCardContent({
   embedded,
-  headerSubtitle,
   statusBadge,
   configured,
   paired,
   running,
   showQr,
   linkedNumber,
-  profileId,
-  profiles,
   savePending,
-  onProfileChange,
   pairingCode,
   copied,
   onCopyPairingCode,
@@ -63,10 +51,7 @@ export function WhatsAppSettingsCardContent({
   running: boolean;
   showQr: boolean;
   linkedNumber: string | null;
-  profileId: string;
-  profiles: ProfileSummary[];
   savePending: boolean;
-  onProfileChange: (profileId: string) => void;
   pairingCode: string | null;
   copied: boolean;
   onCopyPairingCode: () => void;
@@ -91,41 +76,70 @@ export function WhatsAppSettingsCardContent({
   onRequireGroupMentionChange: (value: boolean) => void;
   onSave: () => void;
 }) {
-  const paneItemClass = embedded ? undefined : "px-4 py-3";
+  const paneItemClass = "px-4 py-3";
+  const hasError = Boolean(formError || loadError);
+  const feedbackClass = hasError ? "text-destructive" : "text-muted-foreground";
+  const feedbackRole = hasError ? "alert" : "status";
 
   return (
-    <div
-      className={cn(
-        !embedded &&
-          "divide-y divide-border overflow-hidden rounded-xl border border-border bg-card"
-      )}
-    >
-      {embedded ? null : (
-        <IntegrationStatusHeader
-          className={paneItemClass}
-          configured={configured}
-          connected={paired && running && !showQr}
-          statusBadge={statusBadge}
-          subtitle={headerSubtitle}
-          title="WhatsApp"
-        />
-      )}
+    <div className="space-y-4">
+      <Card className="w-full overflow-hidden shadow-none">
+        <CardContent className="divide-y divide-border p-0">
+          <IntegrationStatusHeader
+            className={paneItemClass}
+            configured={configured}
+            connected={statusBadge === "Connected"}
+            statusBadge={statusBadge}
+            title="Connection"
+          />
 
-      {linkedNumber ? (
-        <SettingsRow
-          className={paneItemClass}
-          description="From your WhatsApp session"
-          label="Linked account"
-        >
-          <span className="text-foreground text-sm">{linkedNumber}</span>
-        </SettingsRow>
-      ) : null}
+          {linkedNumber ? (
+            <SettingsRow className={paneItemClass} label="Connected number">
+              <span className="text-foreground text-sm">{linkedNumber}</span>
+            </SettingsRow>
+          ) : null}
+
+          {configured ? (
+            <>
+              <SettingsRow label="Only reply when mentioned in groups">
+                <Switch
+                  aria-label="Only reply when mentioned in groups"
+                  checked={requireGroupMention}
+                  disabled={savePending}
+                  id="whatsapp-require-group-mention"
+                  onCheckedChange={onRequireGroupMentionChange}
+                />
+              </SettingsRow>
+              <SettingsRow label="Who can message this agent?">
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <span className="text-muted-foreground text-xs">
+                    {allowedPhoneSummary}
+                  </span>
+                  <Button
+                    disabled={savePending}
+                    onClick={onManageAllowedPhones}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    Edit
+                  </Button>
+                </div>
+              </SettingsRow>
+            </>
+          ) : null}
+        </CardContent>
+      </Card>
 
       {configured ? (
-        <details className={cn("group", paneItemClass)}>
-          <summary className="cursor-pointer list-none font-medium text-sm marker:hidden">
+        <details
+          className="group overflow-hidden rounded-xl border border-border bg-card"
+          key={String(paired)}
+          open={!paired}
+        >
+          <summary className="cursor-pointer list-none px-4 py-3 font-medium text-sm outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-ring">
             <span className="flex items-center justify-between gap-3">
-              Advanced settings
+              Connection options
               <span className="text-muted-foreground text-xs group-open:hidden">
                 Show
               </span>
@@ -134,117 +148,59 @@ export function WhatsAppSettingsCardContent({
               </span>
             </span>
           </summary>
-          <div className="mt-3 divide-y divide-border rounded-lg border border-border">
+          <div className="divide-y divide-border border-border border-t">
             <SettingsRow
-              description="Which agent answers on WhatsApp"
-              label="Reply as"
-            >
-              <Select
-                disabled={savePending || profiles.length === 0}
-                onValueChange={(value) => {
-                  if (value) {
-                    onProfileChange(String(value));
-                  }
-                }}
-                value={profileId}
-              >
-                <SelectTrigger
-                  className="w-[11rem] sm:w-[13rem]"
-                  id="whatsapp-profile"
-                >
-                  <SelectValue placeholder="Profile">
-                    {profiles.find((profile) => profile.id === profileId)?.name}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent align="end">
-                  {profiles.map((profile) => (
-                    <SelectItem key={profile.id} value={profile.id}>
-                      <span className="flex items-center gap-2">
-                        <ProfileAvatar profile={profile} size="sm" />
-                        <span>{profile.name}</span>
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </SettingsRow>
-
-            <SettingsRow
-              description="Off: anyone in the group can talk without tagging the bot"
-              label="Require @mention in groups"
-            >
-              <Switch
-                aria-label="Require @mention in groups"
-                checked={requireGroupMention}
-                disabled={savePending}
-                id="whatsapp-require-group-mention"
-                onCheckedChange={onRequireGroupMentionChange}
-              />
-            </SettingsRow>
-
-            <SettingsRow label="Allowed numbers">
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <span className="text-muted-foreground text-xs">
-                  {allowedPhoneSummary}
-                </span>
-                <Button
-                  disabled={savePending}
-                  onClick={onManageAllowedPhones}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  Manage
-                </Button>
-              </div>
-            </SettingsRow>
-
-            <SettingsRow
-              description={running ? "Running" : "Stopped"}
-              label="Bridge worker"
+              description={running ? "Active" : "Stopped"}
+              label="WhatsApp connection"
             >
               <WorkerActionBar
+                compact
                 pm2Managed={worker?.process?.managed ?? false}
                 running={running}
                 workerName="whatsapp"
               />
             </SettingsRow>
           </div>
+          <WhatsAppSettingsLinkingSection
+            awaitingQr={awaitingQr}
+            bridgeStarting={bridgeStarting}
+            compact={!embedded}
+            copied={copied}
+            linkingAfterScan={linkingAfterScan}
+            onCopyPairingCode={onCopyPairingCode}
+            onReconnect={onReconnect}
+            onRegeneratePairingCode={onRegeneratePairingCode}
+            paired={paired}
+            pairingCode={pairingCode}
+            qrCode={qrCode}
+            reconnectPending={reconnectPending}
+            regeneratePending={regeneratePending}
+            rowClassName={paneItemClass}
+            savePending={savePending}
+            showQr={showQr}
+            showReconnect={showReconnect}
+          />
         </details>
       ) : null}
 
-      {configured ? (
-        <WhatsAppSettingsLinkingSection
-          awaitingQr={awaitingQr}
-          bridgeStarting={bridgeStarting}
-          compact={!embedded}
-          copied={copied}
-          linkingAfterScan={linkingAfterScan}
-          onCopyPairingCode={onCopyPairingCode}
-          onReconnect={onReconnect}
-          onRegeneratePairingCode={onRegeneratePairingCode}
-          paired={paired}
-          pairingCode={pairingCode}
-          qrCode={qrCode}
-          reconnectPending={reconnectPending}
-          regeneratePending={regeneratePending}
-          rowClassName={paneItemClass}
+      {canSave || savePending ? (
+        <IntegrationSettingsFooter
+          canSave={canSave}
+          className={paneItemClass}
+          formError={formError}
+          loadError={loadError}
+          onSave={onSave}
           savePending={savePending}
-          showQr={showQr}
-          showReconnect={showReconnect}
+          statusLine={statusLine}
+          submitLabel={actionLabel}
         />
-      ) : null}
-
-      <IntegrationSettingsFooter
-        canSave={canSave}
-        className={paneItemClass}
-        formError={formError}
-        loadError={loadError}
-        onSave={onSave}
-        savePending={savePending}
-        statusLine={statusLine}
-        submitLabel={actionLabel}
-      />
+      ) : (
+        <div className="flex items-center justify-between gap-3 py-3">
+          <p className={cn("text-xs", feedbackClass)} role={feedbackRole}>
+            {statusLine}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

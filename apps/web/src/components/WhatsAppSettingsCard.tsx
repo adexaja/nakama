@@ -59,15 +59,12 @@ function WhatsAppSettingsCardForOrg({
       loadError={card.loadError}
       onCopyPairingCode={card.onCopyPairingCode}
       onManageAllowedPhones={card.onManageAllowedPhones}
-      onProfileChange={card.onProfileChange}
       onReconnect={card.onReconnect}
       onRegeneratePairingCode={card.onRegeneratePairingCode}
       onRequireGroupMentionChange={card.onRequireGroupMentionChange}
       onSave={card.onSave}
       paired={card.paired}
       pairingCode={card.pairingCode}
-      profileId={card.profileId}
-      profiles={card.profiles}
       qrCode={card.qrCode}
       reconnectPending={card.reconnectPending}
       regeneratePending={card.regeneratePending}
@@ -85,10 +82,7 @@ function WhatsAppSettingsCardForOrg({
   if (embedded) {
     return (
       <>
-        <div className="space-y-2">
-          <p className="text-muted-foreground text-xs">{card.headerSubtitle}</p>
-          {content}
-        </div>
+        {content}
         {allowedPhonesDialog}
       </>
     );

@@ -9,7 +9,6 @@ import { SETTINGS_CARD_LOADING_SKELETON } from "@/components/integration-setting
 import {
   useChannelProfileId,
   useDiscordSettings,
-  useProfilesQuery,
   useRegenerateDiscordHandshake,
   useSaveDiscordSettings,
 } from "@/hooks/use-app-queries";
@@ -61,46 +60,22 @@ function settingsStatusLine(
   return null;
 }
 
-function discordHeaderSubtitle(input: {
-  configured: boolean;
-  hasLinkedUsers: boolean;
-  pairingCode: string | null;
-  running: boolean;
-}): string {
-  if (!input.configured) {
-    return "Step 1: paste a bot token from Discord Developer Portal";
-  }
-
-  if (input.hasLinkedUsers && input.running) {
-    return "Your Discord is connected to Nakama";
-  }
-
-  if (input.hasLinkedUsers) {
-    return "Linked. Start the bridge to receive messages";
-  }
-
-  if (input.pairingCode) {
-    return "Step 2: send your pairing code to the bot in Discord";
-  }
-
-  return "Step 2: generate a pairing code and send it to your bot";
-}
-
 function discordStatusBadge(input: {
   configured: boolean;
   hasLinkedUsers: boolean;
   running: boolean;
+  connected: boolean;
 }): string {
   if (!input.configured) {
     return "Not set up";
   }
 
-  if (input.hasLinkedUsers && input.running) {
+  if (input.hasLinkedUsers && input.running && input.connected) {
     return "Connected";
   }
 
   if (input.hasLinkedUsers) {
-    return "Paired";
+    return "Offline";
   }
 
   return "Awaiting link";
@@ -154,7 +129,6 @@ function useDiscordSettingsCard(onSaveSuccess?: () => void) {
   const ownerProfileId = useChannelProfileId();
   const { data: settings, isLoading, error: loadError } = useDiscordSettings();
   const { data: status } = useSystemStatusQuery();
-  const { data: profiles = [] } = useProfilesQuery();
   const saveMutation = useSaveDiscordSettings();
   const regenerateMutation = useRegenerateDiscordHandshake();
 
@@ -261,7 +235,7 @@ function useDiscordSettingsCard(onSaveSuccess?: () => void) {
     allowedUsers,
     allowedUsersOpen,
     botToken,
-    canSave: configured || botToken.trim().length > 0,
+    canSave: botToken.trim().length > 0,
     configured,
     copied,
     copyHandshakeCode,
@@ -269,20 +243,11 @@ function useDiscordSettingsCard(onSaveSuccess?: () => void) {
     handleRegenerateHandshake,
     handleSave,
     hasLinkedUsers,
-    headerSubtitle: discordHeaderSubtitle({
-      configured,
-      hasLinkedUsers,
-      pairingCode,
-      running,
-    }),
     isLoading,
     isPaired,
     loadError,
     pairingCode,
     profileId,
-    profiles: ownerProfileId
-      ? profiles.filter((profile) => profile.id === ownerProfileId)
-      : profiles,
     regeneratePending: regenerateMutation.isPending,
     running,
     savePending: saveMutation.isPending,
@@ -291,12 +256,12 @@ function useDiscordSettingsCard(onSaveSuccess?: () => void) {
     setBotToken,
     setFormError,
     setHint,
-    setProfileId,
     setShowBotToken,
     settings,
     showBotToken,
     statusBadge: discordStatusBadge({
       configured,
+      connected: worker?.connected === true,
       hasLinkedUsers,
       running,
     }),
@@ -319,7 +284,6 @@ function DiscordSettingsCardLoaded({
       allowedUserSummary={card.allowedUserSummary}
       botToken={card.botToken}
       formError={card.formError}
-      headerSubtitle={card.headerSubtitle}
       loadError={card.loadError}
       onBotTokenChange={(value) => {
         card.setBotToken(value);
@@ -330,16 +294,10 @@ function DiscordSettingsCardLoaded({
       }}
       onCopyHandshakeCode={() => void card.copyHandshakeCode()}
       onManageAllowedUsers={() => card.setAllowedUsersOpen(true)}
-      onProfileChange={(value) => {
-        card.setProfileId(value);
-        card.setHint(null);
-      }}
       onRegenerateHandshake={card.handleRegenerateHandshake}
       onSave={() => card.handleSave()}
       onToggleShowBotToken={() => card.setShowBotToken((current) => !current)}
       pairingCode={card.pairingCode}
-      profileId={card.profileId}
-      profiles={card.profiles}
       settings={card.settings}
       statusBadge={card.statusBadge}
       statusLine={card.statusLine}
@@ -375,18 +333,6 @@ function DiscordSettingsCardLoaded({
     />
   );
 
-  if (embedded) {
-    return (
-      <>
-        <div className="space-y-2">
-          <p className="text-muted-foreground text-xs">{card.headerSubtitle}</p>
-          {content}
-        </div>
-        {allowedUsersDialog}
-      </>
-    );
-  }
-
   return (
     <>
       {content}
@@ -397,7 +343,7 @@ function DiscordSettingsCardLoaded({
 
 export function DiscordSettingsCard({
   embedded = false,
-  submitLabel = "Save",
+  submitLabel = "Save changes",
   onSaveSuccess,
 }: DiscordSettingsCardProps) {
   const card = useDiscordSettingsCard(onSaveSuccess);

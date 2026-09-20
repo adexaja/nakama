@@ -1,4 +1,10 @@
 import { Button } from "@nakama/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@nakama/ui/dropdown-menu";
 import { toast } from "@nakama/ui/toast";
 import { cn } from "@nakama/ui/utils";
 import {
@@ -66,12 +72,14 @@ export function WorkerActionBar({
   workerName,
   className,
   showLogs = true,
+  compact = false,
 }: {
   running: boolean;
   pm2Managed: boolean;
   workerName: string;
   className?: string;
   showLogs?: boolean;
+  compact?: boolean;
 }) {
   const [logDialogOpen, setLogDialogOpen] = useState(false);
   const ownerProfileId = useChannelProfileId();
@@ -98,10 +106,10 @@ export function WorkerActionBar({
   return (
     <>
       <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
-        {running ? (
+        {compact ? null : running ? (
           <>
             <Button
-              aria-busy={stopping || undefined}
+              aria-busy={stopping}
               className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
               disabled={isBusy}
               onClick={() => stopWorker.mutate(workerName)}
@@ -113,7 +121,7 @@ export function WorkerActionBar({
               Stop
             </Button>
             <Button
-              aria-busy={restarting || undefined}
+              aria-busy={restarting}
               disabled={isBusy}
               onClick={() => restartWorker.mutate(workerName)}
               size="sm"
@@ -126,7 +134,7 @@ export function WorkerActionBar({
           </>
         ) : (
           <Button
-            aria-busy={starting || undefined}
+            aria-busy={starting}
             disabled={isBusy}
             onClick={() => startWorker.mutate(workerName)}
             size="sm"
@@ -155,7 +163,32 @@ export function WorkerActionBar({
             Disconnect
           </Button>
         ) : null}
-        {showLogs ? (
+        {compact ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button disabled={isBusy} size="sm" variant="outline" />}
+            >
+              {isBusy ? "Working…" : "More"}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => {
+                  const mutation = running ? restartWorker : startWorker;
+                  mutation.mutate(workerName, {
+                    onError: (error) => toast(error.message),
+                  });
+                }}
+              >
+                {running ? "Restart" : "Start"}
+              </DropdownMenuItem>
+              {showLogs ? (
+                <DropdownMenuItem onClick={() => setLogDialogOpen(true)}>
+                  View logs
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : showLogs ? (
           <Button
             className="ml-auto"
             onClick={() => setLogDialogOpen(true)}

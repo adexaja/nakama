@@ -1,21 +1,19 @@
-import type { ProfileSummary } from "@nakama/core/contract";
+import { Button } from "@nakama/ui/button";
+import { Card, CardContent } from "@nakama/ui/card";
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
   InputGroupInput,
 } from "@nakama/ui/input-group";
-import { cn } from "@nakama/ui/utils";
 import { ViewIcon, ViewOffIcon } from "hugeicons-react";
 import { SettingsRow } from "@/components/discord-settings-card.shared";
-import {
-  DiscordSettingsConfiguredRows,
-  DiscordSettingsPairingSection,
-} from "@/components/discord-settings-pairing-section";
+import { DiscordSettingsPairingSection } from "@/components/discord-settings-pairing-section";
 import {
   IntegrationSettingsFooter,
   IntegrationStatusHeader,
 } from "@/components/integration-settings.shared";
+import { WorkerActionBar } from "@/components/WorkerActionBar";
 import {
   DISCORD_DEVELOPER_PORTAL_URL,
   DISCORD_SETUP_GUIDE_URL,
@@ -36,7 +34,6 @@ export type DiscordSettingsCardView = {
 
 export function DiscordSettingsCardContent({
   view,
-  headerSubtitle,
   statusBadge,
   settings,
   botToken,
@@ -47,9 +44,6 @@ export function DiscordSettingsCardContent({
   onRegenerateHandshake,
   allowedUserSummary,
   onManageAllowedUsers,
-  profileId,
-  profiles,
-  onProfileChange,
   worker,
   statusLine,
   formError,
@@ -58,7 +52,6 @@ export function DiscordSettingsCardContent({
   onSave,
 }: {
   view: DiscordSettingsCardView;
-  headerSubtitle: string;
   statusBadge: string;
   settings:
     | {
@@ -75,9 +68,6 @@ export function DiscordSettingsCardContent({
   onRegenerateHandshake: () => void;
   allowedUserSummary: string;
   onManageAllowedUsers: () => void;
-  profileId: string;
-  profiles: ProfileSummary[];
-  onProfileChange: (profileId: string) => void;
   worker: { process?: { managed?: boolean } } | null | undefined;
   statusLine: string | null;
   formError: string | null;
@@ -86,7 +76,6 @@ export function DiscordSettingsCardContent({
   onSave: () => void;
 }) {
   const {
-    embedded,
     configured,
     hasLinkedUsers,
     running,
@@ -98,124 +87,169 @@ export function DiscordSettingsCardContent({
     canSave,
   } = view;
 
-  const paneItemClass = embedded ? undefined : "px-4 py-3";
+  const paneItemClass = "px-4 py-3";
 
   return (
-    <div
-      className={cn(
-        !embedded &&
-          "divide-y divide-border overflow-hidden rounded-xl border border-border bg-card"
-      )}
-    >
-      {embedded ? null : (
-        <IntegrationStatusHeader
-          className={paneItemClass}
-          configured={configured}
-          connected={hasLinkedUsers && running}
-          statusBadge={statusBadge}
-          subtitle={headerSubtitle}
-          title="Discord"
-        />
-      )}
-
-      <SettingsRow
-        className={paneItemClass}
-        description={
-          <>
-            Create a bot in the{" "}
-            <a
-              className="font-medium text-primary underline-offset-2 hover:underline"
-              href={DISCORD_DEVELOPER_PORTAL_URL}
-              rel="noreferrer"
-              target="_blank"
-            >
-              Discord Developer Portal
-            </a>
-            . Follow the{" "}
-            <a
-              className="font-medium text-primary underline-offset-2 hover:underline"
-              href={DISCORD_SETUP_GUIDE_URL}
-              rel="noreferrer"
-              target="_blank"
-            >
-              setup guide
-            </a>{" "}
-            for token, intents, and invite steps.
-          </>
-        }
-        label="Bot token"
-        layout="stacked"
-      >
-        <InputGroup className="w-full">
-          <InputGroupInput
-            autoComplete="off"
-            disabled={savePending}
-            id="discord-bot-token"
-            onChange={(event) => onBotTokenChange(event.target.value)}
-            placeholder={
-              configured && settings?.botTokenMasked
-                ? `Saved (${settings.botTokenMasked})`
-                : "Paste token"
-            }
-            type={showBotToken ? "text" : "password"}
-            value={botToken}
+    <div className="space-y-4">
+      <Card className="w-full overflow-hidden shadow-none">
+        <CardContent className="divide-y divide-border p-0">
+          <IntegrationStatusHeader
+            configured={configured}
+            connected={statusBadge === "Connected"}
+            statusBadge={statusBadge}
+            title="Connection"
           />
-          <InputGroupAddon align="inline-end">
-            <InputGroupButton
-              aria-label={showBotToken ? "Hide token" : "Show token"}
-              onClick={onToggleShowBotToken}
-              size="icon-xs"
-              type="button"
+          {configured ? (
+            <SettingsRow label="Who can message this agent?">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span className="text-muted-foreground text-xs">
+                  {allowedUserSummary}
+                </span>
+                <Button
+                  disabled={savePending}
+                  onClick={onManageAllowedUsers}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Edit
+                </Button>
+              </div>
+            </SettingsRow>
+          ) : null}
+        </CardContent>
+      </Card>
+      <details
+        className="group overflow-hidden rounded-xl border border-border bg-card"
+        key={String(hasLinkedUsers)}
+        open={!hasLinkedUsers}
+      >
+        <summary className="cursor-pointer list-none px-4 py-3 font-medium text-sm outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-ring">
+          <span className="flex items-center justify-between gap-3">
+            Connection options
+            <span className="text-muted-foreground text-xs group-open:hidden">
+              Show
+            </span>
+            <span className="hidden text-muted-foreground text-xs group-open:inline">
+              Hide
+            </span>
+          </span>
+        </summary>
+        <div className="divide-y divide-border border-border border-t">
+          {configured ? (
+            <SettingsRow
+              description={running ? "Active" : "Stopped"}
+              label="Discord connection"
             >
-              {showBotToken ? (
-                <ViewOffIcon className="size-4" />
-              ) : (
-                <ViewIcon className="size-4" />
-              )}
-            </InputGroupButton>
-          </InputGroupAddon>
-        </InputGroup>
-      </SettingsRow>
+              <WorkerActionBar
+                compact
+                pm2Managed={worker?.process?.managed ?? false}
+                running={running}
+                workerName="discord"
+              />
+            </SettingsRow>
+          ) : null}
 
-      {configured ? (
-        <DiscordSettingsPairingSection
-          compact={!embedded}
-          copied={copied}
-          inviteUrl={settings?.inviteUrl ?? null}
-          isPaired={isPaired}
-          onCopyHandshakeCode={onCopyHandshakeCode}
-          onRegenerateHandshake={onRegenerateHandshake}
-          pairingCode={pairingCode}
-          regeneratePending={regeneratePending}
-          rowClassName={paneItemClass}
+          <SettingsRow
+            className={paneItemClass}
+            description={
+              <>
+                Create a bot in the{" "}
+                <a
+                  className="font-medium text-primary underline-offset-2 hover:underline"
+                  href={DISCORD_DEVELOPER_PORTAL_URL}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Discord Developer Portal
+                </a>
+                . Follow the{" "}
+                <a
+                  className="font-medium text-primary underline-offset-2 hover:underline"
+                  href={DISCORD_SETUP_GUIDE_URL}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  setup guide
+                </a>{" "}
+                for token, intents, and invite steps.
+              </>
+            }
+            label="Bot token"
+            layout="stacked"
+          >
+            <InputGroup className="w-full">
+              <InputGroupInput
+                aria-label="Bot token"
+                autoComplete="off"
+                disabled={savePending}
+                id="discord-bot-token"
+                onChange={(event) => onBotTokenChange(event.target.value)}
+                placeholder={
+                  configured && settings?.botTokenMasked
+                    ? `Saved (${settings.botTokenMasked})`
+                    : "Paste token"
+                }
+                type={showBotToken ? "text" : "password"}
+                value={botToken}
+              />
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton
+                  aria-label={showBotToken ? "Hide token" : "Show token"}
+                  onClick={onToggleShowBotToken}
+                  size="icon-xs"
+                  type="button"
+                >
+                  {showBotToken ? (
+                    <ViewOffIcon className="size-4" />
+                  ) : (
+                    <ViewIcon className="size-4" />
+                  )}
+                </InputGroupButton>
+              </InputGroupAddon>
+            </InputGroup>
+          </SettingsRow>
+
+          {configured ? (
+            <DiscordSettingsPairingSection
+              compact
+              copied={copied}
+              inviteUrl={settings?.inviteUrl ?? null}
+              isPaired={isPaired}
+              onCopyHandshakeCode={onCopyHandshakeCode}
+              onRegenerateHandshake={onRegenerateHandshake}
+              pairingCode={pairingCode}
+              regeneratePending={regeneratePending}
+              rowClassName={paneItemClass}
+              savePending={savePending}
+            />
+          ) : null}
+        </div>
+      </details>
+
+      {canSave || savePending || !configured ? (
+        <IntegrationSettingsFooter
+          canSave={canSave}
+          className={paneItemClass}
+          formError={formError}
+          loadError={loadError}
+          onSave={onSave}
           savePending={savePending}
+          statusLine={statusLine}
+          submitLabel={submitLabel}
         />
-      ) : null}
-
-      {configured ? (
-        <DiscordSettingsConfiguredRows
-          allowedUserSummary={allowedUserSummary}
-          onManageAllowedUsers={onManageAllowedUsers}
-          onProfileChange={onProfileChange}
-          profileId={profileId}
-          profiles={profiles}
-          rowClassName={paneItemClass}
-          running={running}
-          savePending={savePending}
-          worker={worker}
-        />
-      ) : null}
-
-      <IntegrationSettingsFooter
-        canSave={canSave}
-        className={paneItemClass}
-        formError={formError}
-        loadError={loadError}
-        onSave={onSave}
-        savePending={savePending}
-        statusLine={statusLine}
-        submitLabel={submitLabel}
-      />
+      ) : (
+        <p
+          className={
+            formError || loadError
+              ? "text-destructive text-xs"
+              : "text-muted-foreground text-xs"
+          }
+          role={formError || loadError ? "alert" : "status"}
+        >
+          {statusLine}
+        </p>
+      )}
     </div>
   );
 }

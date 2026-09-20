@@ -2,7 +2,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import {
   useChannelProfileId,
-  useProfilesQuery,
   useReconnectWhatsApp,
   useRegenerateWhatsAppPairingCode,
   useSaveWhatsAppSettings,
@@ -107,6 +106,7 @@ function hintForSavedSettings(
 function resolveWhatsAppStatusCopy(input: {
   awaitingQr: boolean;
   bridgeStarting: boolean;
+  connected: boolean;
   configured: boolean;
   linkingAfterScan: boolean;
   paired: boolean;
@@ -116,22 +116,23 @@ function resolveWhatsAppStatusCopy(input: {
 }): { headerSubtitle: string; statusBadge: string } {
   if (!input.configured) {
     return {
-      headerSubtitle: "Choose a profile and enable WhatsApp to get started",
+      headerSubtitle: "Connect WhatsApp to let this agent receive messages",
       statusBadge: "Not set up",
     };
   }
 
-  if (input.paired && input.running && !input.showQr) {
+  if (input.paired && input.running && input.connected && !input.showQr) {
     return {
-      headerSubtitle: "WhatsApp is linked and the bridge is running",
+      headerSubtitle: "Connected",
       statusBadge: "Connected",
     };
   }
 
-  if (input.paired && !input.running) {
+  if (input.paired && !(input.running && input.connected)) {
     return {
-      headerSubtitle: "Linked. Start the WhatsApp bridge to receive messages",
-      statusBadge: "Paired",
+      headerSubtitle:
+        "WhatsApp is offline. Open Connection options to reconnect.",
+      statusBadge: "Offline",
     };
   }
 
@@ -151,7 +152,7 @@ function resolveWhatsAppStatusCopy(input: {
 
   if (input.bridgeStarting) {
     return {
-      headerSubtitle: "Bridge starting — enter the pairing code in WhatsApp",
+      headerSubtitle: "Connecting — enter the code in WhatsApp",
       statusBadge: "Starting…",
     };
   }
@@ -187,7 +188,6 @@ export function useWhatsAppSettingsCard({
   const queryClient = useQueryClient();
   const { data: settings, isLoading, error: loadError } = useWhatsAppSettings();
   const { data: status } = useSystemStatusQuery();
-  const { data: profiles = [] } = useProfilesQuery();
   const saveMutation = useSaveWhatsAppSettings();
   const startWorkerMutation = useStartWorker();
   const regenerateMutation = useRegenerateWhatsAppPairingCode();
@@ -288,6 +288,7 @@ export function useWhatsAppSettingsCard({
     awaitingQr: linking.awaitingQr,
     bridgeStarting: linking.bridgeStarting,
     configured,
+    connected,
     linkingAfterScan: linking.linkingAfterScan,
     paired,
     pairingCode,
@@ -371,31 +372,9 @@ export function useWhatsAppSettingsCard({
         setFormError(formatError(error));
       },
       onSuccess: () => {
-        setHint("Session reset. Scan the QR code when it appears.");
+        setHint("Scan the new QR code when it appears.");
       },
     });
-  }
-
-  function handleProfileChange(nextProfileId: string) {
-    setProfileId(nextProfileId);
-    setHint(null);
-    setFormError(null);
-
-    if (!configured || nextProfileId === settings?.profileId) {
-      return;
-    }
-
-    saveMutation.mutate(
-      { profileId: nextProfileId.trim() || "default" },
-      {
-        onError: (error) => {
-          setFormError(formatError(error));
-        },
-        onSuccess: () => {
-          setHint("Reply profile saved.");
-        },
-      }
-    );
   }
 
   function handleRequireGroupMentionChange(next: boolean) {
@@ -422,7 +401,8 @@ export function useWhatsAppSettingsCard({
   }
 
   return {
-    actionLabel: submitLabel ?? (configured ? "Save" : "Connect WhatsApp"),
+    actionLabel:
+      submitLabel ?? (configured ? "Save changes" : "Connect WhatsApp"),
     allowedPhoneSummary: formatAllowedPhoneSummary(allowedPhones.length),
     allowedPhones,
     allowedPhonesOpen,
@@ -444,7 +424,6 @@ export function useWhatsAppSettingsCard({
     },
     onError: setFormError,
     onManageAllowedPhones: () => setAllowedPhonesOpen(true),
-    onProfileChange: handleProfileChange,
     onReconnect: handleReconnect,
     onRegeneratePairingCode: handleRegeneratePairingCode,
     onRequireGroupMentionChange: handleRequireGroupMentionChange,
@@ -456,9 +435,6 @@ export function useWhatsAppSettingsCard({
     paired,
     pairingCode,
     profileId,
-    profiles: ownerProfileId
-      ? profiles.filter((profile) => profile.id === ownerProfileId)
-      : profiles,
     qrCode,
     reconnectPending: reconnectMutation.isPending,
     regeneratePending: regenerateMutation.isPending,

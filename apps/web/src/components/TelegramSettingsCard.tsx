@@ -5,7 +5,6 @@ import { TelegramAllowedUsersDialog } from "@/components/TelegramAllowedUsersDia
 import { TelegramSettingsCardContent } from "@/components/telegram-settings-card-content";
 import {
   useChannelProfileId,
-  useProfilesQuery,
   useRegenerateTelegramHandshake,
   useSaveTelegramSettings,
   useTelegramSettings,
@@ -59,31 +58,6 @@ function settingsStatusLine(
   return null;
 }
 
-function telegramHeaderSubtitle(input: {
-  configured: boolean;
-  hasLinkedUsers: boolean;
-  pairingCode: string | null;
-  running: boolean;
-}): string {
-  if (!input.configured) {
-    return "Step 1: Scan the QR code to create a new bot or paste an existing bot token";
-  }
-
-  if (input.hasLinkedUsers && input.running) {
-    return "Your Telegram is connected to Nakama";
-  }
-
-  if (input.hasLinkedUsers) {
-    return "Linked. Start the bridge to receive messages";
-  }
-
-  if (input.pairingCode) {
-    return "Step 2: send your pairing code to the bot in Telegram";
-  }
-
-  return "Step 2: generate a pairing code and send it to your bot";
-}
-
 function telegramStatusBadge(input: {
   configured: boolean;
   hasLinkedUsers: boolean;
@@ -98,7 +72,7 @@ function telegramStatusBadge(input: {
   }
 
   if (input.hasLinkedUsers) {
-    return "Paired";
+    return "Offline";
   }
 
   return "Awaiting link";
@@ -152,7 +126,6 @@ function useTelegramSettingsCard(onSaveSuccess?: () => void) {
   const ownerProfileId = useChannelProfileId();
   const { data: settings, isLoading, error: loadError } = useTelegramSettings();
   const { data: status } = useSystemStatusQuery();
-  const { data: profiles = [] } = useProfilesQuery();
   const saveMutation = useSaveTelegramSettings();
   const regenerateMutation = useRegenerateTelegramHandshake();
 
@@ -236,27 +209,18 @@ function useTelegramSettingsCard(onSaveSuccess?: () => void) {
     allowedUsers,
     allowedUsersOpen,
     botToken,
-    canSave: configured || botToken.trim().length > 0,
+    canSave: botToken.trim().length > 0,
     configured,
     copyHandshakeCode,
     formError,
     handleRegenerateHandshake,
     handleSave,
     hasLinkedUsers,
-    headerSubtitle: telegramHeaderSubtitle({
-      configured,
-      hasLinkedUsers,
-      pairingCode,
-      running,
-    }),
     isLoading,
     isPaired,
     loadError,
     pairingCode,
     profileId,
-    profiles: ownerProfileId
-      ? profiles.filter((profile) => profile.id === ownerProfileId)
-      : profiles,
     regeneratePending: regenerateMutation.isPending,
     running,
     savePending: saveMutation.isPending,
@@ -265,7 +229,6 @@ function useTelegramSettingsCard(onSaveSuccess?: () => void) {
     setBotToken,
     setFormError,
     setHint,
-    setProfileId,
     setShowBotToken,
     settings,
     showBotToken,
@@ -294,7 +257,6 @@ function TelegramSettingsCardLoaded({
         allowedUserSummary={card.allowedUserSummary}
         botToken={card.botToken}
         formError={card.formError}
-        headerSubtitle={card.headerSubtitle}
         loadError={card.loadError}
         onBotTokenChange={(value) => {
           card.setBotToken(value);
@@ -305,16 +267,11 @@ function TelegramSettingsCardLoaded({
         }}
         onCopyHandshakeCode={() => void card.copyHandshakeCode()}
         onManageAllowedUsers={() => card.setAllowedUsersOpen(true)}
-        onProfileChange={(value) => {
-          card.setProfileId(value);
-          card.setHint(null);
-        }}
         onRegenerateHandshake={card.handleRegenerateHandshake}
         onSave={() => card.handleSave()}
         onToggleShowBotToken={() => card.setShowBotToken((current) => !current)}
         pairingCode={card.pairingCode}
         profileId={card.profileId}
-        profiles={card.profiles}
         settings={card.settings}
         statusBadge={card.statusBadge}
         statusLine={card.statusLine}
@@ -351,18 +308,6 @@ function TelegramSettingsCardLoaded({
     />
   );
 
-  if (embedded) {
-    return (
-      <>
-        <div className="space-y-2">
-          <p className="text-muted-foreground text-xs">{card.headerSubtitle}</p>
-          {content}
-        </div>
-        {allowedUsersDialog}
-      </>
-    );
-  }
-
   return (
     <>
       {content}
@@ -373,7 +318,7 @@ function TelegramSettingsCardLoaded({
 
 export function TelegramSettingsCard({
   embedded = false,
-  submitLabel = "Save",
+  submitLabel = "Save changes",
   onSaveSuccess,
 }: TelegramSettingsCardProps) {
   const card = useTelegramSettingsCard(onSaveSuccess);
