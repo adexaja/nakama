@@ -238,6 +238,7 @@ export interface StoredCodingAgentHarnessRecord {
 export interface StoredNotificationDestinationRecord {
   channel: "telegram";
   config: {
+    profileId?: string;
     chatId: number;
     topicId?: number | null;
   };

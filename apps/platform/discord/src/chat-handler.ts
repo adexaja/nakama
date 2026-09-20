@@ -472,7 +472,10 @@ function createScopedChatHandler(deps: ChatHandlerDeps) {
       return;
     }
 
-    const result = await addDiscordAllowedUserId(targetUser.id);
+    const result = await addDiscordAllowedUserId(
+      targetUser.id,
+      config.owner ?? null
+    );
     await authStore.reload();
 
     if (!result.ok) {
@@ -888,6 +891,10 @@ function createScopedChatHandler(deps: ChatHandlerDeps) {
     messenger: DiscordMessenger,
     channelOrgKey: string
   ): Promise<boolean> {
+    if (config.owner) {
+      client.setOrgId(config.owner.orgId);
+      return true;
+    }
     const orgContext = await prepareChannelOrgContext({
       getSelectedOrgId: () => orgStore.get(channelOrgKey)?.orgId,
       listOrgs: () => client.listUserOrgs(),
@@ -935,6 +942,13 @@ function createScopedChatHandler(deps: ChatHandlerDeps) {
     channelOrgKey: string,
     conversationKey: string
   ): Promise<void> {
+    if (config.owner) {
+      await interaction.editReply({
+        components: [],
+        content: `This connection belongs to agent ${config.owner.profileId}.`,
+      });
+      return;
+    }
     const { orgs } = await client.listUserOrgs();
     const org = orgs.find(
       (entry) => entry.id === orgStore.get(channelOrgKey)?.orgId
@@ -1082,6 +1096,10 @@ function createScopedChatHandler(deps: ChatHandlerDeps) {
     conversationKey: string,
     messenger: DiscordMessenger
   ): Promise<void> {
+    if (config.owner) {
+      await messenger.send("This connection serves a single organization.");
+      return;
+    }
     const { orgs } = await client.listUserOrgs();
 
     if (orgs.length === 0) {
@@ -1125,6 +1143,12 @@ function createScopedChatHandler(deps: ChatHandlerDeps) {
     isThread: boolean,
     messenger: DiscordMessenger
   ): Promise<void> {
+    if (config.owner) {
+      await messenger.send(
+        `This connection belongs to agent ${config.owner.profileId}.`
+      );
+      return;
+    }
     const { orgs } = await client.listUserOrgs();
     const currentOrgId = orgStore.get(channelOrgKey)?.orgId;
     client.setOrgId(currentOrgId ?? null);
@@ -1262,6 +1286,27 @@ function createScopedChatHandler(deps: ChatHandlerDeps) {
   }
 
   async function resolveSession(chatId: string): Promise<RemoteChatSession> {
+    if (config.owner) {
+      await resolveSessionProfileId(chatId);
+      const stored = sessionStore.get(chatId);
+      if (stored) {
+        const { sessions } = await client.listSessions(
+          config.owner.profileId,
+          "discord"
+        );
+        if (
+          stored.profileId !== config.owner.profileId ||
+          !sessions.some(
+            (session) =>
+              session.id === stored.sessionId &&
+              session.profileId === config.owner!.profileId
+          )
+        ) {
+          sessionStore.delete(chatId);
+          await sessionStore.save();
+        }
+      }
+    }
     const existing = sessionStore.get(chatId);
 
     if (existing) {
@@ -1288,8 +1333,9 @@ function createScopedChatHandler(deps: ChatHandlerDeps) {
     chatId: string,
     profileId?: string
   ): Promise<RemoteChatSession> {
-    const resolvedProfileId =
-      profileId ?? (await resolveSessionProfileId(chatId));
+    const resolvedProfileId = config.owner
+      ? await resolveSessionProfileId(chatId)
+      : (profileId ?? (await resolveSessionProfileId(chatId)));
     const session = await client.createSession("discord", {
       profileId: resolvedProfileId,
     });
@@ -1406,6 +1452,13 @@ function createScopedChatHandler(deps: ChatHandlerDeps) {
   }
 
   async function resolveSessionProfileId(chatId: string): Promise<string> {
+    if (config.owner) {
+      const { profiles } = await client.listProfiles(config.owner.orgId);
+      if (!profiles.some((profile) => profile.id === config.owner!.profileId)) {
+        throw new Error("The connection owner is unavailable.");
+      }
+      return config.owner.profileId;
+    }
     const profiles = await listSelectableProfiles();
     const storedProfileId = sessionStore.get(chatId)?.profileId;
 

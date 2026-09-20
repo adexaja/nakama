@@ -6,6 +6,7 @@ import {
   log,
 } from "@nakama/core";
 import { hasActiveStreams } from "@nakama/core/channel-active-stream";
+import { channelOwnerFromEnv } from "@nakama/core/channel-config-shared";
 import { ChannelOrgStore } from "@nakama/core/channel-org";
 import { ChannelSessionStore } from "@nakama/core/channel-session-store";
 import {
@@ -22,7 +23,6 @@ import {
   clearWhatsAppQrCode,
   createWhatsAppWorkerHeartbeat,
   writeWhatsAppQrCode,
-  writeWhatsAppWorkerHeartbeat,
 } from "@nakama/core/whatsapp-worker";
 import { WhatsAppAuthStore } from "./auth-store";
 import { installBaileysConsoleRedaction } from "./baileys-logger";
@@ -45,16 +45,15 @@ let socketHandle: {
 let outboundServer: { port: number; stop: () => void } | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let bridgeConnected = false;
-const orgId = process.env.NAKAMA_WHATSAPP_ORG_ID?.trim() || null;
+const orgId = channelOwnerFromEnv();
 const heartbeat = createWhatsAppWorkerHeartbeat(orgId);
 
 function persistWorkerHeartbeat(): void {
-  void writeWhatsAppWorkerHeartbeat(
-    process.pid,
-    new Date().toISOString(),
-    bridgeConnected,
-    orgId
-  );
+  void heartbeat.write({
+    connected: bridgeConnected,
+    pid: process.pid,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 registerProcessLifecycleLogging();
@@ -89,14 +88,16 @@ try {
     );
     process.exit(1);
   }
+  await heartbeat.acquire();
   // Publish ownership before server startup can migrate legacy credentials.
-  await writeWhatsAppWorkerHeartbeat(
-    process.pid,
-    new Date().toISOString(),
-    false,
-    orgId
-  );
-  const { serverUrl, spawnedChild: child } = await ensureServerRunning();
+  await heartbeat.write({
+    connected: false,
+    pid: process.pid,
+    updatedAt: new Date().toISOString(),
+  });
+  const { serverUrl, spawnedChild: child } = await ensureServerRunning({
+    spawn: false,
+  });
   spawnedChild = child;
 
   const client = new NakamaClient({
@@ -104,7 +105,7 @@ try {
       (await loadLocalAuthToken("whatsapp@nakama.internal")) ?? undefined,
     baseUrl: serverUrl,
     clientOrigin: resolveWebPublicUrl(),
-    orgId,
+    orgId: orgId.orgId,
   });
   const health = await client.health();
 
@@ -168,7 +169,7 @@ try {
     getSendHandle: () => {
       const activeSocket = socketHandle?.socket;
 
-      if (!activeSocket) {
+      if (!(activeSocket && bridgeConnected)) {
         return null;
       }
 
@@ -192,12 +193,11 @@ try {
 
   await socket.start();
 
-  await writeWhatsAppWorkerHeartbeat(
-    process.pid,
-    new Date().toISOString(),
-    bridgeConnected,
-    orgId
-  );
+  await heartbeat.write({
+    connected: bridgeConnected,
+    pid: process.pid,
+    updatedAt: new Date().toISOString(),
+  });
   heartbeatTimer = setInterval(() => {
     persistWorkerHeartbeat();
   }, 15_000);

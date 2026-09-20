@@ -1,5 +1,7 @@
+import { Button } from "@nakama/ui/button";
 import { Spinner } from "@nakama/ui/spinner";
 import { cn } from "@nakama/ui/utils";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bug01Icon,
   CodeIcon,
@@ -10,17 +12,76 @@ import {
   TelegramIcon,
   WhatsappIcon,
 } from "hugeicons-react";
+import { useState } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { CodingAgentsSettingsCard } from "@/components/CodingAgentsSettingsCard";
 import { ComposioConnectionsCard } from "@/components/ComposioConnectionsCard";
 import { ComposioSettingsCard } from "@/components/ComposioSettingsCard";
-import { DiscordSettingsCard } from "@/components/DiscordSettingsCard";
 import { ErrorTrackingSettingsCard } from "@/components/ErrorTrackingSettingsCard";
 import { NotificationDestinationsCard } from "@/components/NotificationDestinationsCard";
-import { TelegramSettingsCard } from "@/components/TelegramSettingsCard";
 import { TokenOptimizationCard } from "@/components/TokenOptimizationCard";
-import { WhatsAppSettingsCard } from "@/components/WhatsAppSettingsCard";
 import { useAuth } from "@/context/use-auth";
+import { useProfilesQuery } from "@/hooks/use-app-queries";
+import { client, formatError } from "@/lib/client";
+
+function AgentChannelLocation({
+  platform,
+}: {
+  platform: "telegram" | "discord" | "whatsapp";
+}) {
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
+  const { data: profiles = [] } = useProfilesQuery();
+  const [profileId, setProfileId] = useState("");
+  const queryClient = useQueryClient();
+  const legacy = useQuery({
+    queryFn: () => api.listLegacyChannels(),
+    queryKey: ["legacy-channels", activeOrg?.id],
+  });
+  const claim = useMutation({
+    mutationFn: (global: boolean) =>
+      api.claimLegacyChannel(platform, global, profileId),
+    onSuccess: () => queryClient.invalidateQueries(),
+  });
+  const pending =
+    legacy.data?.filter((item) => item.platform === platform) ?? [];
+  return (
+    <div className="space-y-3">
+      <p>Manage this connection in your agent’s Connections settings.</p>
+      {pending.length ? (
+        <>
+          <label className="flex flex-col gap-2 text-sm">
+            Assign existing connection to
+            <select
+              className="rounded-md border bg-background p-2"
+              onChange={(event) => setProfileId(event.target.value)}
+              value={profileId}
+            >
+              <option value="">Choose an agent</option>
+              {profiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {pending.map((item) => (
+            <Button
+              disabled={!profileId || claim.isPending}
+              key={String(item.global)}
+              onClick={() => claim.mutate(item.global)}
+            >
+              Claim {item.global ? "installation" : "organization"} connection
+            </Button>
+          ))}
+        </>
+      ) : null}
+      {claim.error || legacy.error ? (
+        <p role="alert">{formatError(claim.error ?? legacy.error)}</p>
+      ) : null}
+    </div>
+  );
+}
 
 const INTEGRATION_SECTIONS = [
   {
@@ -112,11 +173,11 @@ function IntegrationSectionPanel({
   }
 
   if (section === "telegram") {
-    return <TelegramSettingsCard />;
+    return <AgentChannelLocation platform="telegram" />;
   }
 
   if (section === "discord") {
-    return <DiscordSettingsCard />;
+    return <AgentChannelLocation platform="discord" />;
   }
 
   if (section === "notifications") {
@@ -127,7 +188,7 @@ function IntegrationSectionPanel({
     return <ErrorTrackingSettingsCard />;
   }
 
-  return <WhatsAppSettingsCard />;
+  return <AgentChannelLocation platform="whatsapp" />;
 }
 
 function IntegrationsPageBody({
@@ -145,10 +206,10 @@ function IntegrationsPageBody({
     if (item.id === "composio") {
       return true;
     }
-    if (item.id === "discord" || item.id === "error-tracking") {
+    if (item.id === "error-tracking") {
       return isPlatformAdmin;
     }
-    return isOrgAdmin || (item.id === "whatsapp" && isPlatformAdmin);
+    return isOrgAdmin || isPlatformAdmin;
   });
   const section = visibleSections.some((item) => item.id === requestedSection)
     ? requestedSection

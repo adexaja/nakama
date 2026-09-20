@@ -312,8 +312,10 @@ export class NakamaClient {
     return this.request<HealthResponse>("/health");
   }
 
-  async getSystemStatus(): Promise<SystemStatusResponse> {
-    return this.request<SystemStatusResponse>("/v1/system/status");
+  async getSystemStatus(profileId?: string): Promise<SystemStatusResponse> {
+    return this.request<SystemStatusResponse>(
+      `/v1/system/status?profileId=${encodeURIComponent(profileId ?? "")}`
+    );
   }
 
   async getTokenOptimization(): Promise<TokenOptimizationResponse> {
@@ -518,27 +520,60 @@ export class NakamaClient {
     });
   }
 
-  async startWorker(name: string): Promise<{ ok: boolean }> {
+  async disconnectChannel(
+    name: string,
+    profileId: string
+  ): Promise<{ ok: boolean }> {
+    return this.request(
+      `/v1/workers/${encodeURIComponent(name)}/disconnect?profileId=${encodeURIComponent(profileId)}`,
+      { method: "POST" }
+    );
+  }
+
+  async listLegacyChannels(): Promise<
+    Array<{ platform: "telegram" | "discord" | "whatsapp"; global: boolean }>
+  > {
+    return this.request("/v1/settings/channel-legacy");
+  }
+
+  async claimLegacyChannel(
+    platform: string,
+    global: boolean,
+    profileId: string
+  ): Promise<{ ok: boolean }> {
+    return this.request(
+      `/v1/settings/channel-legacy/claim?profileId=${encodeURIComponent(profileId)}`,
+      { body: JSON.stringify({ global, platform }), method: "POST" }
+    );
+  }
+
+  async startWorker(
+    name: string,
+    profileId?: string
+  ): Promise<{ ok: boolean }> {
     return this.request<{ ok: boolean }>(
-      `/v1/workers/${encodeURIComponent(name)}/start`,
+      `/v1/workers/${encodeURIComponent(name)}/start?profileId=${encodeURIComponent(profileId ?? "")}`,
       {
         method: "POST",
       }
     );
   }
 
-  async stopWorker(name: string): Promise<{ ok: boolean }> {
+  async stopWorker(name: string, profileId?: string): Promise<{ ok: boolean }> {
     return this.request<{ ok: boolean }>(
-      `/v1/workers/${encodeURIComponent(name)}/stop`,
+      `/v1/workers/${encodeURIComponent(name)}/stop?profileId=${encodeURIComponent(profileId ?? "")}`,
       {
         method: "POST",
       }
     );
   }
 
-  async restartWorker(name: string): Promise<{ ok: boolean }> {
+  async restartWorker(
+    name: string,
+    profileId?: string
+  ): Promise<{ ok: boolean }> {
     return this.request<{ ok: boolean }>(
-      `/v1/workers/${encodeURIComponent(name)}/restart`,
+      `/v1/workers/${encodeURIComponent(name)}/restart?profileId=${encodeURIComponent(profileId ?? "")}`,
       {
         method: "POST",
       }
@@ -547,17 +582,21 @@ export class NakamaClient {
 
   async getWorkerLogs(
     name: string,
-    lines?: number
+    lines?: number,
+    profileId?: string
   ): Promise<WorkerLogsResponse> {
-    const query = lines === undefined ? "" : `?lines=${lines}`;
+    const query = `?${new URLSearchParams({ ...(lines === undefined ? {} : { lines: String(lines) }), ...(profileId ? { profileId } : {}) })}`;
     return this.request<WorkerLogsResponse>(
       `/v1/workers/${encodeURIComponent(name)}/logs${query}`
     );
   }
 
-  async clearWorkerLogs(name: string): Promise<{ ok: boolean }> {
+  async clearWorkerLogs(
+    name: string,
+    profileId?: string
+  ): Promise<{ ok: boolean }> {
     return this.request<{ ok: boolean }>(
-      `/v1/workers/${encodeURIComponent(name)}/clear-logs`,
+      `/v1/workers/${encodeURIComponent(name)}/clear-logs?profileId=${encodeURIComponent(profileId ?? "")}`,
       {
         method: "POST",
       }
@@ -1976,32 +2015,43 @@ export class NakamaClient {
     });
   }
 
-  async getTelegramSettings(): Promise<TelegramSettingsResponse> {
-    return this.request<TelegramSettingsResponse>("/v1/settings/telegram");
+  async getTelegramSettings(
+    profileId?: string
+  ): Promise<TelegramSettingsResponse> {
+    return this.request<TelegramSettingsResponse>(
+      `/v1/settings/telegram?profileId=${encodeURIComponent(profileId ?? "")}`
+    );
   }
 
   async setTelegramSettings(
-    request: UpdateTelegramSettingsRequest
+    request: UpdateTelegramSettingsRequest,
+    profileId?: string
   ): Promise<TelegramSettingsResponse> {
-    return this.request<TelegramSettingsResponse>("/v1/settings/telegram", {
-      body: JSON.stringify(request),
-      method: "PUT",
-    });
+    return this.request<TelegramSettingsResponse>(
+      `/v1/settings/telegram?profileId=${encodeURIComponent(profileId ?? "")}`,
+      {
+        body: JSON.stringify(request),
+        method: "PUT",
+      }
+    );
   }
 
-  async regenerateTelegramHandshake(): Promise<TelegramSettingsResponse> {
+  async regenerateTelegramHandshake(
+    profileId?: string
+  ): Promise<TelegramSettingsResponse> {
     return this.request<TelegramSettingsResponse>(
-      "/v1/settings/telegram/handshake",
+      `/v1/settings/telegram/handshake?profileId=${encodeURIComponent(profileId ?? "")}`,
       {
         method: "POST",
       }
     );
   }
   async startTelegramPairing(
-    request: StartTelegramPairingRequest
+    request: StartTelegramPairingRequest,
+    profileId?: string
   ): Promise<TelegramPairingStartResponse> {
     return this.request<TelegramPairingStartResponse>(
-      "/v1/settings/telegram/pairing",
+      `/v1/settings/telegram/pairing?profileId=${encodeURIComponent(profileId ?? "")}`,
       {
         body: JSON.stringify(request),
         method: "POST",
@@ -2010,18 +2060,20 @@ export class NakamaClient {
   }
 
   async getTelegramPairingStatus(
-    pairingId: string
+    pairingId: string,
+    profileId?: string
   ): Promise<TelegramPairingStatusResponse> {
     return this.request<TelegramPairingStatusResponse>(
-      `/v1/settings/telegram/pairing/${encodeURIComponent(pairingId)}`
+      `/v1/settings/telegram/pairing/${encodeURIComponent(pairingId)}?profileId=${encodeURIComponent(profileId ?? "")}`
     );
   }
 
   async cancelTelegramPairing(
-    pairingId: string
+    pairingId: string,
+    profileId?: string
   ): Promise<TelegramPairingStatusResponse> {
     return this.request<TelegramPairingStatusResponse>(
-      `/v1/settings/telegram/pairing/${encodeURIComponent(pairingId)}/cancel`,
+      `/v1/settings/telegram/pairing/${encodeURIComponent(pairingId)}/cancel?profileId=${encodeURIComponent(profileId ?? "")}`,
       { method: "POST" }
     );
   }
@@ -2031,7 +2083,7 @@ export class NakamaClient {
     profileId: string
   ): Promise<TelegramPairingStatusResponse> {
     return this.request<TelegramPairingStatusResponse>(
-      `/v1/settings/telegram/pairing/${encodeURIComponent(pairingId)}/apply`,
+      `/v1/settings/telegram/pairing/${encodeURIComponent(pairingId)}/apply?profileId=${encodeURIComponent(profileId ?? "")}`,
       {
         body: JSON.stringify({ profileId }),
         method: "POST",
@@ -2039,22 +2091,32 @@ export class NakamaClient {
     );
   }
 
-  async getDiscordSettings(): Promise<DiscordSettingsResponse> {
-    return this.request<DiscordSettingsResponse>("/v1/settings/discord");
+  async getDiscordSettings(
+    profileId?: string
+  ): Promise<DiscordSettingsResponse> {
+    return this.request<DiscordSettingsResponse>(
+      `/v1/settings/discord?profileId=${encodeURIComponent(profileId ?? "")}`
+    );
   }
 
   async setDiscordSettings(
-    request: UpdateDiscordSettingsRequest
+    request: UpdateDiscordSettingsRequest,
+    profileId?: string
   ): Promise<DiscordSettingsResponse> {
-    return this.request<DiscordSettingsResponse>("/v1/settings/discord", {
-      body: JSON.stringify(request),
-      method: "PUT",
-    });
+    return this.request<DiscordSettingsResponse>(
+      `/v1/settings/discord?profileId=${encodeURIComponent(profileId ?? "")}`,
+      {
+        body: JSON.stringify(request),
+        method: "PUT",
+      }
+    );
   }
 
-  async regenerateDiscordHandshake(): Promise<DiscordSettingsResponse> {
+  async regenerateDiscordHandshake(
+    profileId?: string
+  ): Promise<DiscordSettingsResponse> {
     return this.request<DiscordSettingsResponse>(
-      "/v1/settings/discord/handshake",
+      `/v1/settings/discord/handshake?profileId=${encodeURIComponent(profileId ?? "")}`,
       {
         method: "POST",
       }
@@ -2304,31 +2366,43 @@ export class NakamaClient {
     );
   }
 
-  async getWhatsAppSettings(): Promise<WhatsAppSettingsResponse> {
-    return this.request<WhatsAppSettingsResponse>("/v1/settings/whatsapp");
+  async getWhatsAppSettings(
+    profileId?: string
+  ): Promise<WhatsAppSettingsResponse> {
+    return this.request<WhatsAppSettingsResponse>(
+      `/v1/settings/whatsapp?profileId=${encodeURIComponent(profileId ?? "")}`
+    );
   }
 
   async setWhatsAppSettings(
-    request: UpdateWhatsAppSettingsRequest
+    request: UpdateWhatsAppSettingsRequest,
+    profileId?: string
   ): Promise<WhatsAppSettingsResponse> {
-    return this.request<WhatsAppSettingsResponse>("/v1/settings/whatsapp", {
-      body: JSON.stringify(request),
-      method: "PUT",
-    });
+    return this.request<WhatsAppSettingsResponse>(
+      `/v1/settings/whatsapp?profileId=${encodeURIComponent(profileId ?? "")}`,
+      {
+        body: JSON.stringify(request),
+        method: "PUT",
+      }
+    );
   }
 
-  async regenerateWhatsAppPairingCode(): Promise<WhatsAppSettingsResponse> {
+  async regenerateWhatsAppPairingCode(
+    profileId?: string
+  ): Promise<WhatsAppSettingsResponse> {
     return this.request<WhatsAppSettingsResponse>(
-      "/v1/settings/whatsapp/pairing-code",
+      `/v1/settings/whatsapp/pairing-code?profileId=${encodeURIComponent(profileId ?? "")}`,
       {
         method: "POST",
       }
     );
   }
 
-  async reconnectWhatsApp(): Promise<WhatsAppSettingsResponse> {
+  async reconnectWhatsApp(
+    profileId?: string
+  ): Promise<WhatsAppSettingsResponse> {
     return this.request<WhatsAppSettingsResponse>(
-      "/v1/settings/whatsapp/reconnect",
+      `/v1/settings/whatsapp/reconnect?profileId=${encodeURIComponent(profileId ?? "")}`,
       {
         method: "POST",
       }

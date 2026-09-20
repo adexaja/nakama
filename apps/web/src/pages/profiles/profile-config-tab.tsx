@@ -31,10 +31,14 @@ import {
   MoreHorizontalIcon,
 } from "hugeicons-react";
 import { useState } from "react";
+import { DiscordSettingsCard } from "@/components/DiscordSettingsCard";
 import { ExportProfileButton } from "@/components/profiles/ExportProfileButton";
 import { ProfileSkillsSettingsSection } from "@/components/profiles/ProfileSkillsSettingsSection";
 import { SoulTab } from "@/components/soul-tools/SoulTab";
+import { TelegramSettingsCard } from "@/components/TelegramSettingsCard";
+import { WhatsAppSettingsCard } from "@/components/WhatsAppSettingsCard";
 import { useAuth } from "@/context/use-auth";
+import { ChannelProfileContext } from "@/hooks/use-app-queries";
 import { client, formatError } from "@/lib/client";
 import { queryKeys } from "@/lib/query-keys";
 import { ProfileConfigAssignmentsSection } from "@/pages/profiles/profile-config-assignments-section";
@@ -82,6 +86,19 @@ export function ProfileConfigTab({ state }: { state: ProfilesPageState }) {
         </div>
       ) : null}
       <ProfileConfigIdentitySection state={state} />
+      {canPack ? (
+        <ChannelProfileContext.Provider
+          key={`${activeOrg?.id}:${detail.id}`}
+          value={detail.id}
+        >
+          <section className="space-y-4">
+            <h2 className="font-medium">Connections</h2>
+            <TelegramSettingsCard />
+            <DiscordSettingsCard />
+            <WhatsAppSettingsCard />
+          </section>
+        </ChannelProfileContext.Provider>
+      ) : null}
       {canPack ? (
         <section className="space-y-4" id="profile-prompt">
           {canCreateProfile ? <SoulTab profileId={detail.id} /> : null}

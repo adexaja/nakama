@@ -91,16 +91,21 @@ export class AutomationDeliveryService {
     } else if (delivery.channel === "telegram") {
       result = await this.telegram.send({
         chatIds: delivery.chatId ? [delivery.chatId] : undefined,
+        orgId: automation.orgId,
+        profileId: automation.profileId,
         text: formatted.text,
       });
     } else if (delivery.channel === "discord") {
       result = await this.discord.send({
         channelId: delivery.channelId,
+        orgId: automation.orgId,
+        profileId: automation.profileId,
         text: formatted.text,
       });
     } else {
       result = await this.whatsapp.send({
         orgId: automation.orgId,
+        profileId: automation.profileId,
         text: formatted.text,
       });
     }

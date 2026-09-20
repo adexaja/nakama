@@ -80,7 +80,13 @@ describe("static web serving before auth", () => {
 });
 
 async function createMockAppWithWorkerManager(workerManager: object) {
-  const { app, databaseAdapter } = createMinimalHonoApp({ workerManager });
+  const { app, databaseAdapter } = createMinimalHonoApp({
+    agent: {
+      getProfile: async () => ({ profile: { id: "default" } }),
+      listProfiles: async () => ({ profiles: [{ id: "default" }] }),
+    },
+    workerManager,
+  });
   const session = await setupFreshInstallSession(app, databaseAdapter);
   return { app, session };
 }
@@ -92,9 +98,12 @@ describe("GET /v1/workers/{name}/logs", () => {
       isValidWorker: (name: string) => name === "whatsapp",
     });
     const response = await app.fetch(
-      new Request("http://localhost:4310/v1/workers/whatsapp/logs", {
-        headers: session.headers(),
-      })
+      new Request(
+        "http://localhost:4310/v1/workers/whatsapp/logs?profileId=default",
+        {
+          headers: session.headers(),
+        }
+      )
     );
 
     expect(response.status).toBe(200);
@@ -114,15 +123,18 @@ describe("GET /v1/workers/{name}/logs", () => {
     });
 
     const low = await app.fetch(
-      new Request("http://localhost:4310/v1/workers/whatsapp/logs?lines=0", {
-        headers: session.headers(),
-      })
+      new Request(
+        "http://localhost:4310/v1/workers/whatsapp/logs?lines=0&profileId=default",
+        {
+          headers: session.headers(),
+        }
+      )
     );
     expect(((await low.json()) as { stdout: string }).stdout).toBe("1");
 
     const high = await app.fetch(
       new Request(
-        "http://localhost:4310/v1/workers/whatsapp/logs?lines=99999",
+        "http://localhost:4310/v1/workers/whatsapp/logs?lines=99999&profileId=default",
         { headers: session.headers() }
       )
     );
@@ -138,9 +150,12 @@ describe("GET /v1/workers/{name}/logs", () => {
       isValidWorker: (name: string) => name === "whatsapp",
     });
     const response = await app.fetch(
-      new Request("http://localhost:4310/v1/workers/whatsapp/logs?lines=abc", {
-        headers: session.headers(),
-      })
+      new Request(
+        "http://localhost:4310/v1/workers/whatsapp/logs?lines=abc&profileId=default",
+        {
+          headers: session.headers(),
+        }
+      )
     );
 
     expect(response.status).toBe(200);
@@ -171,9 +186,12 @@ describe("GET /v1/workers/{name}/logs", () => {
       isValidWorker: (name: string) => name === "whatsapp",
     });
     const response = await app.fetch(
-      new Request("http://localhost:4310/v1/workers/whatsapp/logs", {
-        headers: session.headers(),
-      })
+      new Request(
+        "http://localhost:4310/v1/workers/whatsapp/logs?profileId=default",
+        {
+          headers: session.headers(),
+        }
+      )
     );
 
     expect(response.status).toBe(500);
@@ -190,10 +208,13 @@ describe("POST /v1/workers/{name}/clear-logs", () => {
       isValidWorker: (name: string) => name === "whatsapp",
     });
     const response = await app.fetch(
-      new Request("http://localhost:4310/v1/workers/whatsapp/clear-logs", {
-        headers: session.headers({ "X-CSRF-Token": session.csrfToken }),
-        method: "POST",
-      })
+      new Request(
+        "http://localhost:4310/v1/workers/whatsapp/clear-logs?profileId=default",
+        {
+          headers: session.headers({ "X-CSRF-Token": session.csrfToken }),
+          method: "POST",
+        }
+      )
     );
 
     expect(response.status).toBe(200);
@@ -225,10 +246,13 @@ describe("POST /v1/workers/{name}/clear-logs", () => {
       isValidWorker: (name: string) => name === "whatsapp",
     });
     const response = await app.fetch(
-      new Request("http://localhost:4310/v1/workers/whatsapp/clear-logs", {
-        headers: session.headers({ "X-CSRF-Token": session.csrfToken }),
-        method: "POST",
-      })
+      new Request(
+        "http://localhost:4310/v1/workers/whatsapp/clear-logs?profileId=default",
+        {
+          headers: session.headers({ "X-CSRF-Token": session.csrfToken }),
+          method: "POST",
+        }
+      )
     );
 
     expect(response.status).toBe(500);

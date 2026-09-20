@@ -21,11 +21,18 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useEffect } from "react";
+import { createContext, useCallback, useContext, useEffect } from "react";
 import { useAuth } from "@/context/use-auth";
 import { prefetchTimezoneData } from "@/hooks/use-timezones";
 import { client } from "@/lib/client";
 import { queryKeys } from "@/lib/query-keys";
+
+export const ChannelProfileContext = createContext<string | undefined>(
+  undefined
+);
+export function useChannelProfileId() {
+  return useContext(ChannelProfileContext);
+}
 
 const defaultStaleTime = 1000 * 30;
 
@@ -125,48 +132,79 @@ const transcriptionSettings = createSettingsHooks({
 export const useTranscriptionSettings = transcriptionSettings.useSettings;
 export const useSaveTranscriptionSettings = transcriptionSettings.useSave;
 
-const telegramSettings = createSettingsHooks({
-  mutationFn: (request: UpdateTelegramSettingsRequest) =>
-    client.setTelegramSettings(request),
-  queryFn: () => client.getTelegramSettings(),
-  queryKey: queryKeys.telegram.settings,
-});
-export const telegramSettingsQueryOptions = telegramSettings.queryOptions;
-export const useTelegramSettings = telegramSettings.useSettings;
-export const useSaveTelegramSettings = telegramSettings.useSave;
+function useTelegramSettingsHooks() {
+  const profileId = useChannelProfileId();
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
+  return createSettingsHooks({
+    mutationFn: (request: UpdateTelegramSettingsRequest) =>
+      api.setTelegramSettings(
+        { ...request, profileId: profileId ?? request.profileId },
+        profileId ?? request.profileId
+      ),
+    queryFn: () => api.getTelegramSettings(profileId),
+    queryKey: [...queryKeys.telegram.settings, activeOrg?.id, profileId],
+  });
+}
+export function useTelegramSettings() {
+  return useTelegramSettingsHooks().useSettings();
+}
+export function useSaveTelegramSettings() {
+  return useTelegramSettingsHooks().useSave();
+}
 export function useRegenerateTelegramHandshake() {
-  return telegramSettings.useSetQueryDataMutation(() =>
-    client.regenerateTelegramHandshake()
+  const profileId = useChannelProfileId();
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
+  return useTelegramSettingsHooks().useSetQueryDataMutation(() =>
+    api.regenerateTelegramHandshake(profileId)
   );
 }
 
 export function useStartTelegramPairing() {
+  const ownerProfileId = useChannelProfileId();
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
   return useMutation<
     TelegramPairingStartResponse,
     Error,
     StartTelegramPairingRequest
   >({
-    mutationFn: (request) => client.startTelegramPairing(request),
+    mutationFn: (request) =>
+      api.startTelegramPairing(
+        { ...request, profileId: ownerProfileId ?? request.profileId },
+        ownerProfileId
+      ),
   });
 }
 
 export function useTelegramPairingStatus(pairingId: string | null) {
+  const ownerProfileId = useChannelProfileId();
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
   return useQuery<TelegramPairingStatusResponse>({
     enabled: pairingId !== null,
-    queryFn: () => client.getTelegramPairingStatus(pairingId!),
-    queryKey: ["telegram-pairing", pairingId],
+    queryFn: () => api.getTelegramPairingStatus(pairingId!, ownerProfileId),
+    queryKey: ["telegram-pairing", activeOrg?.id, ownerProfileId, pairingId],
     refetchInterval: (query) =>
       query.state.data?.status === "waiting" ? 2000 : false,
   });
 }
 
 export function useCancelTelegramPairing() {
+  const ownerProfileId = useChannelProfileId();
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
   return useMutation({
-    mutationFn: (pairingId: string) => client.cancelTelegramPairing(pairingId),
+    mutationFn: (pairingId: string) =>
+      api.cancelTelegramPairing(pairingId, ownerProfileId),
   });
 }
 
 export function useApplyTelegramPairing() {
+  const ownerProfileId = useChannelProfileId();
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -175,7 +213,7 @@ export function useApplyTelegramPairing() {
     }: {
       pairingId: string;
       profileId: string;
-    }) => client.applyTelegramPairing(pairingId, profileId),
+    }) => api.applyTelegramPairing(pairingId, ownerProfileId ?? profileId),
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.telegram.settings,
@@ -184,17 +222,32 @@ export function useApplyTelegramPairing() {
   });
 }
 
-const discordSettings = createSettingsHooks({
-  mutationFn: (request: UpdateDiscordSettingsRequest) =>
-    client.setDiscordSettings(request),
-  queryFn: () => client.getDiscordSettings(),
-  queryKey: queryKeys.discord.settings,
-});
-export const useDiscordSettings = discordSettings.useSettings;
-export const useSaveDiscordSettings = discordSettings.useSave;
+function useDiscordSettingsHooks() {
+  const profileId = useChannelProfileId();
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
+  return createSettingsHooks({
+    mutationFn: (request: UpdateDiscordSettingsRequest) =>
+      api.setDiscordSettings(
+        { ...request, profileId: profileId ?? request.profileId },
+        profileId ?? request.profileId
+      ),
+    queryFn: () => api.getDiscordSettings(profileId),
+    queryKey: [...queryKeys.discord.settings, activeOrg?.id, profileId],
+  });
+}
+export function useDiscordSettings() {
+  return useDiscordSettingsHooks().useSettings();
+}
+export function useSaveDiscordSettings() {
+  return useDiscordSettingsHooks().useSave();
+}
 export function useRegenerateDiscordHandshake() {
-  return discordSettings.useSetQueryDataMutation(() =>
-    client.regenerateDiscordHandshake()
+  const profileId = useChannelProfileId();
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
+  return useDiscordSettingsHooks().useSetQueryDataMutation(() =>
+    api.regenerateDiscordHandshake(profileId)
   );
 }
 
@@ -214,18 +267,22 @@ export function useSendEmailTest() {
 }
 
 function useWhatsAppSettingsHooks() {
+  const profileId = useChannelProfileId();
   const { activeOrg } = useAuth();
   const orgId = activeOrg?.id ?? null;
   const api = client.forOrg(orgId);
-  const queryKey = [...queryKeys.whatsapp.settings, orgId];
+  const queryKey = [...queryKeys.whatsapp.settings, orgId, profileId];
   return createSettingsHooks({
     mutationFn: (request: UpdateWhatsAppSettingsRequest) =>
-      api.setWhatsAppSettings(request),
+      api.setWhatsAppSettings(
+        { ...request, profileId: profileId ?? request.profileId },
+        profileId ?? request.profileId
+      ),
     onSaveSuccess: async (queryClient, saved) => {
       queryClient.setQueryData(queryKey, saved);
       await queryClient.invalidateQueries({ queryKey: queryKeys.systemStatus });
     },
-    queryFn: () => api.getWhatsAppSettings(),
+    queryFn: () => api.getWhatsAppSettings(profileId),
     queryKey,
   });
 }
@@ -236,17 +293,19 @@ export function useSaveWhatsAppSettings() {
   return useWhatsAppSettingsHooks().useSave();
 }
 export function useRegenerateWhatsAppPairingCode() {
+  const profileId = useChannelProfileId();
   const { activeOrg } = useAuth();
   const api = client.forOrg(activeOrg?.id ?? null);
   return useWhatsAppSettingsHooks().useSetQueryDataMutation(() =>
-    api.regenerateWhatsAppPairingCode()
+    api.regenerateWhatsAppPairingCode(profileId)
   );
 }
 export function useReconnectWhatsApp() {
+  const profileId = useChannelProfileId();
   const { activeOrg } = useAuth();
   const api = client.forOrg(activeOrg?.id ?? null);
   return useWhatsAppSettingsHooks().useSetQueryDataMutation(() =>
-    api.reconnectWhatsApp()
+    api.reconnectWhatsApp(profileId)
   );
 }
 
@@ -360,7 +419,7 @@ export function prefetchAppData(
 ): void {
   prefetchTimezoneData(queryClient);
   void queryClient.prefetchQuery(thinkingSettingsQueryOptions);
-  void queryClient.prefetchQuery(telegramSettingsQueryOptions);
+
   void queryClient.prefetchQuery(healthQueryOptions);
   void queryClient.prefetchQuery(modelsQueryOptions);
   void queryClient.prefetchQuery(profilesQueryOptions);

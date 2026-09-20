@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import {
+  useChannelProfileId,
   useProfilesQuery,
   useReconnectWhatsApp,
   useRegenerateWhatsAppPairingCode,
@@ -182,6 +183,7 @@ export function useWhatsAppSettingsCard({
   onSaveSuccess?: () => void;
   submitLabel?: string;
 }) {
+  const ownerProfileId = useChannelProfileId();
   const queryClient = useQueryClient();
   const { data: settings, isLoading, error: loadError } = useWhatsAppSettings();
   const { data: status } = useSystemStatusQuery();
@@ -201,7 +203,7 @@ export function useWhatsAppSettingsCard({
   const [allowedPhonesOpen, setAllowedPhonesOpen] = useState(false);
   const [requireGroupMention, setRequireGroupMention] = useState(true);
 
-  const settingsProfileId = settings?.profileId;
+  const settingsProfileId = ownerProfileId ?? settings?.profileId;
   const settingsAllowedPhones = settings?.allowedPhones;
   const settingsRequireGroupMention = settings?.requireGroupMention;
 
@@ -454,7 +456,9 @@ export function useWhatsAppSettingsCard({
     paired,
     pairingCode,
     profileId,
-    profiles,
+    profiles: ownerProfileId
+      ? profiles.filter((profile) => profile.id === ownerProfileId)
+      : profiles,
     qrCode,
     reconnectPending: reconnectMutation.isPending,
     regeneratePending: regenerateMutation.isPending,

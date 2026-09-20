@@ -200,6 +200,10 @@ import {
   writeArtifactFile,
   writeSoulFile,
 } from "@nakama/core";
+import {
+  type ChannelConfigScope,
+  isChannelOwner,
+} from "@nakama/core/channel-config-shared";
 import { readTextIfExists } from "@nakama/core/fs";
 import { canAccessSuperBotProfile } from "@nakama/core/profiles";
 import {
@@ -348,6 +352,7 @@ import {
   resolveProfileStoredTools,
   type ServerToolOverrides,
 } from "./tool-resolver";
+import type { WorkerManagerService } from "./worker-manager-service";
 
 interface StoredSession {
   channel: AgentChannel;
@@ -391,6 +396,14 @@ export class AgentService {
   private automationRunHistoryTools: ToolDefinition[] = [];
   private questionTools: ToolDefinition[] = [];
   private todoTools: ToolDefinition[] = [];
+  channelWorkers?: WorkerManagerService;
+
+  setChannelOwnerCleanup(
+    cleanup: (orgId: string, profileId: string) => Promise<void>
+  ) {
+    this.profileService.beforeChannelOwnerDelete = cleanup;
+  }
+
   private automationRunner: AutomationRunner | null = null;
 
   private mcpClientManager: McpClientManager | null = null;
@@ -1160,12 +1173,14 @@ export class AgentService {
     };
   }
 
-  async getTelegramSettings(orgId: string): Promise<TelegramSettingsResponse> {
+  async getTelegramSettings(
+    orgId: ChannelConfigScope
+  ): Promise<TelegramSettingsResponse> {
     return loadTelegramSettingsPublic(orgId);
   }
 
   async setTelegramSettings(
-    orgId: string,
+    orgId: ChannelConfigScope,
     input: UpdateTelegramSettingsRequest
   ): Promise<TelegramSettingsResponse> {
     const existing = await loadTelegramSettingsPublic(orgId);
@@ -1201,15 +1216,21 @@ export class AgentService {
       }
     }
 
-    return saveTelegramConfig(orgId, {
-      ...(botToken ? { botToken } : {}),
-      ...(input.allowedUserIds === undefined
-        ? existing.allowedUserIds.length > 0
-          ? { allowedUserIds: existing.allowedUserIds.join(",") }
-          : {}
-        : { allowedUserIds: input.allowedUserIds }),
-      ...(input.profileId === undefined ? {} : { profileId: input.profileId }),
-    });
+    const save = () =>
+      saveTelegramConfig(orgId, {
+        ...(botToken ? { botToken } : {}),
+        ...(input.allowedUserIds === undefined
+          ? existing.allowedUserIds.length > 0
+            ? { allowedUserIds: existing.allowedUserIds.join(",") }
+            : {}
+          : { allowedUserIds: input.allowedUserIds }),
+        ...(input.profileId === undefined
+          ? {}
+          : { profileId: input.profileId }),
+      });
+    return isChannelOwner(orgId) && this.channelWorkers
+      ? this.channelWorkers.saveChannelConfig("telegram", orgId, save)
+      : save();
   }
   async startTelegramPairing(
     orgId: string,
@@ -1222,17 +1243,29 @@ export class AgentService {
   async getTelegramPairingStatus(
     orgId: string,
     userId: string,
-    pairingId: string
+    pairingId: string,
+    profileId?: string
   ): Promise<TelegramPairingStatusResponse> {
-    return telegramManagedBotPairing.status(pairingId, orgId, userId);
+    return telegramManagedBotPairing.status(
+      pairingId,
+      orgId,
+      userId,
+      profileId
+    );
   }
 
   cancelTelegramPairing(
     orgId: string,
     userId: string,
-    pairingId: string
+    pairingId: string,
+    profileId?: string
   ): Promise<TelegramPairingStatusResponse> {
-    return telegramManagedBotPairing.cancel(pairingId, orgId, userId);
+    return telegramManagedBotPairing.cancel(
+      pairingId,
+      orgId,
+      userId,
+      profileId
+    );
   }
 
   async applyTelegramPairing(
@@ -1247,26 +1280,36 @@ export class AgentService {
       userId,
       input.profileId,
       async (saveInput) => {
-        await this.setTelegramSettings(orgId, saveInput);
+        await this.setTelegramSettings(
+          { orgId, profileId: input.profileId },
+          saveInput
+        );
       }
     );
     return settings;
   }
 
   async regenerateTelegramHandshake(
-    orgId: string
+    orgId: ChannelConfigScope
   ): Promise<TelegramSettingsResponse> {
-    return regenerateTelegramHandshake(orgId);
+    return isChannelOwner(orgId) && this.channelWorkers
+      ? this.channelWorkers.saveChannelConfig("telegram", orgId, () =>
+          regenerateTelegramHandshake(orgId)
+        )
+      : regenerateTelegramHandshake(orgId);
   }
 
-  async getDiscordSettings(): Promise<DiscordSettingsResponse> {
-    return loadDiscordSettingsPublic();
+  async getDiscordSettings(
+    scope: ChannelConfigScope = null
+  ): Promise<DiscordSettingsResponse> {
+    return loadDiscordSettingsPublic(scope);
   }
 
   async setDiscordSettings(
-    input: UpdateDiscordSettingsRequest
+    input: UpdateDiscordSettingsRequest,
+    scope: ChannelConfigScope = null
   ): Promise<DiscordSettingsResponse> {
-    const existing = await loadDiscordSettingsPublic();
+    const existing = await loadDiscordSettingsPublic(scope);
     const botToken =
       input.botToken !== undefined && input.botToken.trim()
         ? input.botToken.trim()
@@ -1283,19 +1326,34 @@ export class AgentService {
       throw new Error("Discord bot token could not be validated.");
     }
 
-    return saveDiscordConfig({
-      ...(botToken ? { botToken } : {}),
-      ...(input.allowedUserIds === undefined
-        ? existing.allowedUserIds.length > 0
-          ? { allowedUserIds: existing.allowedUserIds.join(",") }
-          : {}
-        : { allowedUserIds: input.allowedUserIds }),
-      ...(input.profileId === undefined ? {} : { profileId: input.profileId }),
-    });
+    const save = () =>
+      saveDiscordConfig(
+        {
+          ...(botToken ? { botToken } : {}),
+          ...(input.allowedUserIds === undefined
+            ? existing.allowedUserIds.length > 0
+              ? { allowedUserIds: existing.allowedUserIds.join(",") }
+              : {}
+            : { allowedUserIds: input.allowedUserIds }),
+          ...(input.profileId === undefined
+            ? {}
+            : { profileId: input.profileId }),
+        },
+        scope
+      );
+    return isChannelOwner(scope) && this.channelWorkers
+      ? this.channelWorkers.saveChannelConfig("discord", scope, save)
+      : save();
   }
 
-  async regenerateDiscordHandshake(): Promise<DiscordSettingsResponse> {
-    return regenerateDiscordHandshake();
+  async regenerateDiscordHandshake(
+    scope: ChannelConfigScope = null
+  ): Promise<DiscordSettingsResponse> {
+    return isChannelOwner(scope) && this.channelWorkers
+      ? this.channelWorkers.saveChannelConfig("discord", scope, () =>
+          regenerateDiscordHandshake(scope)
+        )
+      : regenerateDiscordHandshake(scope);
   }
 
   async getComposioSettings(): Promise<ComposioSettingsResponse> {
@@ -1431,45 +1489,62 @@ export class AgentService {
     return getAgentBrowserStatus();
   }
 
-  async getWhatsAppSettings(orgId: string): Promise<WhatsAppSettingsResponse> {
+  async getWhatsAppSettings(
+    orgId: ChannelConfigScope
+  ): Promise<WhatsAppSettingsResponse> {
     return loadWhatsAppSettingsPublic(orgId);
   }
 
   async setWhatsAppSettings(
-    orgId: string,
+    orgId: ChannelConfigScope,
     input: UpdateWhatsAppSettingsRequest
   ): Promise<WhatsAppSettingsResponse> {
-    const profileId = input.profileId?.trim();
+    const profileId = isChannelOwner(orgId)
+      ? orgId.profileId
+      : input.profileId?.trim();
     const resolvedProfileId =
       profileId === "default"
-        ? await this.resolveSessionProfile(orgId)
+        ? await this.resolveSessionProfile(
+            isChannelOwner(orgId) ? orgId.orgId : orgId!
+          )
         : profileId;
     if (resolvedProfileId) {
-      await this.requireProfile(orgId, resolvedProfileId);
+      await this.requireProfile(
+        isChannelOwner(orgId) ? orgId.orgId : orgId!,
+        resolvedProfileId
+      );
     }
-    return saveWhatsAppConfig(
-      {
-        ...(input.allowedPhones === undefined
-          ? {}
-          : { allowedPhones: input.allowedPhones }),
-        ...(input.phoneNumber === undefined
-          ? {}
-          : { phoneNumber: input.phoneNumber.trim() }),
-        ...(resolvedProfileId === undefined
-          ? {}
-          : { profileId: resolvedProfileId }),
-        ...(input.requireGroupMention === undefined
-          ? {}
-          : { requireGroupMention: input.requireGroupMention }),
-      },
-      orgId
-    );
+    const save = () =>
+      saveWhatsAppConfig(
+        {
+          ...(input.allowedPhones === undefined
+            ? {}
+            : { allowedPhones: input.allowedPhones }),
+          ...(input.phoneNumber === undefined
+            ? {}
+            : { phoneNumber: input.phoneNumber.trim() }),
+          ...(resolvedProfileId === undefined
+            ? {}
+            : { profileId: resolvedProfileId }),
+          ...(input.requireGroupMention === undefined
+            ? {}
+            : { requireGroupMention: input.requireGroupMention }),
+        },
+        orgId
+      );
+    return isChannelOwner(orgId) && this.channelWorkers
+      ? this.channelWorkers.saveChannelConfig("whatsapp", orgId, save)
+      : save();
   }
 
   async regenerateWhatsAppPairingCode(
-    orgId: string
+    orgId: ChannelConfigScope
   ): Promise<WhatsAppSettingsResponse> {
-    return regenerateWhatsAppPairingCode(orgId);
+    return isChannelOwner(orgId) && this.channelWorkers
+      ? this.channelWorkers.saveChannelConfig("whatsapp", orgId, () =>
+          regenerateWhatsAppPairingCode(orgId)
+        )
+      : regenerateWhatsAppPairingCode(orgId);
   }
 
   async runAutomationPrompt(

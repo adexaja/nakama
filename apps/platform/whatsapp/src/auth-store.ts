@@ -1,3 +1,4 @@
+import type { ChannelConfigScope } from "@nakama/core/channel-config-shared";
 import type { WhatsAppConfigFile } from "@nakama/core/whatsapp-config";
 import {
   isWhatsAppUserAuthorized,
@@ -9,7 +10,7 @@ import {
 export class WhatsAppAuthStore {
   private config: WhatsAppConfigFile | null = null;
 
-  constructor(private readonly orgId: string | null = null) {}
+  constructor(private readonly orgId: ChannelConfigScope = null) {}
 
   async reload(): Promise<WhatsAppConfigFile | null> {
     this.config = await loadWhatsAppConfigFile(this.orgId);

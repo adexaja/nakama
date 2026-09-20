@@ -1,4 +1,5 @@
 import { Button } from "@nakama/ui/button";
+import { toast } from "@nakama/ui/toast";
 import { cn } from "@nakama/ui/utils";
 import {
   Loading03Icon,
@@ -9,7 +10,9 @@ import {
 } from "hugeicons-react";
 import { useState } from "react";
 import { WorkerLogDialog } from "@/components/WorkerLogDialog";
+import { useChannelProfileId } from "@/hooks/use-app-queries";
 import {
+  useDisconnectChannel,
   useRestartWorker,
   useStartWorker,
   useStopWorker,
@@ -71,6 +74,8 @@ export function WorkerActionBar({
   showLogs?: boolean;
 }) {
   const [logDialogOpen, setLogDialogOpen] = useState(false);
+  const ownerProfileId = useChannelProfileId();
+  const disconnect = useDisconnectChannel();
   const startWorker = useStartWorker();
   const stopWorker = useStopWorker();
   const restartWorker = useRestartWorker();
@@ -80,7 +85,7 @@ export function WorkerActionBar({
   const stopping = stopWorker.isPending && stopWorker.variables === workerName;
   const restarting =
     restartWorker.isPending && restartWorker.variables === workerName;
-  const isBusy = starting || stopping || restarting;
+  const isBusy = starting || stopping || restarting || disconnect.isPending;
 
   if (!pm2Managed) {
     return (
@@ -136,6 +141,20 @@ export function WorkerActionBar({
             Start
           </Button>
         )}
+        {ownerProfileId ? (
+          <Button
+            disabled={isBusy}
+            onClick={() =>
+              disconnect.mutate(workerName, {
+                onError: (error) => toast(error.message),
+              })
+            }
+            size="sm"
+            variant="ghost"
+          >
+            Disconnect
+          </Button>
+        ) : null}
         {showLogs ? (
           <Button
             className="ml-auto"

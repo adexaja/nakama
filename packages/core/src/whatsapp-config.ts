@@ -2,8 +2,15 @@ import { randomBytes } from "node:crypto";
 import { rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  assertChannelPath,
+  type ChannelConfigScope,
+  claimChannelIdentity,
   generateHandshakeCode,
+  getChannelConfigDir,
+  isChannelOwner,
   normalizeHandshakeInput,
+  releaseChannelClaims,
+  resetChannelConversationState,
 } from "./channel-config-shared";
 import {
   ensureDir,
@@ -14,7 +21,7 @@ import {
   removeFile,
   writeTextFile,
 } from "./fs";
-import { getOrgConfigDir, getUserConfigDir } from "./user-config";
+import { getUserConfigDir } from "./user-config";
 import { parseAllowedWhatsAppPhones } from "./whatsapp-phones";
 
 export { parseAllowedWhatsAppPhones } from "./whatsapp-phones";
@@ -55,21 +62,23 @@ export interface UpdateWhatsAppSettingsInput {
   requireGroupMention?: boolean;
 }
 
-export type WhatsAppConfigScope = string | null;
+export type WhatsAppConfigScope = ChannelConfigScope;
 
 export function getWhatsAppConfigDir(
   orgId: WhatsAppConfigScope = null
 ): string {
-  return join(
-    orgId === null ? getUserConfigDir() : getOrgConfigDir(orgId),
-    "whatsapp"
-  );
+  return getChannelConfigDir("whatsapp", orgId);
 }
 
 export function getWhatsAppConfigPath(
   orgId: WhatsAppConfigScope = null
 ): string {
-  return join(getWhatsAppConfigDir(orgId), "config.ini");
+  const path = join(getWhatsAppConfigDir(orgId), "config.ini");
+  if (isChannelOwner(orgId)) {
+    assertChannelPath(path);
+    assertChannelPath(`${path}.tmp`);
+  }
+  return path;
 }
 
 export function maskPhoneNumber(phoneNumber: string): string | null {
@@ -414,6 +423,9 @@ export async function saveWhatsAppConfig(
 ): Promise<WhatsAppSettingsPublic> {
   const existing = await loadWhatsAppConfigFile(orgId);
   const next = buildSavedWhatsAppConfig(input, existing);
+  if (isChannelOwner(orgId)) {
+    next.profileId = orgId.profileId;
+  }
   await writeWhatsAppConfigFile(next, orgId);
   return toWhatsAppSettingsPublic(next);
 }
@@ -433,7 +445,9 @@ export async function resetWhatsAppSessionForReconnect(
   const existing = await loadWhatsAppConfigFile(orgId);
 
   if (!existing) {
-    throw new Error("Enable WhatsApp in Integrations before reconnecting.");
+    throw new Error(
+      "Enable WhatsApp in this agent’s Connections before reconnecting."
+    );
   }
 
   if (await pathExists(getWhatsAppAuthDir(orgId))) {
@@ -445,8 +459,14 @@ export async function resetWhatsAppSessionForReconnect(
     await removeFile(qrPath);
   }
 
+  if (isChannelOwner(orgId)) {
+    await resetChannelConversationState("whatsapp", orgId);
+    await releaseChannelClaims("whatsapp", orgId);
+  }
   const next: WhatsAppConfigFile = {
     ...existing,
+    outboundPort: null,
+    outboundToken: null,
     pairedJid: null,
     pairedLid: null,
     pairingCode: null,
@@ -463,7 +483,7 @@ export async function regenerateWhatsAppPairingCode(
 
   if (!existing) {
     throw new Error(
-      "Enable WhatsApp in Integrations before generating a pairing code."
+      "Enable WhatsApp in this agent’s Connections before generating a pairing code."
     );
   }
 
@@ -499,7 +519,7 @@ export async function verifyAndPairWhatsAppUser(
   if (!expected) {
     return {
       message:
-        "No pairing code is active. Open Nakama Integrations \u2192 WhatsApp and generate a new code.",
+        "No pairing code is active. Open this agent’s Connections \u2192 WhatsApp and generate a new code.",
       ok: false,
     };
   }
@@ -509,7 +529,7 @@ export async function verifyAndPairWhatsAppUser(
   ) {
     return {
       message:
-        "Invalid pairing code. Copy it from Integrations \u2192 WhatsApp and try again.",
+        "Invalid pairing code. Copy it from this agent’s Connections \u2192 WhatsApp and try again.",
       ok: false,
     };
   }
@@ -553,6 +573,13 @@ export async function syncWhatsAppOwnerPairing(
     return;
   }
 
+  if (isChannelOwner(orgId)) {
+    await claimChannelIdentity(
+      "whatsapp",
+      orgId,
+      normalizeWhatsAppUserJid(options.ownerJid)
+    );
+  }
   const isPhoneJid = whatsAppJidServer(options.ownerJid) === "s.whatsapp.net";
   const ownerPhone = isPhoneJid ? whatsAppUserDigits(options.ownerJid) : "";
   const ownerLid = options.ownerLid?.trim() || null;

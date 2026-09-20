@@ -56,6 +56,7 @@ import {
   saveProfileAvatar,
   writeSoulFile,
 } from "@nakama/core";
+import { listChannelOwners } from "@nakama/core/channel-config-shared";
 import { readTextIfExists } from "@nakama/core/fs";
 import {
   BUILTIN_TOOL_IDS,
@@ -164,6 +165,10 @@ function slugifyProfileName(name: string): string {
 }
 
 export class ProfileService {
+  beforeChannelOwnerDelete?: (
+    orgId: string,
+    profileId: string
+  ) => Promise<void>;
   private readonly memoryBackend: MemoryBackendService;
   constructor(private readonly db: DatabaseAdapter) {
     this.memoryBackend = new MemoryBackendService(db);
@@ -445,6 +450,18 @@ export class ProfileService {
     request: MoveProfileRequest
   ): Promise<ProfileResponse> {
     await this.requireProfile(orgId, profileId);
+    for (const platform of ["telegram", "discord", "whatsapp"] as const) {
+      if (
+        (await listChannelOwners(platform)).some(
+          (owner) => owner.orgId === orgId && owner.profileId === profileId
+        )
+      ) {
+        throw new NakamaApiError(
+          "Disconnect this agent's channels before moving it.",
+          409
+        );
+      }
+    }
     const destination = request?.organizationId;
     if (typeof destination !== "string" || !destination.trim()) {
       throw new NakamaApiError("Destination organization is required.", 400);
@@ -515,6 +532,7 @@ export class ProfileService {
         );
       }
 
+      await this.beforeChannelOwnerDelete?.(orgId, profileId);
       await this.db.upsertProfile({
         ...successor,
         isDefault: true,
@@ -522,6 +540,9 @@ export class ProfileService {
       });
     }
 
+    if (!profile.isDefault) {
+      await this.beforeChannelOwnerDelete?.(orgId, profileId);
+    }
     const deleted = await deleteProfileWithHistoryArchives(
       this.db,
       orgId,

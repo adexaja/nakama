@@ -43,7 +43,6 @@ import {
   NAKAMA_API_VERSION,
   writeRuntimeServerUrl,
 } from "@nakama/core";
-import { claimLegacyTelegramConfig } from "@nakama/core/telegram-config";
 import {
   createDatabase,
   type Database,
@@ -137,17 +136,6 @@ if (interruptedRuns > 0) {
 // config can only belong to that org, so claim it once before any scope-exact
 // read reports the org as unconfigured.
 const organizations = await database.adapter.listOrganizations();
-const [soleOrganization, ...otherOrganizations] = organizations;
-if (soleOrganization && otherOrganizations.length === 0) {
-  const claimed = await claimLegacyTelegramConfig(soleOrganization.id);
-
-  if (claimed) {
-    console.log(
-      `Moved the Telegram config into organization ${soleOrganization.id}; restart the Telegram worker.`
-    );
-  }
-}
-
 const authService = new AuthService();
 
 const llmUsageTracker = await LlmUsageTracker.create(database.adapter);
@@ -244,9 +232,46 @@ const workerManager = new WorkerManagerService(
   }
 );
 
-await workerManager.migrateLegacyWhatsApp(organizations);
-
+agent.channelWorkers = workerManager;
+workerManager.channelOwnerAvailable = async ({ orgId, profileId }) => {
+  const org = await database.adapter.getOrganizationById(orgId);
+  return Boolean(
+    org &&
+      !org.archivedAt &&
+      (await database.adapter.listProfilesForOrg(orgId)).some(
+        (profile) => profile.id === profileId
+      )
+  );
+};
+try {
+  await workerManager.migrateAgentChannels(database.adapter);
+} catch (error) {
+  console.warn("Channel migration requires attention:", error);
+}
+agent.setChannelOwnerCleanup((orgId, profileId) =>
+  workerManager.disableProfileChannels({ orgId, profileId }, true)
+);
 const orgService = new OrgService(database.adapter, authService);
+orgService.beforeArchiveChannels = async (orgId) => {
+  const owners = (await database.adapter.listProfilesForOrg(orgId)).map(
+    (profile) => ({ orgId, profileId: profile.id })
+  );
+  const release = () => {
+    for (const owner of owners) {
+      workerManager.allowProfileChannels(owner);
+    }
+  };
+  try {
+    for (const owner of owners) {
+      await workerManager.disableProfileChannels(owner);
+    }
+  } catch (error) {
+    release();
+    throw error;
+  }
+  return release;
+};
+
 const pluginService = new PluginService(database.adapter, getUserConfigDir(), {
   officialPackagesDir: join(projectRoot, "packages/plugins"),
   onHostRequest: createPluginAgentHost(database.adapter, agent),

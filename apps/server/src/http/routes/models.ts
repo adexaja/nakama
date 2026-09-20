@@ -11,6 +11,7 @@ import {
   type DiscordSettingsResponse,
   type DiscoverModelsRequest,
   type EmailSettingsResponse,
+  type ErrorTrackingSettingsResponse,
   formatServerError,
   type GenerateImageRequest,
   type GenerateImageResponse,
@@ -23,9 +24,11 @@ import {
   resetWhatsAppSessionForReconnect,
   type SendEmailTestRequest,
   type SendEmailTestResponse,
+  type SendErrorTrackingTestResponse,
   type StartTelegramPairingRequest,
   type TelegramPairingStartResponse,
   type TelegramPairingStatusResponse,
+  type TelegramSettingsResponse,
   type ThinkingSettingsResponse,
   type TimezoneSettingsResponse,
   type TranscribeAudioRequest,
@@ -34,6 +37,7 @@ import {
   type UpdateComposioSettingsRequest,
   type UpdateDiscordSettingsRequest,
   type UpdateEmailSettingsRequest,
+  type UpdateErrorTrackingSettingsRequest,
   type UpdateImageGenerationRequest,
   type UpdateProviderRequest,
   type UpdateProviderResponse,
@@ -48,7 +52,7 @@ import {
   type WebSearchSettingsResponse,
   type WhatsAppSettingsResponse,
 } from "@nakama/core";
-import { createWhatsAppWorkerHeartbeat } from "@nakama/core/whatsapp-worker";
+import type { Context } from "hono";
 import {
   completeChatgptOAuthDeviceSession,
   fetchChatgptCodexModels,
@@ -81,7 +85,7 @@ import {
   readJson,
   readOptionalJson,
 } from "../shared";
-import type { HonoApp } from "../types";
+import type { AppEnv, HonoApp } from "../types";
 
 export function registerModelRoutes(
   app: HonoApp,
@@ -863,6 +867,7 @@ export function registerModelRoutes(
       method: "get",
       operationId: "getTelegramSettings",
       path: "/v1/settings/telegram",
+      request: { query: z.object({ profileId: z.string().min(1) }) },
       responses: {
         200: {
           content: { "application/json": { schema: telegramSettingsSchema } },
@@ -879,6 +884,7 @@ export function registerModelRoutes(
       operationId: "setTelegramSettings",
       path: "/v1/settings/telegram",
       request: {
+        query: z.object({ profileId: z.string().min(1) }),
         body: {
           content: {
             "application/json": { schema: updateTelegramRequestSchema },
@@ -905,6 +911,7 @@ export function registerModelRoutes(
       method: "post",
       operationId: "regenerateTelegramHandshake",
       path: "/v1/settings/telegram/handshake",
+      request: { query: z.object({ profileId: z.string().min(1) }) },
       responses: {
         200: {
           content: { "application/json": { schema: telegramSettingsSchema } },
@@ -925,6 +932,7 @@ export function registerModelRoutes(
       operationId: "startTelegramPairing",
       path: "/v1/settings/telegram/pairing",
       request: {
+        query: z.object({ profileId: z.string().min(1) }),
         body: {
           content: {
             "application/json": { schema: startTelegramPairingSchema },
@@ -949,7 +957,10 @@ export function registerModelRoutes(
       method: "get",
       operationId: "getTelegramPairingStatus",
       path: "/v1/settings/telegram/pairing/{pairingId}",
-      request: { params: z.object({ pairingId: z.string() }) },
+      request: {
+        query: z.object({ profileId: z.string().min(1) }),
+        params: z.object({ pairingId: z.string() }),
+      },
       responses: {
         200: {
           content: {
@@ -967,7 +978,10 @@ export function registerModelRoutes(
       method: "post",
       operationId: "cancelTelegramPairing",
       path: "/v1/settings/telegram/pairing/{pairingId}/cancel",
-      request: { params: z.object({ pairingId: z.string() }) },
+      request: {
+        query: z.object({ profileId: z.string().min(1) }),
+        params: z.object({ pairingId: z.string() }),
+      },
       responses: {
         200: {
           content: {
@@ -986,6 +1000,7 @@ export function registerModelRoutes(
       operationId: "applyTelegramPairing",
       path: "/v1/settings/telegram/pairing/{pairingId}/apply",
       request: {
+        query: z.object({ profileId: z.string().min(1) }),
         params: z.object({ pairingId: z.string() }),
         body: {
           content: {
@@ -1015,6 +1030,7 @@ export function registerModelRoutes(
       method: "get",
       operationId: "getDiscordSettings",
       path: "/v1/settings/discord",
+      request: { query: z.object({ profileId: z.string().min(1) }) },
       responses: {
         200: {
           content: { "application/json": { schema: discordSettingsSchema } },
@@ -1031,6 +1047,7 @@ export function registerModelRoutes(
       operationId: "setDiscordSettings",
       path: "/v1/settings/discord",
       request: {
+        query: z.object({ profileId: z.string().min(1) }),
         body: {
           content: {
             "application/json": { schema: updateDiscordRequestSchema },
@@ -1057,6 +1074,7 @@ export function registerModelRoutes(
       method: "post",
       operationId: "regenerateDiscordHandshake",
       path: "/v1/settings/discord/handshake",
+      request: { query: z.object({ profileId: z.string().min(1) }) },
       responses: {
         200: {
           content: { "application/json": { schema: discordSettingsSchema } },
@@ -1352,6 +1370,7 @@ export function registerModelRoutes(
       method: "get",
       operationId: "getWhatsAppSettings",
       path: "/v1/settings/whatsapp",
+      request: { query: z.object({ profileId: z.string().min(1) }) },
       responses: {
         200: {
           content: { "application/json": { schema: whatsappSettingsSchema } },
@@ -1368,6 +1387,7 @@ export function registerModelRoutes(
       operationId: "setWhatsAppSettings",
       path: "/v1/settings/whatsapp",
       request: {
+        query: z.object({ profileId: z.string().min(1) }),
         body: {
           content: {
             "application/json": { schema: updateWhatsappRequestSchema },
@@ -1394,6 +1414,7 @@ export function registerModelRoutes(
       method: "post",
       operationId: "regenerateWhatsAppPairingCode",
       path: "/v1/settings/whatsapp/pairing-code",
+      request: { query: z.object({ profileId: z.string().min(1) }) },
       responses: {
         200: {
           content: { "application/json": { schema: whatsappSettingsSchema } },
@@ -1413,6 +1434,7 @@ export function registerModelRoutes(
       method: "post",
       operationId: "reconnectWhatsApp",
       path: "/v1/settings/whatsapp/reconnect",
+      request: { query: z.object({ profileId: z.string().min(1) }) },
       responses: {
         200: {
           content: { "application/json": { schema: whatsappSettingsSchema } },
@@ -1851,15 +1873,114 @@ export function registerModelRoutes(
     );
   });
 
+  app.openAPIRegistry.registerPath(
+    createRoute({
+      method: "get",
+      path: "/v1/settings/channel-legacy",
+      operationId: "listLegacyChannels",
+      responses: {
+        200: {
+          description: "Connections awaiting an owner",
+          content: {
+            "application/json": {
+              schema: z.array(
+                z.object({
+                  platform: z.enum(["telegram", "discord", "whatsapp"]),
+                  global: z.boolean(),
+                })
+              ),
+            },
+          },
+        },
+      },
+      tags: ["Workers"],
+    })
+  );
+  app.openAPIRegistry.registerPath(
+    createRoute({
+      method: "post",
+      path: "/v1/settings/channel-legacy/claim",
+      operationId: "claimLegacyChannel",
+      request: {
+        query: z.object({ profileId: z.string().min(1) }),
+        body: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: z.object({
+                platform: z.enum(["telegram", "discord", "whatsapp"]),
+                global: z.boolean().optional(),
+              }),
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: "Connection assigned",
+          content: {
+            "application/json": { schema: z.object({ ok: z.boolean() }) },
+          },
+        },
+      },
+      tags: ["Workers"],
+    })
+  );
+  app.get("/v1/settings/channel-legacy", async (c) => {
+    requireOrgAdminOrPlatformAdminFromContext(c);
+    return json(
+      await workerManager.legacyChannels(
+        requireActiveOrgIdFromContext(c),
+        getRequestAuth(c).isPlatformAdmin === true
+      )
+    );
+  });
+  app.post("/v1/settings/channel-legacy/claim", async (c) => {
+    const owner = await channelOwner(c);
+    const body = await readJson<{ platform: string; global?: boolean }>(
+      c.req.raw
+    );
+    if (!["telegram", "discord", "whatsapp"].includes(body.platform)) {
+      throw new NakamaApiError("Unknown channel", 400);
+    }
+    if (body.global) {
+      requirePlatformAdminFromContext(c);
+    }
+    if (!options.databaseAdapter) {
+      throw new NakamaApiError("Database unavailable", 503);
+    }
+    await workerManager.claimLegacyChannel(
+      body.platform as "telegram" | "discord" | "whatsapp",
+      body.global ? null : owner.orgId,
+      owner,
+      options.databaseAdapter
+    );
+    return json({ ok: true });
+  });
+
+  async function channelOwner(c: Context<AppEnv>) {
+    requireOrgAdminOrPlatformAdminFromContext(c);
+    const orgId = requireActiveOrgIdFromContext(c);
+    const profileId = c.req.query("profileId")?.trim();
+    if (!profileId) {
+      throw new NakamaApiError(
+        "Choose an agent to manage this connection.",
+        400
+      );
+    }
+    await agent.getProfile(orgId, profileId);
+    return { orgId, profileId };
+  }
+
   app.get("/v1/settings/telegram", async (c) =>
     json<TelegramSettingsResponse>(
-      await agent.getTelegramSettings(requireActiveOrgIdFromContext(c))
+      await agent.getTelegramSettings(await channelOwner(c))
     )
   );
 
   app.put("/v1/settings/telegram", async (c) => {
     requireOrgAdminOrPlatformAdminFromContext(c);
-    const orgId = requireActiveOrgIdFromContext(c);
+    const orgId = await channelOwner(c);
     const body = await readJson<UpdateTelegramSettingsRequest>(c.req.raw);
 
     try {
@@ -1877,7 +1998,7 @@ export function registerModelRoutes(
 
   app.post("/v1/settings/telegram/handshake", async (c) => {
     requireOrgAdminOrPlatformAdminFromContext(c);
-    const orgId = requireActiveOrgIdFromContext(c);
+    const orgId = await channelOwner(c);
     try {
       return json<TelegramSettingsResponse>(
         await agent.regenerateTelegramHandshake(orgId)
@@ -1889,11 +2010,15 @@ export function registerModelRoutes(
   });
   app.post("/v1/settings/telegram/pairing", async (c) => {
     requireOrgAdminOrPlatformAdminFromContext(c);
-    const orgId = requireActiveOrgIdFromContext(c);
+    const owner = await channelOwner(c);
+    const orgId = owner.orgId;
     const body = await readJson<StartTelegramPairingRequest>(c.req.raw);
     try {
       return json<TelegramPairingStartResponse>(
-        await agent.startTelegramPairing(orgId, getRequestAuth(c).user.id, body)
+        await agent.startTelegramPairing(orgId, getRequestAuth(c).user.id, {
+          ...body,
+          profileId: owner.profileId,
+        })
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1908,7 +2033,8 @@ export function registerModelRoutes(
         await agent.getTelegramPairingStatus(
           requireActiveOrgIdFromContext(c),
           getRequestAuth(c).user.id,
-          c.req.param("pairingId")
+          c.req.param("pairingId"),
+          (await channelOwner(c)).profileId
         )
       );
     } catch (error) {
@@ -1924,7 +2050,8 @@ export function registerModelRoutes(
         await agent.cancelTelegramPairing(
           requireActiveOrgIdFromContext(c),
           getRequestAuth(c).user.id,
-          c.req.param("pairingId")
+          c.req.param("pairingId"),
+          (await channelOwner(c)).profileId
         )
       );
     } catch (error) {
@@ -1942,7 +2069,7 @@ export function registerModelRoutes(
           requireActiveOrgIdFromContext(c),
           getRequestAuth(c).user.id,
           c.req.param("pairingId"),
-          body
+          { ...body, profileId: (await channelOwner(c)).profileId }
         )
       );
     } catch (error) {
@@ -1953,16 +2080,18 @@ export function registerModelRoutes(
 
   app.get("/v1/settings/discord", async (c) => {
     getRequestAuth(c);
-    return json<DiscordSettingsResponse>(await agent.getDiscordSettings());
+    return json<DiscordSettingsResponse>(
+      await agent.getDiscordSettings(await channelOwner(c))
+    );
   });
 
   app.put("/v1/settings/discord", async (c) => {
-    requirePlatformAdminFromContext(c);
+    requireOrgAdminOrPlatformAdminFromContext(c);
     const body = await readJson<UpdateDiscordSettingsRequest>(c.req.raw);
 
     try {
       return json<DiscordSettingsResponse>(
-        await agent.setDiscordSettings(body)
+        await agent.setDiscordSettings(body, await channelOwner(c))
       );
     } catch (error) {
       if (error instanceof NakamaApiError) {
@@ -1974,10 +2103,10 @@ export function registerModelRoutes(
   });
 
   app.post("/v1/settings/discord/handshake", async (c) => {
-    requirePlatformAdminFromContext(c);
+    requireOrgAdminOrPlatformAdminFromContext(c);
     try {
       return json<DiscordSettingsResponse>(
-        await agent.regenerateDiscordHandshake()
+        await agent.regenerateDiscordHandshake(await channelOwner(c))
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2051,7 +2180,7 @@ export function registerModelRoutes(
   app.get("/v1/settings/whatsapp", async (c) => {
     getRequestAuth(c);
     return json<WhatsAppSettingsResponse>(
-      await agent.getWhatsAppSettings(requireActiveOrgIdFromContext(c))
+      await agent.getWhatsAppSettings(await channelOwner(c))
     );
   });
 
@@ -2061,7 +2190,7 @@ export function registerModelRoutes(
 
     try {
       return json<WhatsAppSettingsResponse>(
-        await agent.setWhatsAppSettings(requireActiveOrgIdFromContext(c), body)
+        await agent.setWhatsAppSettings(await channelOwner(c), body)
       );
     } catch (error) {
       if (error instanceof NakamaApiError) {
@@ -2077,9 +2206,7 @@ export function registerModelRoutes(
     requireOrgAdminOrPlatformAdminFromContext(c);
     try {
       return json<WhatsAppSettingsResponse>(
-        await agent.regenerateWhatsAppPairingCode(
-          requireActiveOrgIdFromContext(c)
-        )
+        await agent.regenerateWhatsAppPairingCode(await channelOwner(c))
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2090,28 +2217,13 @@ export function registerModelRoutes(
   app.post("/v1/settings/whatsapp/reconnect", async (c) => {
     requireOrgAdminOrPlatformAdminFromContext(c);
     try {
-      const orgId = requireActiveOrgIdFromContext(c);
-      const status = await workerManager.getWorkerStatus("whatsapp", orgId);
-      if (status?.status === "online") {
-        await workerManager.stopWorker("whatsapp", orgId);
-      }
-      if (await createWhatsAppWorkerHeartbeat(orgId).isRunning()) {
-        return errorResponse(
-          "Stop the manually started WhatsApp bridge before reconnecting.",
-          409
-        );
-      }
-      const settings = await resetWhatsAppSessionForReconnect(orgId);
-
-      try {
-        await workerManager.startWorker("whatsapp", orgId);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        return errorResponse(
-          `Session reset, but the WhatsApp worker could not start: ${message}. Start it manually from Settings.`,
-          400
-        );
-      }
+      const orgId = await channelOwner(c);
+      const settings = await workerManager.saveChannelConfig(
+        "whatsapp",
+        orgId,
+        () => resetWhatsAppSessionForReconnect(orgId),
+        true
+      );
 
       return json<WhatsAppSettingsResponse>(settings);
     } catch (error) {

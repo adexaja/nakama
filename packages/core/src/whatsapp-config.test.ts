@@ -293,8 +293,8 @@ describe("resetWhatsAppSessionForReconnect", () => {
 
   test("throws when WhatsApp is not configured", async () => {
     await withTempHomedir("nakama-core-wa-reset-", async () => {
-      expect(resetWhatsAppSessionForReconnect()).rejects.toThrow(
-        "Enable WhatsApp in Integrations before reconnecting."
+      await expect(resetWhatsAppSessionForReconnect()).rejects.toThrow(
+        "Enable WhatsApp in this agent’s Connections before reconnecting."
       );
     });
   });

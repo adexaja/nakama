@@ -7,6 +7,7 @@ import {
 import { DiscordSettingsCardContent } from "@/components/discord-settings-card-content";
 import { SETTINGS_CARD_LOADING_SKELETON } from "@/components/integration-settings.shared";
 import {
+  useChannelProfileId,
   useDiscordSettings,
   useProfilesQuery,
   useRegenerateDiscordHandshake,
@@ -150,6 +151,7 @@ function DiscordSettingsLoading({ embedded }: { embedded: boolean }) {
 }
 
 function useDiscordSettingsCard(onSaveSuccess?: () => void) {
+  const ownerProfileId = useChannelProfileId();
   const { data: settings, isLoading, error: loadError } = useDiscordSettings();
   const { data: status } = useSystemStatusQuery();
   const { data: profiles = [] } = useProfilesQuery();
@@ -171,12 +173,12 @@ function useDiscordSettingsCard(onSaveSuccess?: () => void) {
       return;
     }
 
-    setProfileId(settings.profileId);
+    setProfileId(ownerProfileId ?? settings.profileId);
     setBotToken("");
     setAllowedUsers((current) =>
       hydrateAllowedUsers(current, settings.allowedUserIds)
     );
-  }, [settings]);
+  }, [settings, ownerProfileId]);
 
   const pairingCode = settings?.handshakeCode ?? null;
 
@@ -278,7 +280,9 @@ function useDiscordSettingsCard(onSaveSuccess?: () => void) {
     loadError,
     pairingCode,
     profileId,
-    profiles,
+    profiles: ownerProfileId
+      ? profiles.filter((profile) => profile.id === ownerProfileId)
+      : profiles,
     regeneratePending: regenerateMutation.isPending,
     running,
     savePending: saveMutation.isPending,

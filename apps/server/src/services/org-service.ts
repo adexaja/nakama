@@ -9,6 +9,10 @@ import {
   NakamaApiError,
   resolveWebPublicUrl,
 } from "@nakama/core";
+import {
+  listChannelOwners,
+  removeChannelConnection,
+} from "@nakama/core/channel-config-shared";
 import type {
   AcceptOrgInviteRequest,
   AddOrgMemberResponse,
@@ -66,6 +70,7 @@ function assertOrgMemberUserIdShape(userId: string): void {
 }
 
 export class OrgService {
+  beforeArchiveChannels?: (orgId: string) => Promise<() => void>;
   constructor(
     private readonly databaseAdapter: DatabaseAdapter,
     private readonly authService: AuthService,
@@ -112,10 +117,17 @@ export class OrgService {
     }
 
     const now = new Date().toISOString();
-    const archived = await this.databaseAdapter.tryMarkOrganizationArchived(
-      orgId,
-      now
-    );
+    if (
+      (await this.databaseAdapter.listOrganizations()).filter(
+        (entry) => !entry.archivedAt
+      ).length <= 1
+    ) {
+      throw new NakamaApiError(LAST_ORGANIZATION_MESSAGE, 409);
+    }
+    const releaseAdmission = await this.beforeArchiveChannels?.(orgId);
+    const archived = await this.databaseAdapter
+      .tryMarkOrganizationArchived(orgId, now)
+      .finally(() => releaseAdmission?.());
     if (!archived) {
       const current = await this.databaseAdapter.getOrganizationById(orgId);
       if (!current || current.archivedAt) {
@@ -143,6 +155,13 @@ export class OrgService {
       );
     }
 
+    for (const platform of ["telegram", "discord", "whatsapp"] as const) {
+      for (const owner of await listChannelOwners(platform)) {
+        if (owner.orgId === orgId) {
+          await removeChannelConnection(platform, owner);
+        }
+      }
+    }
     // Keep the database row available for a safe retry if disk cleanup fails.
     await rm(getOrgConfigDir(orgId), { force: true, recursive: true });
     const deleted = await this.databaseAdapter.deleteOrganization(orgId);

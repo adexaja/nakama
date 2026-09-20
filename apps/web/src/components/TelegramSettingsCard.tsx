@@ -4,6 +4,7 @@ import { SETTINGS_CARD_LOADING_SKELETON } from "@/components/integration-setting
 import { TelegramAllowedUsersDialog } from "@/components/TelegramAllowedUsersDialog";
 import { TelegramSettingsCardContent } from "@/components/telegram-settings-card-content";
 import {
+  useChannelProfileId,
   useProfilesQuery,
   useRegenerateTelegramHandshake,
   useSaveTelegramSettings,
@@ -148,6 +149,7 @@ function TelegramSettingsLoading({ embedded }: { embedded: boolean }) {
 }
 
 function useTelegramSettingsCard(onSaveSuccess?: () => void) {
+  const ownerProfileId = useChannelProfileId();
   const { data: settings, isLoading, error: loadError } = useTelegramSettings();
   const { data: status } = useSystemStatusQuery();
   const { data: profiles = [] } = useProfilesQuery();
@@ -167,12 +169,12 @@ function useTelegramSettingsCard(onSaveSuccess?: () => void) {
       return;
     }
 
-    setProfileId(settings.profileId);
+    setProfileId(ownerProfileId ?? settings.profileId);
     setBotToken("");
     setAllowedUsers((current) =>
       hydrateAllowedUsers(current, settings.allowedUserIds)
     );
-  }, [settings]);
+  }, [settings, ownerProfileId]);
 
   const configured = settings?.configured === true;
   const isPaired = (settings?.pairedUserIds.length ?? 0) > 0;
@@ -252,7 +254,9 @@ function useTelegramSettingsCard(onSaveSuccess?: () => void) {
     loadError,
     pairingCode,
     profileId,
-    profiles,
+    profiles: ownerProfileId
+      ? profiles.filter((profile) => profile.id === ownerProfileId)
+      : profiles,
     regeneratePending: regenerateMutation.isPending,
     running,
     savePending: saveMutation.isPending,

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import type { ChannelConfigScope } from "./channel-config-shared";
 import type { WhatsAppWorkerStatus } from "./contract";
 import { pathExists, readTextOrNull, removeFile, writeTextFile } from "./fs";
 import {
@@ -18,7 +19,9 @@ export interface WhatsAppWorkerHeartbeat extends WorkerHeartbeatBase {
 
 const QR_CODE_FILENAME = "worker-qr.txt";
 
-export function createWhatsAppWorkerHeartbeat(orgId: string | null = null) {
+export function createWhatsAppWorkerHeartbeat(
+  orgId: ChannelConfigScope = null
+) {
   return createWorkerHeartbeatStore<WhatsAppWorkerHeartbeat>({
     getDir: () => getWhatsAppConfigDir(orgId),
     parse: (value) => value as unknown as WhatsAppWorkerHeartbeat,
@@ -34,7 +37,9 @@ export const isWhatsAppWorkerRunning = store.isRunning;
 export const isWhatsAppProcessAlive = isProcessAlive;
 export const isWhatsAppHeartbeatAlive = store.isAlive;
 
-export function getWhatsAppQrCodePath(orgId: string | null = null): string {
+export function getWhatsAppQrCodePath(
+  orgId: ChannelConfigScope = null
+): string {
   return join(getWhatsAppConfigDir(orgId), QR_CODE_FILENAME);
 }
 
@@ -55,7 +60,7 @@ export async function writeWhatsAppWorkerHeartbeat(
   pid = process.pid,
   updatedAt = new Date().toISOString(),
   connected = false,
-  orgId: string | null = null
+  orgId: ChannelConfigScope = null
 ): Promise<void> {
   await createWhatsAppWorkerHeartbeat(orgId).write({
     connected,
@@ -66,7 +71,7 @@ export async function writeWhatsAppWorkerHeartbeat(
 
 export async function writeWhatsAppQrCode(
   qr: string,
-  orgId: string | null = null
+  orgId: ChannelConfigScope = null
 ): Promise<void> {
   await writeTextFile(getWhatsAppQrCodePath(orgId), qr, {
     ensureDir: getWhatsAppConfigDir(orgId),
@@ -74,7 +79,7 @@ export async function writeWhatsAppQrCode(
 }
 
 export async function clearWhatsAppQrCode(
-  orgId: string | null = null
+  orgId: ChannelConfigScope = null
 ): Promise<void> {
   const path = getWhatsAppQrCodePath(orgId);
 
@@ -84,14 +89,14 @@ export async function clearWhatsAppQrCode(
 }
 
 export async function readWhatsAppQrCode(
-  orgId: string | null = null
+  orgId: ChannelConfigScope = null
 ): Promise<string | null> {
   const raw = await readTextOrNull(getWhatsAppQrCodePath(orgId));
   return raw?.trim() || null;
 }
 
 export async function getWhatsAppWorkerStatus(
-  orgId: string | null = null
+  orgId: ChannelConfigScope = null
 ): Promise<WhatsAppWorkerStatus> {
   const settings = await loadWhatsAppSettingsPublic(orgId);
   const heartbeat = await createWhatsAppWorkerHeartbeat(orgId).read();
