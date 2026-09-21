@@ -993,6 +993,7 @@ export interface DatabaseAdapter {
   ): Promise<StoredSessionSummaryRecord[]>;
 
   listSessions(): Promise<StoredSessionRecord[]>;
+  listSessionsForUser(userId: string): Promise<StoredSessionRecord[]>;
   listSkillProposals(
     orgId: string,
     options?: {

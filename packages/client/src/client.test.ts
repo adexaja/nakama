@@ -235,6 +235,33 @@ test("data export downloads zip bytes with filename metadata", async () => {
   expect(Array.from(new Uint8Array(result.data))).toEqual([1, 2, 3]);
 });
 
+test("user data export scopes the download path to the requested user", async () => {
+  const fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }> =
+    [];
+  const client = new NakamaClient({
+    authToken: "local-auth-token",
+    baseUrl: "http://localhost:4310",
+    fetch: async (input, init) => {
+      fetchCalls.push({ init, input });
+      return new Response(new Uint8Array([4, 5, 6]), {
+        headers: {
+          "Content-Disposition":
+            'attachment; filename="nakama-user-export-test.zip"',
+          "Content-Type": "application/zip",
+        },
+      });
+    },
+  });
+
+  const result = await client.exportUserData("user/with space");
+
+  expect(fetchCalls[0]!.input.toString()).toBe(
+    "http://localhost:4310/v1/platform/users/user%2Fwith%20space/data/export"
+  );
+  expect(result.filename).toBe("nakama-user-export-test.zip");
+  expect(Array.from(new Uint8Array(result.data))).toEqual([4, 5, 6]);
+});
+
 test("profile pack helpers export zip and upload base64 preview/import bodies", async () => {
   const fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }> =
     [];
