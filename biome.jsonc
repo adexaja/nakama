@@ -89,7 +89,7 @@
         "useTemplate": "off"
       },
       "suspicious": {
-        "noAlert": "off",
+        "noAlert": "error",
         "noArrayIndexKey": "off",
         "noConfusingVoidType": "off",
         "noControlCharactersInRegex": "off",

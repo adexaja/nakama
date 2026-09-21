@@ -886,7 +886,6 @@ export function useProfilesPage() {
       return;
     }
 
-    // Confirmation lives in SkillAssignPicker — window.confirm cannot run while that Dialog is open.
     setError(null);
 
     try {
