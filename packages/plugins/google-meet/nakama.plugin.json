@@ -2,7 +2,7 @@
   "apiVersion": 1,
   "id": "google-meet",
   "name": "Google Meet",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minNakamaVersion": "0.4.10",
   "author": "Nakama",
   "license": "MIT",
