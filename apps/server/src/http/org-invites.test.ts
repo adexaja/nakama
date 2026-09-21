@@ -9,7 +9,7 @@ import {
 setupTestConfigDir("nakama-org-invites-test-");
 
 describe("direct org member provisioning", () => {
-  test("platform admin cannot access org data before the provisioned admin signs in", async () => {
+  test("platform admin can manage an org without becoming a member", async () => {
     const { app, authService, databaseAdapter } = createMinimalHonoApp();
     const platformSession = await loginPlatformAdminSession(
       app,
@@ -41,7 +41,18 @@ describe("direct org member provisioning", () => {
       adminMember: { temporaryPassword: string };
     };
 
-    const denied = await app.fetch(
+    const platformUser = await databaseAdapter.getUserByEmail(
+      "platform@example.com"
+    );
+    expect(platformUser).toBeDefined();
+    expect(
+      await databaseAdapter.getOrgMember(
+        created.organization.id,
+        platformUser!.id
+      )
+    ).toBeNull();
+
+    const platformAccess = await app.fetch(
       new Request("http://localhost:4310/v1/profiles", {
         headers: platformSession.headers({
           "X-Org-Id": created.organization.id,
@@ -49,7 +60,24 @@ describe("direct org member provisioning", () => {
       })
     );
 
-    expect(denied.status).toBe(404);
+    expect(platformAccess.status).toBe(200);
+
+    const memberOnlyAccess = await app.fetch(
+      new Request("http://localhost:4310/v1/sessions", {
+        body: JSON.stringify({
+          channel: "web",
+          profileId: "default",
+        }),
+        headers: platformSession.headers({
+          "Content-Type": "application/json",
+          "X-CSRF-Token": platformSession.csrfToken,
+          "X-Org-Id": created.organization.id,
+        }),
+        method: "POST",
+      })
+    );
+
+    expect(memberOnlyAccess.status).toBe(403);
 
     const loginResponse = await app.fetch(
       new Request("http://localhost:4310/v1/auth/login", {
