@@ -294,7 +294,7 @@ describe("plugin HTTP API", () => {
     ).toBe(404);
     expect(
       (await jsonRequest(app, "/v1/plugins", platform, {}, orgId)).status
-    ).toBe(404);
+    ).toBe(403);
 
     const add = await jsonRequest(app, "/v1/plugins/notes/install", admin, {
       body: JSON.stringify({}),
