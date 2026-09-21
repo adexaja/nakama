@@ -49,6 +49,7 @@ export interface TelegramSettingsPublic {
 export interface UpdateTelegramSettingsInput {
   allowedUserIds?: string;
   botToken?: string;
+  pairedUserIds?: string;
   profileId?: string;
 }
 
@@ -253,12 +254,16 @@ function buildSavedTelegramConfig(
   }
 
   const allowedUserIds = resolveAllowedUserIdsInput(input, existing);
+  const pairedUserIds =
+    input.pairedUserIds === undefined
+      ? (existing?.pairedUserIds ?? [])
+      : parseAllowedUserIds(input.pairedUserIds);
 
   return {
     allowedUserIds,
     botToken,
     handshakeCode: resolveHandshakeCodeOnSave(existing, allowedUserIds),
-    pairedUserIds: existing?.pairedUserIds ?? [],
+    pairedUserIds,
     profileId: resolveTelegramProfileId(input, existing),
   };
 }

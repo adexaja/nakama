@@ -1224,6 +1224,11 @@ export class AgentService {
             ? { allowedUserIds: existing.allowedUserIds.join(",") }
             : {}
           : { allowedUserIds: input.allowedUserIds }),
+        ...(input.pairedUserIds === undefined
+          ? existing.pairedUserIds.length > 0
+            ? { pairedUserIds: existing.pairedUserIds.join(",") }
+            : {}
+          : { pairedUserIds: input.pairedUserIds }),
         ...(input.profileId === undefined
           ? {}
           : { profileId: input.profileId }),
