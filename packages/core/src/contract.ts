@@ -1481,6 +1481,7 @@ export interface TelegramSettingsResponse {
 export interface UpdateTelegramSettingsRequest {
   allowedUserIds?: string;
   botToken?: string;
+  pairedUserIds?: string;
   profileId?: string;
 }
 export interface StartTelegramPairingRequest {

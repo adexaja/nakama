@@ -175,8 +175,9 @@ export class TelegramManagedBotPairingService {
     userId: string,
     profileId: string,
     save: (input: {
-      botToken: string;
       allowedUserIds: string;
+      botToken: string;
+      pairedUserIds: string;
       profileId: string;
     }) => Promise<void>
   ): Promise<TelegramPairingStatusResponse> {
@@ -201,6 +202,7 @@ export class TelegramManagedBotPairingService {
     await save({
       allowedUserIds: String(pairing.ownerUserId),
       botToken: pairing.token,
+      pairedUserIds: String(pairing.ownerUserId),
       profileId,
     });
     pairing.state = "applied";

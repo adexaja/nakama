@@ -81,6 +81,7 @@ describe("TelegramManagedBotPairingService", () => {
     expect(saved).toEqual({
       allowedUserIds: "77",
       botToken: "42:secret",
+      pairedUserIds: "77",
       profileId: "profile-a",
     });
   });
@@ -175,6 +176,7 @@ describe("TelegramManagedBotPairingService", () => {
         expect(saved).toEqual({
           allowedUserIds: "77",
           botToken: "42:secret",
+          pairedUserIds: "77",
           profileId: "profile",
         });
       }
