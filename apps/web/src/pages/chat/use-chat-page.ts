@@ -105,6 +105,7 @@ import {
   messagesWithoutFailedTurn,
   nextSuccessfulTurnAt,
   planPromptBranch,
+  releaseChatStream,
 } from "@/pages/chat/chat-page.shared";
 
 interface SendMessageOptions {
@@ -212,6 +213,9 @@ export function useChatPage() {
     []
   );
   const streamAbortRef = useRef<AbortController | null>(null);
+  // Set while a send stream is running: calling it stops the stream writing
+  // into the page without touching the request that keeps the turn alive.
+  const detachStreamRef = useRef<(() => void) | null>(null);
   const messageQueueRef = useRef<QueuedSend[]>([]);
   const isSendingRef = useRef(false);
   const skipNextProfileSessionRef = useRef(false);
@@ -223,6 +227,38 @@ export function useChatPage() {
   const cognitoRef = useRef(cognito);
   const sessionLoadRef = useRef(0);
 
+  /**
+   * Hand the current stream back before the page moves to another chat.
+   *
+   * The server ends a turn as soon as the request streaming it goes away, so a
+   * send stream is detached rather than aborted: the chat keeps running in the
+   * background and is picked up again by the reconnect in `resumeSession`.
+   * Everything the turn owned on the page (busy flags, the queue) is released
+   * here, because the next chat needs a clean composer.
+   *
+   * ponytail: a detached turn still dies with the page (reload, closed tab).
+   * Give the server an explicit stop endpoint and stop cancelling on
+   * disconnect if turns need to outlive the tab.
+   */
+  const releaseActiveStream = useCallback(() => {
+    const released = releaseChatStream({
+      abort: streamAbortRef.current,
+      detach: detachStreamRef.current,
+    });
+    streamAbortRef.current = null;
+    detachStreamRef.current = null;
+
+    if (released !== "detached") {
+      return;
+    }
+
+    isSendingRef.current = false;
+    messageQueueRef.current = [];
+    setQueuedMessages([]);
+    setCanStop(false);
+    setTurnStartedAt(null);
+  }, []);
+
   useEffect(() => {
     cognitoRef.current = cognito;
   }, [cognito]);
@@ -231,9 +267,9 @@ export function useChatPage() {
     () => () => {
       sessionLoadRef.current += 1;
       loadedRouteRef.current = null;
-      streamAbortRef.current?.abort();
+      releaseActiveStream();
     },
-    []
+    [releaseActiveStream]
   );
 
   useEffect(() => {
@@ -408,8 +444,7 @@ export function useChatPage() {
   const enterDraftChat = useCallback(
     (nextProfileId: string) => {
       sessionLoadRef.current += 1;
-      streamAbortRef.current?.abort();
-      streamAbortRef.current = null;
+      releaseActiveStream();
       setBusy(false);
       setTurnStartedAt(null);
       localStorage.removeItem(sessionStorageKey(nextProfileId));
@@ -433,7 +468,7 @@ export function useChatPage() {
         navigate(buildNewChatPath(nextProfileId), { replace: true });
       }
     },
-    [location.pathname, navigate, restoreLastChatModel]
+    [location.pathname, navigate, releaseActiveStream, restoreLastChatModel]
   );
 
   const loadProfiles = useCallback(async () => {
@@ -557,8 +592,7 @@ export function useChatPage() {
     async (nextProfileId: string, sessionId: string) => {
       const loadId = ++sessionLoadRef.current;
       const isCurrentLoad = () => sessionLoadRef.current === loadId;
-      streamAbortRef.current?.abort();
-      streamAbortRef.current = null;
+      releaseActiveStream();
       activeSessionIdRef.current = sessionId;
       setBusy(true);
       setError(null);
@@ -676,7 +710,7 @@ export function useChatPage() {
         }
       }
     },
-    [profileId, setProfileId, syncChatUrl]
+    [profileId, releaseActiveStream, setProfileId, syncChatUrl]
   );
 
   const handleBranchMessage = useCallback(
@@ -784,8 +818,7 @@ export function useChatPage() {
     skipNextProfileSessionRef.current = true;
     loadedRouteRef.current = null;
     sessionLoadRef.current += 1;
-    streamAbortRef.current?.abort();
-    streamAbortRef.current = null;
+    releaseActiveStream();
     setBusy(false);
     setTurnStartedAt(null);
     messageQueueRef.current = [];
@@ -823,6 +856,7 @@ export function useChatPage() {
     setProfileId,
     navigate,
     location.search,
+    releaseActiveStream,
     restoreLastChatModel,
     profileId,
     user?.id,
@@ -858,6 +892,9 @@ export function useChatPage() {
   }, [loadProfiles]);
 
   const stopStreaming = useCallback(() => {
+    // Stop means stop: aborting closes the request, which is how the server
+    // learns to end the turn. Detaching is only for switching chats.
+    detachStreamRef.current = null;
     streamAbortRef.current?.abort();
   }, []);
 
@@ -957,7 +994,21 @@ export function useChatPage() {
 
       const abortController = new AbortController();
       streamAbortRef.current = abortController;
+      // Flipped by releaseActiveStream when the user opens another chat. The
+      // request stays open so the turn survives; it just stops writing here.
+      let detached = false;
+      detachStreamRef.current = () => {
+        detached = true;
+      };
       setCanStop(true);
+
+      const whileAttached =
+        <TValue>(write: (value: TValue) => void) =>
+        (value: TValue) => {
+          if (!detached) {
+            write(value);
+          }
+        };
 
       try {
         await activeSession.sendStream(
@@ -966,13 +1017,19 @@ export function useChatPage() {
             images: images.length > 0 ? images : undefined,
             message: text,
           },
-          buildStreamHandlers(setMessages, {
-            onContextUsage: setContextUsage,
-            onQuestionnaireUpdated: setAgentQuestionnaire,
-            onTodosUpdated: setAgentTodos,
+          buildStreamHandlers(whileAttached(setMessages), {
+            onContextUsage: whileAttached(setContextUsage),
+            onQuestionnaireUpdated: whileAttached(setAgentQuestionnaire),
+            onTodosUpdated: whileAttached(setAgentTodos),
           }),
           { signal: abortController.signal }
         );
+
+        clearFailedChatTurn(activeSession.id);
+
+        if (detached) {
+          return;
+        }
 
         const {
           messages: storedMessages,
@@ -982,7 +1039,6 @@ export function useChatPage() {
           contextUsage: nextContextUsage,
           model: nextSessionModel,
         } = await client.getSessionMessages(activeSession.id);
-        clearFailedChatTurn(activeSession.id);
         setMessages(chatMessagesToListItems(storedMessages, messageMeta));
         setAgentTodos(todos);
         setAgentQuestionnaire(questionnaire);
@@ -991,11 +1047,22 @@ export function useChatPage() {
         setLastSuccessfulTurnAt((previous) => nextSuccessfulTurnAt(previous));
       } catch (err) {
         if (isAbortError(err)) {
-          setMessages((current) => finalizeStreamingMessages(current));
+          if (!detached) {
+            setMessages((current) => finalizeStreamingMessages(current));
+          }
           return;
         }
 
         const message = formatError(err);
+
+        // A detached turn owns no part of the page any more, so the failure is
+        // only recorded against its session and surfaces when it is reopened.
+        if (detached) {
+          if (text.trim()) {
+            storeFailedChatTurn(activeSession.id, { error: message, text });
+          }
+          return;
+        }
 
         if (isActiveTurnConflictError(message) && activeSession) {
           setError("The agent is still responding to your last message.");
@@ -1044,31 +1111,40 @@ export function useChatPage() {
         }
         setMessages((current) => markStreamingTurnFailed(current, message));
       } finally {
-        streamAbortRef.current = null;
-        setCanStop(false);
-        setBusy(false);
-        setTurnStartedAt(null);
+        // The sessions list still wants the new title and preview, but nothing
+        // else here belongs to a detached turn: the page has moved on and
+        // releaseActiveStream already cleared the flags and the queue.
         void queryClient.invalidateQueries({
           queryKey: queryKeys.sessions(profileId, "web"),
         });
 
-        const next = shouldDrainQueue ? messageQueueRef.current.shift() : null;
-        if (next) {
-          setQueuedMessages((current) =>
-            current.filter((item) => item.id !== next.id)
-          );
-          // This callback can predate session creation or branching.
-          void executeSend(
-            next.text,
-            next.files,
-            {
-              ...next.options,
-              sessionOverride: next.options.sessionOverride ?? activeSession,
-            },
-            next
-          );
-        } else {
-          isSendingRef.current = false;
+        if (!detached) {
+          streamAbortRef.current = null;
+          detachStreamRef.current = null;
+          setCanStop(false);
+          setBusy(false);
+          setTurnStartedAt(null);
+
+          const next = shouldDrainQueue
+            ? messageQueueRef.current.shift()
+            : null;
+          if (next) {
+            setQueuedMessages((current) =>
+              current.filter((item) => item.id !== next.id)
+            );
+            // This callback can predate session creation or branching.
+            void executeSend(
+              next.text,
+              next.files,
+              {
+                ...next.options,
+                sessionOverride: next.options.sessionOverride ?? activeSession,
+              },
+              next
+            );
+          } else {
+            isSendingRef.current = false;
+          }
         }
       }
     },

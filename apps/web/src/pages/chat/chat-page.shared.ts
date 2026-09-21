@@ -237,3 +237,28 @@ export function nextSuccessfulTurnAt(
 ): number {
   return previous != null && now <= previous ? previous + 1 : now;
 }
+
+/**
+ * Give up the page's hold on a chat stream when the user opens another chat.
+ *
+ * A send stream is detached, never aborted: the POST behind it is what keeps
+ * the server turn alive, so aborting it on a chat switch cancels a turn the
+ * user still wants. A subscribe stream only mirrors a turn someone else owns,
+ * so it is safe to abort.
+ */
+export function releaseChatStream(stream: {
+  abort: AbortController | null;
+  detach: (() => void) | null;
+}): "detached" | "aborted" | "idle" {
+  if (stream.detach) {
+    stream.detach();
+    return "detached";
+  }
+
+  if (stream.abort) {
+    stream.abort.abort();
+    return "aborted";
+  }
+
+  return "idle";
+}

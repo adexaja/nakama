@@ -13,6 +13,7 @@ import {
   messagesWithoutFailedTurn,
   nextSuccessfulTurnAt,
   planPromptBranch,
+  releaseChatStream,
   shouldShowCognitoControl,
   welcomeAnimationKey,
 } from "@/pages/chat/chat-page.shared";
@@ -293,5 +294,36 @@ describe("cognito control visibility", () => {
 describe("welcome copy animation key", () => {
   test("toggling produces a different key, so the entrance replays", () => {
     expect(welcomeAnimationKey(true)).not.toBe(welcomeAnimationKey(false));
+  });
+});
+
+describe("releaseChatStream", () => {
+  test("detaches a send stream instead of aborting the turn behind it", () => {
+    const abort = new AbortController();
+    let detached = false;
+
+    const released = releaseChatStream({
+      abort,
+      detach: () => {
+        detached = true;
+      },
+    });
+
+    expect(released).toBe("detached");
+    expect(detached).toBe(true);
+    // The abort is what ends the turn server-side, so switching chats must not
+    // reach it: that is what made a second chat impossible to run.
+    expect(abort.signal.aborted).toBe(false);
+  });
+
+  test("aborts a subscribe stream, which owns no turn", () => {
+    const abort = new AbortController();
+
+    expect(releaseChatStream({ abort, detach: null })).toBe("aborted");
+    expect(abort.signal.aborted).toBe(true);
+  });
+
+  test("reports idle when nothing is streaming", () => {
+    expect(releaseChatStream({ abort: null, detach: null })).toBe("idle");
   });
 });
