@@ -5,7 +5,6 @@ import type {
   AgentQuestionnaire,
   AgentTodo,
   ChatContextUsage,
-  ProfileSummary,
   ThinkingEffort,
 } from "@nakama/core/contract";
 import { useQueryClient } from "@tanstack/react-query";
@@ -30,6 +29,7 @@ import { useAuth } from "@/context/use-auth";
 import {
   buildThinkingSettingsPayload,
   useProfileQuery,
+  useProfilesQuery,
   useSaveThinkingSettings,
   useThinkingSettings,
 } from "@/hooks/use-app-queries";
@@ -172,7 +172,11 @@ export function useChatPage() {
     setProfileId,
     syncForOrg,
   } = useActiveChatProfile();
-  const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
+  const profilesQuery = useProfilesQuery();
+  const profiles = useMemo(
+    () => profilesQuery.data ?? [],
+    [profilesQuery.data]
+  );
   const profileId =
     storeProfileId ??
     readInitialDraftChatProfileId({
@@ -470,26 +474,6 @@ export function useChatPage() {
     },
     [location.pathname, navigate, releaseActiveStream, restoreLastChatModel]
   );
-
-  const loadProfiles = useCallback(async () => {
-    try {
-      const response = await client.listProfiles();
-      setProfiles(response.profiles);
-      if (response.profiles.length === 0) {
-        return;
-      }
-      const resolved = syncForOrg({
-        orgId: activeOrg?.id ?? null,
-        preferredProfileId: routeSession?.profileId,
-        profiles: response.profiles,
-      });
-      if (routeSession && resolved && routeSession.profileId !== resolved) {
-        enterDraftChat(resolved);
-      }
-    } catch (err) {
-      setError(formatError(err));
-    }
-  }, [activeOrg?.id, enterDraftChat, routeSession, syncForOrg]);
 
   const handleThinkingEffortChange = useCallback(
     (effort: ThinkingEffort) => {
@@ -888,8 +872,30 @@ export function useChatPage() {
   }, [routeSession, resumeSession]);
 
   useEffect(() => {
-    void loadProfiles();
-  }, [loadProfiles]);
+    if (profilesQuery.error) {
+      setError(formatError(profilesQuery.error));
+      return;
+    }
+    const list = profilesQuery.data;
+    if (!list || list.length === 0) {
+      return;
+    }
+    const resolved = syncForOrg({
+      orgId: activeOrg?.id ?? null,
+      preferredProfileId: routeSession?.profileId,
+      profiles: list,
+    });
+    if (routeSession && resolved && routeSession.profileId !== resolved) {
+      enterDraftChat(resolved);
+    }
+  }, [
+    profilesQuery.data,
+    profilesQuery.error,
+    activeOrg?.id,
+    enterDraftChat,
+    routeSession,
+    syncForOrg,
+  ]);
 
   const stopStreaming = useCallback(() => {
     // Stop means stop: aborting closes the request, which is how the server
