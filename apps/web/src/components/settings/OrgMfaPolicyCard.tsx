@@ -20,7 +20,8 @@ export function OrgMfaPolicyCard() {
   }) {
     setPending(true);
     try {
-      await updateOrg(activeOrg?.id ?? "", input);
+      await updateOrg(activeOrg!.id, input);
+      toast("Organization MFA policy saved.");
     } catch (err) {
       toast(formatError(err));
     } finally {
