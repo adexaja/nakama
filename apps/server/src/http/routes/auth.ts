@@ -23,7 +23,7 @@ import {
 import { ensureMfaEncryptionKey } from "../../services/mfa-config";
 import type { ServerOptions } from "../context";
 import {
-  requireActiveOrgIdFromContext,
+  requireOrgAdminFromContext,
   requirePlatformAdmin,
   requirePlatformAdminFromContext,
 } from "../org-guards";
@@ -598,8 +598,8 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
     if (!authService) {
       return errorResponse("Authentication not configured", 500);
     }
-    const auth = requirePlatformAdminFromContext(c);
-    await ensureMfaEncryptionKey(requireActiveOrgIdFromContext(c));
+    const auth = requireOrgAdminFromContext(c);
+    await ensureMfaEncryptionKey(auth.activeOrgId);
     return json({ configured: true });
   });
 
