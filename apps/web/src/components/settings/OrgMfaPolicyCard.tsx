@@ -65,6 +65,7 @@ export function OrgMfaPolicyCard() {
     try {
       await client.ensureMfaEncryptionKey();
       setGenerated(true);
+      toast("MFA encryption key configured.");
     } catch (err) {
       setError(formatError(err));
     } finally {
