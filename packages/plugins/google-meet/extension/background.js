@@ -29,6 +29,11 @@ async function ensureOffscreen() {
 }
 
 async function callNakama(connection, action, input = {}) {
+  console.log("[Nakama Meet] request", {
+    action,
+    nakamaTabId: connection?.tabId,
+    nakamaUrl: connection?.url,
+  });
   if (!connection) {
     throw new Error(
       "Open Google Meet in Nakama and connect this extension first."
@@ -42,6 +47,12 @@ async function callNakama(connection, action, input = {}) {
     action,
     input,
     type: "NAKAMA_MEET_ACTION",
+  });
+  console.log("[Nakama Meet] response", {
+    action,
+    captureProtocol: response?.result?.captureProtocol,
+    error: response?.error,
+    resultKeys: response?.result ? Object.keys(response.result) : [],
   });
   if (!response || response.error) {
     throw new Error(
@@ -66,6 +77,11 @@ async function connect() {
   }
   const connection = { tabId: tab.id, url: tab.url };
   const setup = await callNakama(connection, "meetings");
+  console.log("[Nakama Meet] connect protocol", {
+    expected: 2,
+    nakamaUrl: connection.url,
+    received: setup?.captureProtocol,
+  });
   if (setup.captureProtocol !== 2) {
     throw new Error("Update the Nakama Google Meet plugin first.");
   }
@@ -104,6 +120,11 @@ async function start() {
       targetTabId: tab.id,
     });
     const setup = await callNakama(connection, "meetings");
+    console.log("[Nakama Meet] start protocol", {
+      expected: 2,
+      nakamaUrl: connection?.url,
+      received: setup?.captureProtocol,
+    });
     if (setup.captureProtocol !== 2) {
       throw new Error("Update the Nakama Google Meet plugin first.");
     }
