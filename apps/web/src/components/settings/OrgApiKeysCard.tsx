@@ -1,6 +1,5 @@
 import type { ApiKeySummary } from "@nakama/core/contract";
 import { Button } from "@nakama/ui/button";
-import { Calendar } from "@nakama/ui/calendar";
 import { Card, CardContent } from "@nakama/ui/card";
 import {
   Dialog,
@@ -12,10 +11,9 @@ import {
   DialogTrigger,
 } from "@nakama/ui/dialog";
 import { Input } from "@nakama/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@nakama/ui/popover";
 import { Spinner } from "@nakama/ui/spinner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { format, parseISO } from "date-fns";
+import { Copy01Icon } from "hugeicons-react";
 import { useState } from "react";
 import { useAuth } from "@/context/use-auth";
 import { client, formatError } from "@/lib/client";
@@ -23,14 +21,33 @@ import { queryKeys } from "@/lib/query-keys";
 
 type SecretState = { key: ApiKeySummary; secret: string } | null;
 
+const INTEGRATION_PROMPT = `Integrate this existing app with Nakama as the AI agent backend.
+
+Read these docs before coding:
+- https://ahmadrosid.github.io/nakama/lovable.md
+- https://ahmadrosid.github.io/nakama/llms.txt
+- Treat the Lovable guide as the source of truth for Nakama endpoints, request bodies, and response formats.
+
+Requirements:
+- Inspect the existing app and preserve its current UI, authentication, and data model.
+- Keep NAKAMA_API_KEY server-side. Never expose it in browser code, HTML, logs, or URLs.
+- Read only NAKAMA_URL and NAKAMA_API_KEY from server-side secrets.
+- Add a server-side chat route that connects the existing chat UI to Nakama.
+- Create one Nakama web session per browser conversation and reuse its sessionId.
+- Pass the authenticated app user's stable ID as appUserId when creating the session.
+- Omit profileId so Nakama uses the organization's default profile.
+- Send X-Nakama-App-User-Id with every request for that session.
+- Return the assistant reply to the existing UI. Support streaming SSE with chunk, done, and error events if streaming is enabled.
+- Keep each app user's Nakama session and memory isolated by their stable authenticated user ID.
+- Do not call Nakama directly from the browser.`;
+
 function useOrgApiKeys(orgId: string) {
   const queryClient = useQueryClient();
-  const [name, setName] = useState("Lovable app");
-  const [environment, setEnvironment] = useState<"live" | "test">("live");
-  const [expiresAt, setExpiresAt] = useState("");
+  const [name, setName] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [secretState, setSecretState] = useState<SecretState>(null);
   const [copyHint, setCopyHint] = useState<string | null>(null);
+  const [promptCopyHint, setPromptCopyHint] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const keysQuery = useQuery({
@@ -42,10 +59,6 @@ function useOrgApiKeys(orgId: string) {
   const createMutation = useMutation({
     mutationFn: () =>
       client.createApiKey(orgId, {
-        environment,
-        expiresAt: expiresAt
-          ? new Date(`${expiresAt}T23:59:59.999Z`).toISOString()
-          : null,
         name: name.trim(),
       }),
     onError: (cause) => setError(formatError(cause)),
@@ -99,6 +112,15 @@ function useOrgApiKeys(orgId: string) {
     }
   }
 
+  async function copyIntegrationPrompt() {
+    try {
+      await navigator.clipboard.writeText(INTEGRATION_PROMPT);
+      setPromptCopyHint("Prompt copied.");
+    } catch {
+      setPromptCopyHint("Copy failed — use the documentation link instead.");
+    }
+  }
+
   function createKey(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
@@ -114,21 +136,19 @@ function useOrgApiKeys(orgId: string) {
   return {
     busy,
     copyHint,
+    copyIntegrationPrompt,
     copySecret,
     createKey,
     createMutation,
     createOpen,
-    environment,
     error,
-    expiresAt,
     keysQuery,
     name,
+    promptCopyHint,
     revokeMutation,
     rotateMutation,
     secretState,
     setCreateOpen,
-    setEnvironment,
-    setExpiresAt,
     setName,
   };
 }
@@ -145,13 +165,9 @@ function CreateApiKeyDialog({
     createKey,
     createMutation,
     createOpen,
-    environment,
     error,
-    expiresAt,
     name,
     setCreateOpen,
-    setEnvironment,
-    setExpiresAt,
     setName,
   } = controller;
 
@@ -180,60 +196,14 @@ function CreateApiKeyDialog({
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={createKey}>
-          <label className="block space-y-1.5 text-sm">
-            <span className="font-medium">Key name</span>
+          <label className="flex flex-col gap-3 text-sm">
+            <span className="font-medium text-foreground/90">Key name</span>
             <Input
               autoFocus
               disabled={busy}
               onChange={(event) => setName(event.target.value)}
               value={name}
             />
-          </label>
-          <fieldset className="space-y-1.5">
-            <legend className="font-medium text-sm">Environment</legend>
-            <div className="flex gap-2">
-              {(["live", "test"] as const).map((value) => (
-                <Button
-                  className="flex-1"
-                  key={value}
-                  onClick={() => setEnvironment(value)}
-                  type="button"
-                  variant={environment === value ? "default" : "outline"}
-                >
-                  {value === "live" ? "Live" : "Test"}
-                </Button>
-              ))}
-            </div>
-          </fieldset>
-          <label className="block space-y-1.5 text-sm">
-            <span className="font-medium">Expires on</span>
-            <Popover>
-              <PopoverTrigger
-                render={
-                  <Button
-                    className="w-full justify-start text-left font-normal"
-                    disabled={busy}
-                    type="button"
-                    variant="outline"
-                  />
-                }
-              >
-                {expiresAt ? format(parseISO(expiresAt), "PPP") : "Pick a date"}
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0">
-                <Calendar
-                  disabled={{ before: new Date() }}
-                  mode="single"
-                  onSelect={(date) =>
-                    setExpiresAt(date ? format(date, "yyyy-MM-dd") : "")
-                  }
-                  selected={expiresAt ? parseISO(expiresAt) : undefined}
-                />
-              </PopoverContent>
-            </Popover>
-            <span className="block text-muted-foreground text-xs">
-              Optional
-            </span>
           </label>
           {error ? (
             <p className="text-destructive text-sm" role="alert">
@@ -314,7 +284,7 @@ function ApiKeysList({ controller }: { controller: OrgApiKeysController }) {
           <div className="min-w-0">
             <p className="font-medium">{key.name}</p>
             <p className="text-muted-foreground text-xs">
-              {key.keyPrefix} · {key.environment} · created{" "}
+              {key.keyPrefix} · created{" "}
               {new Date(key.createdAt).toLocaleDateString()}
               {key.revokedAt ? " · revoked" : ""}
             </p>
@@ -350,6 +320,30 @@ function ApiKeysList({ controller }: { controller: OrgApiKeysController }) {
   );
 }
 
+function IntegrationPrompt({
+  controller,
+}: {
+  controller: OrgApiKeysController;
+}) {
+  const { copyIntegrationPrompt, promptCopyHint } = controller;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <Button
+        onClick={() => void copyIntegrationPrompt()}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        <Copy01Icon aria-hidden className="size-3.5" />
+        Copy prompt
+      </Button>
+      {promptCopyHint ? (
+        <span className="text-muted-foreground">{promptCopyHint}</span>
+      ) : null}
+    </div>
+  );
+}
+
 export function OrgApiKeysCard() {
   const { activeOrg } = useAuth();
   const controller = useOrgApiKeys(
@@ -373,7 +367,7 @@ export function OrgApiKeysCard() {
             </div>
             <CreateApiKeyDialog controller={controller} />
           </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
             <a
               className="text-muted-foreground underline underline-offset-4 hover:text-foreground"
               href="/docs"
@@ -390,6 +384,7 @@ export function OrgApiKeysCard() {
             >
               Lovable guide ↗
             </a>
+            <IntegrationPrompt controller={controller} />
           </div>
           <SecretBanner controller={controller} />
           <ApiKeysList controller={controller} />
