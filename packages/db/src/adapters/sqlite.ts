@@ -2337,6 +2337,7 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
       o.slug,
       o.mfa_enabled,
       o.mfa_required,
+      o.skills_write_approval,
       o.skills_post_turn_review,
       o.skills_curator_enabled,
       o.skills_curator_consolidate_enabled,
