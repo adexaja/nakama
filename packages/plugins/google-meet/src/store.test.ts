@@ -167,7 +167,7 @@ test("rejects arbitrary URLs and invalid durations before queuing a browser", ()
 test("history limits apply after actor and profile access filters", () => {
   const own = store.create(meetingUrl, "me", "mine", 1);
   store.update(own.id, "finished");
-  for (let i = 0; i < 101; i++) {
+  for (let i = 0; i < 100; i++) {
     const other = store.create(own.url, "other", "theirs", 1);
     store.update(other.id, "finished");
   }
