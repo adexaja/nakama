@@ -1,5 +1,7 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@nakama/ui/card";
+import { Card, CardContent } from "@nakama/ui/card";
+import { Spinner } from "@nakama/ui/spinner";
 import { Switch } from "@nakama/ui/switch";
+import { toast } from "@nakama/ui/toast";
 import { useState } from "react";
 import { useAuth } from "@/context/use-auth";
 import { formatError } from "@/lib/client";
@@ -7,7 +9,6 @@ import { formatError } from "@/lib/client";
 export function OrgMfaPolicyCard() {
   const { activeOrg, updateOrg } = useAuth();
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   if (!activeOrg) {
     return null;
@@ -18,43 +19,44 @@ export function OrgMfaPolicyCard() {
     mfaRequired?: boolean;
   }) {
     setPending(true);
-    setError(null);
     try {
-      if (!activeOrg?.id) {
-        return;
-      }
-      await updateOrg(activeOrg.id, input);
+      await updateOrg(activeOrg?.id ?? "", input);
     } catch (err) {
-      setError(formatError(err));
+      toast(formatError(err));
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <Card className="w-full shadow-none">
-      <CardHeader>
-        <CardTitle className="text-base">Organization MFA policy</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {error ? (
-          <p className="text-destructive text-sm" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-3">
-          <p className="font-medium text-sm">Enable MFA</p>
-          <Switch
-            aria-label="Enable organization MFA"
-            checked={activeOrg.mfaEnabled === true}
-            disabled={pending}
-            onCheckedChange={(checked) => void update({ mfaEnabled: checked })}
-          />
+    <Card className="w-full overflow-hidden shadow-none">
+      <CardContent className="p-0">
+        <div className="border-border border-b px-4 py-3">
+          <div className="flex items-center justify-between gap-4">
+            <p className="font-medium text-foreground text-sm">
+              Organization MFA
+            </p>
+            <div className="flex shrink-0 items-center gap-2">
+              {pending ? <Spinner /> : null}
+              <Switch
+                aria-label="Enable organization MFA"
+                checked={activeOrg.mfaEnabled === true}
+                disabled={pending}
+                onCheckedChange={(checked) =>
+                  void update({
+                    mfaEnabled: checked,
+                    mfaRequired: checked ? activeOrg.mfaRequired : false,
+                  })
+                }
+                size="sm"
+              />
+            </div>
+          </div>
         </div>
-        <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-3">
-          <p className="font-medium text-sm">Enforce MFA</p>
+        <div className="flex items-center justify-between gap-4 px-4 py-3">
+          <p className="font-medium text-foreground text-sm">Require MFA</p>
           <Switch
-            aria-label="Enforce organization MFA"
+            aria-label="Require organization MFA"
             checked={activeOrg.mfaRequired === true}
             disabled={pending || activeOrg.mfaEnabled !== true}
             onCheckedChange={(checked) =>
@@ -63,6 +65,7 @@ export function OrgMfaPolicyCard() {
                 mfaRequired: checked,
               })
             }
+            size="sm"
           />
         </div>
       </CardContent>
