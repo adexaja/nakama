@@ -107,7 +107,21 @@ describe("OrgService", () => {
       bootstrapped.user.id
     );
 
+    await orgService.updateOrganization(bootstrapped.organization.id, {
+      mfaEnabled: true,
+      mfaRequired: true,
+    });
+
     const orgs = await orgService.listUserOrgs(bootstrapped.user.id);
+    expect(orgs.orgs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: bootstrapped.organization.id,
+          mfaEnabled: true,
+          mfaRequired: true,
+        }),
+      ])
+    );
     expect(orgs.orgs.map((org) => org.slug)).toEqual([
       "acme-switch",
       "beta-switch",
