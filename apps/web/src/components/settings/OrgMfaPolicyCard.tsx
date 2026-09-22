@@ -11,6 +11,7 @@ export function OrgMfaPolicyCard() {
   const { activeOrg, updateOrg } = useAuth();
   const [pending, setPending] = useState(false);
   const [generated, setGenerated] = useState(false);
+  const [keyStatusLoading, setKeyStatusLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -20,7 +21,8 @@ export function OrgMfaPolicyCard() {
     client
       .getMfaEncryptionKeyStatus()
       .then(({ configured }) => setGenerated(configured))
-      .catch((err) => setError(formatError(err)));
+      .catch((err) => setError(formatError(err)))
+      .finally(() => setKeyStatusLoading(false));
   }, [activeOrg]);
 
   if (!activeOrg || activeOrg.role !== "admin") {
@@ -103,7 +105,7 @@ export function OrgMfaPolicyCard() {
             size="sm"
           />
         </div>
-        {generated ? null : (
+        {keyStatusLoading || generated ? null : (
           <div className="flex items-center justify-between gap-4 border-border border-b px-4 py-3">
             <p className="text-muted-foreground text-sm">
               Configure the MFA encryption key for this organization.
