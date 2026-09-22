@@ -378,6 +378,52 @@ describe("createHonoApp", () => {
     }
   });
 
+  test("resolves org context from a backend API key and rejects conflicts", async () => {
+    const options = createServerOptions();
+    await options.databaseAdapter.createUser({
+      createdAt: new Date().toISOString(),
+      email: "owner@example.com",
+      id: "user_owner",
+      passwordHash: "unused",
+      updatedAt: new Date().toISOString(),
+    });
+    await seedOrgForUser(options.databaseAdapter, "owner@example.com");
+    const user =
+      await options.databaseAdapter.getUserByEmail("owner@example.com");
+    const token = `nk_live_${"a".repeat(64)}`;
+    await options.databaseAdapter.createApiKey({
+      createdAt: new Date().toISOString(),
+      createdByUserId: user!.id,
+      environment: "live",
+      expiresAt: null,
+      id: "key_test",
+      keyPrefix: token.slice(0, 20),
+      lastUsedAt: null,
+      name: "Test app",
+      orgId: TEST_ORG_ID,
+      revokedAt: null,
+      secretHash: options.authService.hashToken(token),
+    });
+    const app = createHonoApp(options);
+
+    const response = await app.fetch(
+      new Request("http://localhost:4310/v1/profiles", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    );
+    expect(response.status).toBe(200);
+
+    const conflict = await app.fetch(
+      new Request("http://localhost:4310/v1/profiles", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "X-Org-Id": "org_other",
+        },
+      })
+    );
+    expect(conflict.status).toBe(400);
+  });
+
   test("rejects invalid bearer auth with 401 instead of 500", async () => {
     const options = createServerOptions();
     const app = createHonoApp(options);
@@ -1165,6 +1211,70 @@ describe("createHonoApp", () => {
     await expect(listResponse.json()).resolves.toEqual({
       sessions: [{ id: "default-web" }],
     });
+  });
+
+  test("API-key sessions require an app user id", async () => {
+    const options = createServerOptions();
+    const app = createHonoApp(options);
+    const adminSession = await setupFreshInstallSession(
+      app,
+      options.databaseAdapter
+    );
+    const admin =
+      await options.databaseAdapter.getUserByEmail("admin@example.com");
+    if (!(admin && adminSession.orgId)) {
+      throw new Error("Expected setup admin");
+    }
+
+    const secret = `nk_live_${"b".repeat(64)}`;
+    await options.databaseAdapter.createApiKey({
+      createdAt: new Date().toISOString(),
+      createdByUserId: admin.id,
+      environment: "live",
+      expiresAt: null,
+      id: "key_session_test",
+      keyPrefix: secret.slice(0, 20),
+      lastUsedAt: null,
+      name: "Session test",
+      orgId: adminSession.orgId,
+      revokedAt: null,
+      secretHash: options.authService.hashToken(secret),
+    });
+
+    const headers = {
+      Authorization: `Bearer ${secret}`,
+      "Content-Type": "application/json",
+      "X-Org-Id": adminSession.orgId,
+    };
+    const missingAppUser = await app.fetch(
+      new Request("http://localhost:4310/v1/sessions", {
+        body: JSON.stringify({ channel: "web", profileId: "default" }),
+        headers,
+        method: "POST",
+      })
+    );
+    expect(missingAppUser.status).toBe(400);
+
+    const created = await app.fetch(
+      new Request("http://localhost:4310/v1/sessions", {
+        body: JSON.stringify({
+          appUserId: "alice-123",
+          channel: "web",
+          profileId: "default",
+        }),
+        headers,
+        method: "POST",
+      })
+    );
+    expect(created.status).toBe(201);
+
+    const missingHeader = await app.fetch(
+      new Request(
+        "http://localhost:4310/v1/sessions?profileId=default&channel=web",
+        { headers }
+      )
+    );
+    expect(missingHeader.status).toBe(400);
   });
 
   test("GET /v1/sessions rejects missing or invalid channel", async () => {
