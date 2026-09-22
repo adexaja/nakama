@@ -13,17 +13,32 @@ export function OrgMfaPolicyCard() {
   const [generated, setGenerated] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!activeOrg) {
+  if (!activeOrg || activeOrg.role !== "admin") {
     return null;
   }
 
-  async function update(input: {
-    mfaEnabled?: boolean;
-    mfaRequired?: boolean;
-  }) {
+  async function handleMfaToggle(checked: boolean) {
     setPending(true);
     try {
-      await updateOrg(activeOrg!.id, input);
+      await updateOrg(activeOrg!.id, {
+        mfaEnabled: checked,
+        mfaRequired: checked ? activeOrg.mfaRequired : false,
+      });
+      toast("Organization MFA policy saved.");
+    } catch (err) {
+      toast(formatError(err));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleRequiredToggle(checked: boolean) {
+    setPending(true);
+    try {
+      await updateOrg(activeOrg!.id, {
+        mfaEnabled: true,
+        mfaRequired: checked,
+      });
       toast("Organization MFA policy saved.");
     } catch (err) {
       toast(formatError(err));
@@ -59,18 +74,13 @@ export function OrgMfaPolicyCard() {
                 aria-label="Enable organization MFA"
                 checked={activeOrg.mfaEnabled === true}
                 disabled={pending}
-                onCheckedChange={(checked) =>
-                  void update({
-                    mfaEnabled: checked,
-                    mfaRequired: checked ? activeOrg.mfaRequired : false,
-                  })
-                }
+                onCheckedChange={(checked) => void handleMfaToggle(checked)}
                 size="sm"
               />
             </div>
           </div>
         </div>
-        {activeOrg.role === "admin" && !generated ? (
+        {generated ? null : (
           <div className="flex items-center justify-between gap-4 border-border border-b px-4 py-3">
             <p className="text-muted-foreground text-sm">
               Configure the MFA encryption key for this organization.
@@ -83,7 +93,7 @@ export function OrgMfaPolicyCard() {
               Generate encryption key
             </Button>
           </div>
-        ) : null}
+        )}
         {error ? (
           <p
             className="border-border border-b px-4 py-3 text-destructive text-sm"
@@ -100,12 +110,7 @@ export function OrgMfaPolicyCard() {
             aria-label="Enforce Organization MFA"
             checked={activeOrg.mfaRequired === true}
             disabled={pending || activeOrg.mfaEnabled !== true}
-            onCheckedChange={(checked) =>
-              void update({
-                mfaEnabled: checked ? true : activeOrg.mfaEnabled,
-                mfaRequired: checked,
-              })
-            }
+            onCheckedChange={(checked) => void handleRequiredToggle(checked)}
             size="sm"
           />
         </div>
