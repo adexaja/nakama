@@ -220,6 +220,14 @@ export class OrgService {
     );
     const updated: StoredOrganizationRecord = {
       ...org,
+      mfaEnabled:
+        request.mfaEnabled === undefined
+          ? (org.mfaEnabled ?? false)
+          : request.mfaEnabled,
+      mfaRequired:
+        request.mfaRequired === undefined
+          ? (org.mfaRequired ?? false)
+          : request.mfaRequired,
       monthlyLlmTokenLimit,
       monthlyLlmTurnLimit,
       monthlyLlmWarningPercent,
@@ -406,12 +414,23 @@ export class OrgService {
       sessionId,
       requestedOrgId
     );
+    const [memberships, passkeys] = await Promise.all([
+      this.databaseAdapter.listUserOrganizations(user.id),
+      this.databaseAdapter.listPasskeysForUser(user.id),
+    ]);
+    const activeOrganization = memberships.find(
+      (membership) => membership.organization.id === activeOrgId
+    )?.organization;
 
     return {
       activeOrgId,
       email: user.email,
       id: user.id,
       isPlatformAdmin: Boolean(user.isPlatformAdmin),
+      mfaEnabled: Boolean(user.mfaEnabled),
+      mfaEnrolled: Boolean(user.mfaEnabled) || passkeys.length > 0,
+      mfaOrgEnabled: Boolean(activeOrganization?.mfaEnabled),
+      mfaRequired: Boolean(activeOrganization?.mfaRequired),
       name: user.name ?? null,
       orgId: activeOrgId,
       phone: user.phone ?? null,
@@ -1330,6 +1349,8 @@ function toOrganizationSummary(
     archivedAt: record.archivedAt ?? null,
     createdAt: record.createdAt,
     id: record.id,
+    mfaEnabled: record.mfaEnabled ?? false,
+    mfaRequired: record.mfaRequired ?? false,
     monthlyLlmTurnLimit: record.monthlyLlmTurnLimit ?? 0,
     name: record.name,
     skillsCuratorArchiveAfterDays: record.skillsCuratorArchiveAfterDays ?? 90,

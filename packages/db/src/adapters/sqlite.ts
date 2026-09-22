@@ -28,12 +28,15 @@ import type {
   StoredLlmUsageModelStatsRecord,
   StoredLlmUsageStatsRecord,
   StoredMcpServerRecord,
+  StoredMfaBackupCode,
+  StoredMfaChallenge,
   StoredNotificationDestinationRecord,
   StoredOrganizationRecord,
   StoredOrgInviteRecord,
   StoredOrgMemberRecord,
   StoredOrgMemoryProposal,
   StoredOrgPluginRecord,
+  StoredPasskey,
   StoredPluginReleaseRecord,
   StoredProfileChangeEvent,
   StoredProfileComposioToolkitRecord,
@@ -344,11 +347,41 @@ interface UserRow {
   email: string;
   id: string;
   is_platform_admin?: number | null;
+  mfa_enabled?: number | null;
+  mfa_totp_secret_enc?: string | null;
   name?: string | null;
   password_hash: string;
   phone?: string | null;
   updated_at: string;
   user_context?: string | null;
+}
+interface MfaBackupCodeRow {
+  code_hash: string;
+  created_at: string;
+  id: string;
+  used_at: string | null;
+  user_id: string;
+}
+interface PasskeyRow {
+  backed_up: number;
+  counter: number;
+  created_at: string;
+  credential_id: string;
+  device_type: string | null;
+  id: string;
+  last_used_at: string | null;
+  public_key: string;
+  transports: string;
+  user_id: string;
+}
+
+interface MfaChallengeRow {
+  challenge: string;
+  created_at: string;
+  expires_at: string;
+  id: string;
+  type: "authentication" | "registration";
+  user_id: string;
 }
 
 interface BrowserSessionRow {
@@ -367,6 +400,8 @@ interface OrganizationRow {
   archived_at: string | null;
   created_at: string;
   id: string;
+  mfa_enabled: number;
+  mfa_required: number;
   monthly_llm_token_limit: number | null;
   monthly_llm_turn_limit: number | null;
   monthly_llm_warning_percent: number;
@@ -1623,15 +1658,94 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
   const getUserByIdStmt = db.prepare("SELECT * FROM users WHERE id = ?");
   const createUserStmt = db.prepare(`
     INSERT INTO users (
-      id, email, password_hash, name, phone, is_platform_admin, created_at, updated_at
+      id, email, password_hash, name, phone, is_platform_admin,
+      mfa_enabled, mfa_totp_secret_enc, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const updateUserProfileStmt = db.prepare(`
     UPDATE users
     SET name = ?, phone = ?, email = COALESCE(?, email), updated_at = ?
     WHERE id = ?
   `);
+  const updateUserMfaStmt = db.prepare(`
+    UPDATE users
+    SET mfa_enabled = ?, mfa_totp_secret_enc = ?, updated_at = ?
+    WHERE id = ?
+  `);
+  const createMfaBackupCodeStmt = db.prepare(`
+    INSERT INTO user_mfa_backup_codes (id, user_id, code_hash, used_at, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const listMfaBackupCodesStmt = db.prepare(`
+    SELECT id, user_id, code_hash, used_at, created_at
+    FROM user_mfa_backup_codes
+    WHERE user_id = ?
+    ORDER BY created_at ASC
+  `);
+  const consumeMfaBackupCodeStmt = db.prepare(`
+    UPDATE user_mfa_backup_codes
+    SET used_at = ?
+    WHERE user_id = ? AND code_hash = ? AND used_at IS NULL
+  `);
+  const createPasskeyStmt = db.prepare(`
+    INSERT INTO user_passkeys (
+      id, user_id, credential_id, public_key, counter, transports,
+      device_type, backed_up, created_at, last_used_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const getPasskeyByCredentialIdStmt = db.prepare(`
+    SELECT id, user_id, credential_id, public_key, counter, transports,
+      device_type, backed_up, created_at, last_used_at
+    FROM user_passkeys
+    WHERE credential_id = ?
+  `);
+  const listPasskeysForUserStmt = db.prepare(`
+    SELECT id, user_id, credential_id, public_key, counter, transports,
+      device_type, backed_up, created_at, last_used_at
+    FROM user_passkeys
+    WHERE user_id = ?
+    ORDER BY created_at ASC
+  `);
+  const updatePasskeyCounterStmt = db.prepare(`
+    UPDATE user_passkeys
+    SET counter = ?, last_used_at = ?
+    WHERE id = ? AND (counter < ? OR (counter = 0 AND ? = 0))
+  `);
+  const deletePasskeyStmt = db.prepare(
+    "DELETE FROM user_passkeys WHERE id = ?"
+  );
+  const createMfaChallengeStmt = db.prepare(`
+    INSERT INTO user_mfa_challenges (
+      id, user_id, challenge, type, expires_at, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const getMfaChallengeStmt = db.prepare(`
+    SELECT id, user_id, challenge, type, expires_at, created_at
+    FROM user_mfa_challenges
+    WHERE id = ?
+  `);
+  const deleteMfaChallengeStmt = db.prepare(
+    "DELETE FROM user_mfa_challenges WHERE id = ?"
+  );
+  const consumeMfaChallengeTransaction = db.transaction(
+    (
+      id: string,
+      userId: string,
+      type: "authentication" | "registration",
+      now: string
+    ): StoredMfaChallenge | null => {
+      const row = getMfaChallengeStmt.get(id) as MfaChallengeRow | null;
+      if (!row || row.user_id !== userId || row.type !== type) {
+        return null;
+      }
+      deleteMfaChallengeStmt.run(id);
+      if (row.expires_at <= now) {
+        return null;
+      }
+      return toMfaChallengeRecord(row);
+    }
+  );
   const updateUserPasswordStmt = db.prepare(`
     UPDATE users
     SET password_hash = ?, updated_at = ?
@@ -1879,11 +1993,20 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     return deleteOrganizationStmt.run(orgId).changes > 0;
   });
   const upsertOrganizationStmt = db.prepare(`
-    INSERT INTO organizations (id, name, slug, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO organizations (
+      id, name, slug, mfa_enabled, mfa_required, monthly_llm_token_limit,
+      monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval,
+      skills_post_turn_review, skills_curator_enabled,
+      skills_curator_stale_after_days, skills_curator_archive_after_days,
+      skills_curator_consolidate_enabled, skills_curator_last_run_at,
+      archived_at, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       slug = excluded.slug,
+      mfa_enabled = excluded.mfa_enabled,
+      mfa_required = excluded.mfa_required,
       monthly_llm_token_limit = excluded.monthly_llm_token_limit,
       monthly_llm_turn_limit = excluded.monthly_llm_turn_limit,
       monthly_llm_warning_percent = excluded.monthly_llm_warning_percent,
@@ -1918,18 +2041,18 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
         OR org_llm_monthly_quota.reserved_tokens + excluded.reserved_tokens <= (SELECT monthly_llm_token_limit FROM organizations WHERE id = org_llm_monthly_quota.org_id));
   `);
   const listOrganizationsStmt = db.prepare(`
-    SELECT id, name, slug, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at
+    SELECT id, name, slug, mfa_enabled, mfa_required, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at
     FROM organizations
     ORDER BY name ASC
   `);
   const getOrganizationBySlugStmt = db.prepare(`
-    SELECT id, name, slug, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at
+    SELECT id, name, slug, mfa_enabled, mfa_required, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at
     FROM organizations
     WHERE slug = ?
     LIMIT 1
   `);
   const getOrganizationByIdStmt = db.prepare(`
-    SELECT id, name, slug, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at
+    SELECT id, name, slug, mfa_enabled, mfa_required, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at
     FROM organizations
     WHERE id = ?
     LIMIT 1
@@ -2228,6 +2351,8 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
       record.name ?? null,
       record.phone ?? null,
       record.isPlatformAdmin ? 1 : 0,
+      record.mfaEnabled ? 1 : 0,
+      record.mfaTotpSecretEnc ?? null,
       record.createdAt,
       record.updatedAt
     );
@@ -2237,6 +2362,8 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
       record.id,
       record.name,
       record.slug,
+      record.mfaEnabled ? 1 : 0,
+      record.mfaRequired ? 1 : 0,
       record.monthlyLlmTokenLimit ?? null,
       record.monthlyLlmTurnLimit ?? 0,
       record.monthlyLlmWarningPercent ?? 80,
@@ -2611,6 +2738,13 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
       return compareAndSetOrgPluginStateTx(input);
     },
 
+    async consumeMfaBackupCode(userId, codeHash, usedAt) {
+      return consumeMfaBackupCodeStmt.run(usedAt, userId, codeHash).changes > 0;
+    },
+    async consumeMfaChallenge(id, userId, type, now) {
+      return consumeMfaChallengeTransaction(id, userId, type, now);
+    },
+
     async consumePasswordResetToken(tokenHash, passwordHash, consumedAt) {
       return consumePasswordResetTokenTransaction.immediate(
         tokenHash,
@@ -2704,7 +2838,26 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
         record.activeOrgId ?? null
       );
     },
+    async createMfaBackupCode(record) {
+      createMfaBackupCodeStmt.run(
+        record.id,
+        record.userId,
+        record.codeHash,
+        record.usedAt,
+        record.createdAt
+      );
+    },
 
+    async createMfaChallenge(record) {
+      createMfaChallengeStmt.run(
+        record.id,
+        record.userId,
+        record.challenge,
+        record.type,
+        record.expiresAt,
+        record.createdAt
+      );
+    },
     async createOrgInvite(record) {
       createOrgInviteStmt.run(
         record.id,
@@ -2736,6 +2889,20 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
         record.reviewerUserId,
         record.reviewedAt,
         record.createdAt
+      );
+    },
+    async createPasskey(record) {
+      createPasskeyStmt.run(
+        record.id,
+        record.userId,
+        record.credentialId,
+        record.publicKey,
+        record.counter,
+        JSON.stringify(record.transports),
+        record.deviceType ?? null,
+        record.backedUp ? 1 : 0,
+        record.createdAt,
+        record.lastUsedAt ?? null
       );
     },
 
@@ -2845,6 +3012,9 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     async deleteMessagesForSession(sessionId) {
       deleteMessagesForSessionStmt.run(sessionId);
     },
+    async deleteMfaChallenge(id) {
+      return deleteMfaChallengeStmt.run(id).changes > 0;
+    },
 
     async deleteNotificationDestination(id) {
       const result = deleteNotificationDestinationStmt.run(id);
@@ -2876,6 +3046,9 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
 
     async deleteOrgPlugin(orgId, pluginId, expectedRevision) {
       return deleteOrgPluginTx(orgId, pluginId, expectedRevision);
+    },
+    async deletePasskey(id) {
+      return deletePasskeyStmt.run(id).changes > 0;
     },
 
     async deletePluginRelease(pluginId, version) {
@@ -3053,6 +3226,10 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
       const row = getMcpServerByNameStmt.get(name) as McpServerRow | null;
       return row ? toMcpServerRecord(row) : null;
     },
+    async getMfaChallenge(id) {
+      const row = getMfaChallengeStmt.get(id) as MfaChallengeRow | null;
+      return row ? toMfaChallengeRecord(row) : null;
+    },
 
     async getNotificationDestination(id) {
       const row = getNotificationDestinationStmt.get(
@@ -3111,6 +3288,12 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     async getOrgPlugin(orgId, pluginId) {
       const row = getOrgPluginStmt.get(orgId, pluginId) as OrgPluginRow | null;
       return row ? toOrgPluginRecord(row) : null;
+    },
+    async getPasskeyByCredentialId(credentialId) {
+      const row = getPasskeyByCredentialIdStmt.get(
+        credentialId
+      ) as PasskeyRow | null;
+      return row ? toPasskeyRecord(row) : null;
     },
 
     async getPendingOrgInvite(orgId, email) {
@@ -3551,7 +3734,11 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
         .all(sessionId)
         .map((row) => toSessionMessageRecord(row as SessionMessageRow));
     },
-
+    async listMfaBackupCodes(userId) {
+      return listMfaBackupCodesStmt
+        .all(userId)
+        .map((row) => toMfaBackupCodeRecord(row as MfaBackupCodeRow));
+    },
     async listNotificationDestinationsForOrg(orgId) {
       return listNotificationDestinationsForOrgStmt
         .all(orgId)
@@ -3601,6 +3788,11 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
           ? listOrgPluginsStmt.all()
           : listOrgPluginsForOrgStmt.all(orgId);
       return rows.map((row) => toOrgPluginRecord(row as OrgPluginRow));
+    },
+    async listPasskeysForUser(userId) {
+      return listPasskeysForUserStmt
+        .all(userId)
+        .map((row) => toPasskeyRecord(row as PasskeyRow));
     },
 
     async listPlatformAdminUsers() {
@@ -3996,6 +4188,12 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
       );
       return result.changes > 0;
     },
+    async updatePasskeyCounter(id, counter, lastUsedAt) {
+      return (
+        updatePasskeyCounterStmt.run(counter, lastUsedAt, id, counter, counter)
+          .changes > 0
+      );
+    },
 
     async updateSessionModel(sessionId, model) {
       const result = updateSessionModelStmt.run(model, sessionId);
@@ -4031,6 +4229,15 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
         id
       );
       return result.changes > 0;
+    },
+
+    async updateUserMfa(id, input, updatedAt) {
+      updateUserMfaStmt.run(
+        input.enabled ? 1 : 0,
+        input.totpSecretEnc,
+        updatedAt,
+        id
+      );
     },
 
     async updateUserPassword(id, passwordHash, updatedAt) {
@@ -4877,6 +5084,42 @@ function toComposioUserConnectionRecord(
   };
 }
 
+function toMfaChallengeRecord(row: MfaChallengeRow): StoredMfaChallenge {
+  return {
+    challenge: row.challenge,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    id: row.id,
+    type: row.type,
+    userId: row.user_id,
+  };
+}
+
+function toPasskeyRecord(row: PasskeyRow): StoredPasskey {
+  return {
+    backedUp: Boolean(row.backed_up),
+    counter: row.counter,
+    createdAt: row.created_at,
+    credentialId: row.credential_id,
+    deviceType: row.device_type,
+    id: row.id,
+    lastUsedAt: row.last_used_at,
+    publicKey: row.public_key,
+    transports: JSON.parse(row.transports) as string[],
+    userId: row.user_id,
+  };
+}
+
+function toMfaBackupCodeRecord(row: MfaBackupCodeRow): StoredMfaBackupCode {
+  return {
+    codeHash: row.code_hash,
+    createdAt: row.created_at,
+    id: row.id,
+    usedAt: row.used_at,
+    userId: row.user_id,
+  };
+}
+
 function toProfileComposioToolkitRecord(
   row: ProfileComposioToolkitRow
 ): StoredProfileComposioToolkitRecord {
@@ -4896,6 +5139,8 @@ function toUserRecord(row: UserRow): StoredUserRecord {
     email: row.email,
     id: row.id,
     isPlatformAdmin: Boolean(row.is_platform_admin),
+    mfaEnabled: Boolean(row.mfa_enabled),
+    mfaTotpSecretEnc: row.mfa_totp_secret_enc ?? null,
     name: row.name ?? null,
     passwordHash: row.password_hash,
     phone: row.phone ?? null,
@@ -4908,6 +5153,8 @@ function toOrganizationRecord(row: OrganizationRow): StoredOrganizationRecord {
     archivedAt: row.archived_at,
     createdAt: row.created_at,
     id: row.id,
+    mfaEnabled: row.mfa_enabled !== 0,
+    mfaRequired: row.mfa_required !== 0,
     monthlyLlmTokenLimit: row.monthly_llm_token_limit ?? undefined,
     monthlyLlmTurnLimit: row.monthly_llm_turn_limit ?? 0,
     monthlyLlmWarningPercent: row.monthly_llm_warning_percent ?? 80,

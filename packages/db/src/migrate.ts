@@ -26,6 +26,7 @@ export function migrateDatabase(db: Database): void {
   atomic(migrateMcpTables);
   atomic(migrateSkillsTables);
   atomic(migrateUsersTable);
+  atomic(migrateMfaUserColumns);
   atomic(migrateOrgTables);
   atomic(migrateLegacyUserContextToOrgMembers);
   atomic(migrateOrgMemoryProposalsTable);
@@ -353,6 +354,67 @@ function migrateUsersTable(db: Database): void {
     db.exec("ALTER TABLE users ADD COLUMN disabled_at TEXT;");
   }
 }
+function migrateMfaUserColumns(db: Database): void {
+  const columns = db.prepare("PRAGMA table_info(users)").all() as Array<{
+    name: string;
+  }>;
+  const names = new Set(columns.map((column) => column.name));
+
+  if (!names.has("mfa_enabled")) {
+    db.exec(
+      "ALTER TABLE users ADD COLUMN mfa_enabled INTEGER DEFAULT 0 NOT NULL;"
+    );
+  }
+  if (!names.has("mfa_totp_secret_enc")) {
+    db.exec("ALTER TABLE users ADD COLUMN mfa_totp_secret_enc TEXT;");
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_mfa_backup_codes (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS user_mfa_backup_codes_hash_unique
+      ON user_mfa_backup_codes (code_hash);
+    CREATE INDEX IF NOT EXISTS user_mfa_backup_codes_user_idx
+      ON user_mfa_backup_codes (user_id, used_at);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_passkeys (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      credential_id TEXT NOT NULL,
+      public_key TEXT NOT NULL,
+      counter INTEGER NOT NULL DEFAULT 0,
+      transports TEXT NOT NULL DEFAULT '[]',
+      device_type TEXT,
+      backed_up INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      last_used_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS user_passkeys_credential_unique
+      ON user_passkeys (credential_id);
+    CREATE INDEX IF NOT EXISTS user_passkeys_user_idx
+      ON user_passkeys (user_id);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_mfa_challenges (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      challenge TEXT NOT NULL,
+      type TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS user_mfa_challenges_expiry_idx
+      ON user_mfa_challenges (expires_at);
+  `);
+}
 
 function migrateLlmUsageModelStatsTable(db: Database): void {
   db.exec(`
@@ -450,6 +512,8 @@ function migrateOrgTables(db: Database): void {
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
       slug TEXT NOT NULL,
+      mfa_enabled INTEGER NOT NULL DEFAULT 0,
+      mfa_required INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -487,9 +551,25 @@ function migrateOrgTables(db: Database): void {
     name: string;
   }>;
   const columnNames = new Set(columns.map((column) => column.name));
-
   if (!columnNames.has("user_context")) {
     db.exec("ALTER TABLE org_members ADD COLUMN user_context TEXT;");
+  }
+
+  const organizationColumns = db
+    .prepare("PRAGMA table_info(organizations)")
+    .all() as Array<{ name: string }>;
+  const organizationColumnNames = new Set(
+    organizationColumns.map((column) => column.name)
+  );
+  if (!organizationColumnNames.has("mfa_enabled")) {
+    db.exec(
+      "ALTER TABLE organizations ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 0;"
+    );
+  }
+  if (!organizationColumnNames.has("mfa_required")) {
+    db.exec(
+      "ALTER TABLE organizations ADD COLUMN mfa_required INTEGER NOT NULL DEFAULT 0;"
+    );
   }
 }
 

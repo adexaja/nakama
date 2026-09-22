@@ -18,6 +18,7 @@
     "@nakama/core": "workspace:*",
     "@nakama/db": "workspace:*",
     "@openrouter/sdk": "^1.2.108",
+    "@simplewebauthn/server": "^14.0.2",
     "fflate": "^0.8.3",
     "hono": "^4.13.5",
     "microsandbox": "0.6.17",

@@ -1,10 +1,13 @@
 import { Button } from "@nakama/ui/button";
 import { Input } from "@nakama/ui/input";
+import type { PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
+import { startAuthentication } from "@simplewebauthn/browser";
 import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAppContext } from "@/context/use-app-context";
 import { useAuth } from "@/context/use-auth";
 import { useTheme } from "@/context/use-theme";
+import { client, formatError } from "@/lib/client";
 import {
   DEMO_LOGIN_EMAIL,
   DEMO_LOGIN_PASSWORD,
@@ -24,15 +27,20 @@ function resolvePostAuthPath(
   return from ?? "/chat";
 }
 
+type LoginMode = "passkey" | "password";
+
 export function LoginPage() {
   const demoLogin = isDemoLoginHost();
   const [email, setEmail] = useState(demoLogin ? DEMO_LOGIN_EMAIL : "");
   const [password, setPassword] = useState(
     demoLogin ? DEMO_LOGIN_PASSWORD : ""
   );
+  const [mfaCode, setMfaCode] = useState("");
+  const [backupCode, setBackupCode] = useState("");
+  const [mode, setMode] = useState<LoginMode>("passkey");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, refreshSession } = useAuth();
   const { health } = useAppContext();
   const { resolvedTheme } = useTheme();
   const navigate = useNavigate();
@@ -47,20 +55,52 @@ export function LoginPage() {
     return <Navigate replace to={SETUP_PATH} />;
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  async function handlePasskey() {
     setError(null);
     setIsSubmitting(true);
-
     try {
-      await login(email, password);
+      const { challengeId, options } = await client.getPasskeyLoginOptions(
+        email.trim()
+      );
+      const response = await startAuthentication({
+        optionsJSON:
+          options as unknown as PublicKeyCredentialRequestOptionsJSON,
+      });
+      await client.verifyPasskeyLogin(challengeId, response);
+      await refreshSession();
       navigate(resolvePostAuthPath(health, from), { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      setError(formatError(err));
+      setMode("password");
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }
+  async function handlePassword(event: React.FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await login(email, password, {
+        backupCode: backupCode.trim() || undefined,
+        mfaCode: mfaCode.trim() || undefined,
+      });
+      navigate(resolvePostAuthPath(health, from), { replace: true });
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleSubmit(event: React.FormEvent) {
+    if (mode === "passkey") {
+      event.preventDefault();
+      await handlePasskey();
+      return;
+    }
+    await handlePassword(event);
+  }
 
   return (
     <div className="flex h-svh items-center justify-center bg-background px-4 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
@@ -76,7 +116,7 @@ export function LoginPage() {
           </h1>
           {demoLogin ? null : (
             <p className="text-muted-foreground text-sm">
-              Enter your credentials to access your account.
+              Use a passkey first, or choose another sign-in method.
             </p>
           )}
         </div>
@@ -101,45 +141,117 @@ export function LoginPage() {
             </label>
             <Input
               id="email"
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(event) => setEmail(event.target.value)}
               placeholder="admin@example.com"
               required
               type="email"
               value={email}
             />
           </div>
-          <div>
-            <label
-              className="mb-1 block font-medium text-sm"
-              htmlFor="password"
+          {mode === "password" ? (
+            <>
+              <div>
+                <label
+                  className="mb-1 block font-medium text-sm"
+                  htmlFor="password"
+                >
+                  Password
+                </label>
+                <Input
+                  id="password"
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="••••••••"
+                  required
+                  type="password"
+                  value={password}
+                />
+              </div>
+              <div>
+                <label
+                  className="mb-1 block font-medium text-sm"
+                  htmlFor="mfa-code"
+                >
+                  TOTP code
+                </label>
+                <Input
+                  id="mfa-code"
+                  inputMode="numeric"
+                  onChange={(event) => setMfaCode(event.target.value)}
+                  placeholder="Optional if MFA is off"
+                  value={mfaCode}
+                />
+              </div>
+              <div>
+                <label
+                  className="mb-1 block font-medium text-sm"
+                  htmlFor="backup-code"
+                >
+                  Backup code
+                </label>
+                <Input
+                  id="backup-code"
+                  onChange={(event) => setBackupCode(event.target.value)}
+                  placeholder="Use instead of TOTP"
+                  value={backupCode}
+                />
+              </div>
+            </>
+          ) : null}
+          {error ? (
+            <div
+              className="rounded-md bg-red-50 px-3 py-2 text-red-800 text-sm dark:bg-red-950/30 dark:text-red-200"
+              role="alert"
             >
-              Password
-            </label>
-            <Input
-              id="password"
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-              type="password"
-              value={password}
-            />
-          </div>
-          {error && (
-            <div className="rounded-md bg-red-50 px-3 py-2 text-red-800 text-sm dark:bg-red-950/30 dark:text-red-200">
               {error}
             </div>
+          ) : null}
+          {mode === "passkey" ? (
+            <Button
+              className="w-full"
+              disabled={isSubmitting || !email.trim()}
+              onClick={() => void handlePasskey()}
+              type="button"
+            >
+              {isSubmitting ? "Waiting for passkey…" : "Continue with passkey"}
+            </Button>
+          ) : (
+            <Button className="w-full" disabled={isSubmitting} type="submit">
+              {isSubmitting ? "Signing in…" : "Sign in"}
+            </Button>
           )}
-          <Button className="w-full" disabled={isSubmitting} type="submit">
-            {isSubmitting ? "Signing in..." : "Sign in"}
-          </Button>
-          {demoLogin ? null : (
+          {mode === "passkey" ? (
+            <Button
+              className="w-full"
+              onClick={() => {
+                setMode("password");
+                setError(null);
+              }}
+              type="button"
+              variant="outline"
+            >
+              Use another method
+            </Button>
+          ) : (
+            <Button
+              className="w-full"
+              onClick={() => {
+                setMode("passkey");
+                setError(null);
+              }}
+              type="button"
+              variant="ghost"
+            >
+              Use passkey
+            </Button>
+          )}
+          {mode === "password" && !demoLogin ? (
             <Link
               className="block text-center font-medium text-primary text-sm hover:underline"
               to="/reset-password"
             >
               Forgot password?
             </Link>
-          )}
+          ) : null}
         </form>
       </div>
     </div>

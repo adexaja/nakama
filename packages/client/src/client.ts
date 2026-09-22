@@ -111,6 +111,9 @@ import type {
   ListWorkspaceFilesResponse,
   MarkAutomationRunsReadResponse,
   McpServerResponse,
+  MfaEnabledResponse,
+  MfaTotpStartResponse,
+  MfaTotpVerifyResponse,
   ModelsResponse,
   MoveProfileRequest,
   NotificationDestinationSummary,
@@ -125,6 +128,8 @@ import type {
   OrgMemorySearchRequest,
   OrgMemorySearchResponse,
   OrgPluginDetail,
+  PasskeyLoginOptionsResponse,
+  PasskeyRegistrationOptionsResponse,
   PatchSkillRequest,
   PinOrgMemoryRequest,
   PluginContributionChangePreview,
@@ -2437,15 +2442,96 @@ export class NakamaClient {
     this.applyAuthUserResponse(response);
     return response;
   }
-
-  async login(email: string, password: string): Promise<AuthUserResponse> {
+  async login(
+    email: string,
+    password: string,
+    mfa?: { backupCode?: string; mfaCode?: string }
+  ): Promise<AuthUserResponse> {
     const response = await this.request<AuthUserResponse>("/v1/auth/login", {
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, ...mfa }),
       method: "POST",
     });
 
     this.applyAuthUserResponse(response);
     return response;
+  }
+
+  async startTotp(): Promise<MfaTotpStartResponse> {
+    return this.request<MfaTotpStartResponse>("/v1/auth/mfa/totp/start", {
+      method: "POST",
+    });
+  }
+
+  async verifyTotp(code: string): Promise<MfaTotpVerifyResponse> {
+    return this.request<MfaTotpVerifyResponse>("/v1/auth/mfa/totp/verify", {
+      body: JSON.stringify({ code }),
+      method: "POST",
+    });
+  }
+
+  async disableMfa(): Promise<MfaEnabledResponse> {
+    return this.request<MfaEnabledResponse>("/v1/auth/mfa/disable", {
+      method: "POST",
+    });
+  }
+
+  async regenerateBackupCodes(
+    code: string
+  ): Promise<{ backupCodes: string[] }> {
+    return this.request<{ backupCodes: string[] }>(
+      "/v1/auth/mfa/backup-codes/regenerate",
+      {
+        body: JSON.stringify({ code }),
+        method: "POST",
+      }
+    );
+  }
+
+  async getPasskeyRegistrationOptions(): Promise<PasskeyRegistrationOptionsResponse> {
+    return this.request<PasskeyRegistrationOptionsResponse>(
+      "/v1/auth/passkey/registration/options",
+      { method: "POST" }
+    );
+  }
+
+  async verifyPasskeyRegistration(
+    challengeId: string,
+    response: unknown
+  ): Promise<{ verified: boolean }> {
+    return this.request<{ verified: boolean }>(
+      "/v1/auth/passkey/registration/verify",
+      {
+        body: JSON.stringify({ challengeId, response }),
+        method: "POST",
+      }
+    );
+  }
+
+  async getPasskeyLoginOptions(
+    email: string
+  ): Promise<PasskeyLoginOptionsResponse> {
+    return this.request<PasskeyLoginOptionsResponse>(
+      "/v1/auth/passkey/login/options",
+      {
+        body: JSON.stringify({ email }),
+        method: "POST",
+      }
+    );
+  }
+
+  async verifyPasskeyLogin(
+    challengeId: string,
+    response: unknown
+  ): Promise<AuthUserResponse> {
+    const result = await this.request<AuthUserResponse>(
+      "/v1/auth/passkey/login/verify",
+      {
+        body: JSON.stringify({ challengeId, response }),
+        method: "POST",
+      }
+    );
+    this.applyAuthUserResponse(result);
+    return result;
   }
 
   async acceptOrgInvite(

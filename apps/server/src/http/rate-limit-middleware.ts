@@ -30,6 +30,8 @@ const SWEEP_AFTER_KEYS = 10_000;
  */
 const AUTH_PATHS = new Set([
   "/v1/auth/login",
+  "/v1/auth/passkey/login/options",
+  "/v1/auth/passkey/login/verify",
   "/v1/auth/accept-invite",
   "/v1/auth/password-reset/request",
   "/v1/auth/password-reset/complete",

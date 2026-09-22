@@ -403,10 +403,42 @@ export interface StoredUserRecord {
   email: string;
   id: string;
   isPlatformAdmin?: boolean;
+  mfaEnabled?: boolean;
+  mfaTotpSecretEnc?: string | null;
   name?: string | null;
   passwordHash: string;
   phone?: string | null;
   updatedAt: string;
+}
+export interface StoredMfaBackupCode {
+  codeHash: string;
+  createdAt: string;
+  id: string;
+  usedAt: string | null;
+  userId: string;
+}
+export type PasskeyChallengeType = "authentication" | "registration";
+
+export interface StoredMfaChallenge {
+  challenge: string;
+  createdAt: string;
+  expiresAt: string;
+  id: string;
+  type: PasskeyChallengeType;
+  userId: string;
+}
+
+export interface StoredPasskey {
+  backedUp: boolean;
+  counter: number;
+  createdAt: string;
+  credentialId: string;
+  deviceType?: string | null;
+  id: string;
+  lastUsedAt?: string | null;
+  publicKey: string;
+  transports: string[];
+  userId: string;
 }
 
 export type { OrgPluginLifecycleState } from "@nakama/core";
@@ -463,6 +495,8 @@ export interface StoredOrganizationRecord {
   archivedAt?: string | null;
   createdAt: string;
   id: string;
+  mfaEnabled?: boolean;
+  mfaRequired?: boolean;
   monthlyLlmTokenLimit?: number;
   monthlyLlmTurnLimit?: number;
   monthlyLlmWarningPercent?: number;
@@ -681,6 +715,17 @@ export interface DatabaseAdapter {
   compareAndSetOrgPluginState(
     input: CompareAndSetOrgPluginStateInput
   ): Promise<PluginPublishResult>;
+  consumeMfaBackupCode(
+    userId: string,
+    codeHash: string,
+    usedAt: string
+  ): Promise<boolean>;
+  consumeMfaChallenge(
+    id: string,
+    userId: string,
+    type: PasskeyChallengeType,
+    now: string
+  ): Promise<StoredMfaChallenge | null>;
   consumePasswordResetToken(
     tokenHash: string,
     passwordHash: string,
@@ -709,9 +754,12 @@ export interface DatabaseAdapter {
 
   createBrowserSession(record: StoredBrowserSessionRecord): Promise<void>;
 
+  createMfaBackupCode(record: StoredMfaBackupCode): Promise<void>;
+  createMfaChallenge(record: StoredMfaChallenge): Promise<void>;
   createOrgInvite(record: StoredOrgInviteRecord): Promise<void>;
 
   createOrgMemoryProposal(record: StoredOrgMemoryProposal): Promise<void>;
+  createPasskey(record: StoredPasskey): Promise<void>;
 
   createPasswordResetToken(
     record: StoredPasswordResetTokenRecord
@@ -731,6 +779,7 @@ export interface DatabaseAdapter {
   deleteComposioUserConnection(id: string): Promise<boolean>;
   deleteMcpServer(id: string): Promise<boolean>;
   deleteMessagesForSession(sessionId: string): Promise<void>;
+  deleteMfaChallenge(id: string): Promise<boolean>;
   deleteNotificationDestination(id: string): Promise<boolean>;
   deleteOrganization(id: string): Promise<boolean>;
   deleteOrgMember(orgId: string, userId: string): Promise<boolean>;
@@ -739,6 +788,7 @@ export interface DatabaseAdapter {
     pluginId: string,
     expectedRevision: number
   ): Promise<boolean>;
+  deletePasskey(id: string): Promise<boolean>;
   deletePluginRelease(pluginId: string, version: string): Promise<boolean>;
   deleteProfile(id: string): Promise<boolean>;
   deleteSession(id: string): Promise<boolean>;
@@ -806,6 +856,7 @@ export interface DatabaseAdapter {
   getLlmUsageStats(): Promise<StoredLlmUsageStatsRecord | null>;
   getMcpServer(id: string): Promise<StoredMcpServerRecord | null>;
   getMcpServerByName(name: string): Promise<StoredMcpServerRecord | null>;
+  getMfaChallenge(id: string): Promise<StoredMfaChallenge | null>;
   getNotificationDestination(
     id: string
   ): Promise<StoredNotificationDestinationRecord | null>;
@@ -826,6 +877,7 @@ export interface DatabaseAdapter {
     orgId: string,
     pluginId: string
   ): Promise<StoredOrgPluginRecord | null>;
+  getPasskeyByCredentialId(credentialId: string): Promise<StoredPasskey | null>;
   getPendingOrgInvite(
     orgId: string,
     email: string
@@ -981,6 +1033,7 @@ export interface DatabaseAdapter {
     sessionId: string
   ): Promise<StoredSessionMessageRecord[]>;
 
+  listMfaBackupCodes(userId: string): Promise<StoredMfaBackupCode[]>;
   listNotificationDestinationsForOrg(
     orgId: string
   ): Promise<StoredNotificationDestinationRecord[]>;
@@ -991,6 +1044,7 @@ export interface DatabaseAdapter {
     status?: OrgMemoryProposalStatus
   ): Promise<StoredOrgMemoryProposal[]>;
   listOrgPlugins(orgId?: string): Promise<StoredOrgPluginRecord[]>;
+  listPasskeysForUser(userId: string): Promise<StoredPasskey[]>;
 
   listPlatformAdminUsers(): Promise<StoredUserRecord[]>;
 
@@ -1160,6 +1214,11 @@ export interface DatabaseAdapter {
       pinned?: boolean;
     }
   ): Promise<boolean>;
+  updatePasskeyCounter(
+    id: string,
+    counter: number,
+    lastUsedAt: string
+  ): Promise<boolean>;
   updateSessionModel(sessionId: string, model: string | null): Promise<boolean>;
   updateSessionPinned(sessionId: string, pinned: boolean): Promise<boolean>;
   updateSessionQuestionnaire(
@@ -1177,6 +1236,14 @@ export interface DatabaseAdapter {
       reviewedAt: string;
     }
   ): Promise<boolean>;
+  updateUserMfa(
+    id: string,
+    input: {
+      enabled: boolean;
+      totpSecretEnc: string | null;
+    },
+    updatedAt: string
+  ): Promise<void>;
   updateUserPassword(
     id: string,
     passwordHash: string,

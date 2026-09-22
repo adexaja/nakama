@@ -267,6 +267,8 @@ CREATE TABLE IF NOT EXISTS users (
   phone TEXT,
   is_platform_admin INTEGER DEFAULT 0 NOT NULL,
   -- Legacy: pre-org USER.md; migrateLegacyUserContextToOrgMembers copies into org_members (#550).
+  mfa_enabled INTEGER DEFAULT 0 NOT NULL,
+  mfa_totp_secret_enc TEXT,
   user_context TEXT,
   disabled_at TEXT,
   created_at TEXT NOT NULL,
@@ -275,10 +277,59 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON users (email);
 
+CREATE TABLE IF NOT EXISTS user_mfa_backup_codes (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS user_mfa_backup_codes_hash_unique
+  ON user_mfa_backup_codes (code_hash);
+
+CREATE INDEX IF NOT EXISTS user_mfa_backup_codes_user_idx
+  ON user_mfa_backup_codes (user_id, used_at);
+
+CREATE TABLE IF NOT EXISTS user_passkeys (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL,
+  credential_id TEXT NOT NULL,
+  public_key TEXT NOT NULL,
+  counter INTEGER NOT NULL DEFAULT 0,
+  transports TEXT NOT NULL DEFAULT '[]',
+  device_type TEXT,
+  backed_up INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  last_used_at TEXT,
+  FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS user_passkeys_credential_unique
+  ON user_passkeys (credential_id);
+
+CREATE INDEX IF NOT EXISTS user_passkeys_user_idx
+  ON user_passkeys (user_id);
+CREATE TABLE IF NOT EXISTS user_mfa_challenges (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL,
+  challenge TEXT NOT NULL,
+  type TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS user_mfa_challenges_expiry_idx
+  ON user_mfa_challenges (expires_at);
+
 CREATE TABLE IF NOT EXISTS organizations (
   id TEXT PRIMARY KEY NOT NULL,
   name TEXT NOT NULL,
   slug TEXT NOT NULL,
+  mfa_enabled INTEGER NOT NULL DEFAULT 0,
+  mfa_required INTEGER NOT NULL DEFAULT 0,
   skills_write_approval INTEGER NOT NULL DEFAULT 0,
   skills_post_turn_review INTEGER NOT NULL DEFAULT 0,
   skills_curator_enabled INTEGER NOT NULL DEFAULT 0,

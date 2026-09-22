@@ -443,7 +443,9 @@ export interface ProfilePackImportResponse {
 }
 
 export interface AuthCredentialsRequest {
+  backupCode?: string;
   email: string;
+  mfaCode?: string;
   password: string;
 }
 
@@ -477,11 +479,42 @@ export interface AuthUserResponse {
   email: string;
   id: string;
   isPlatformAdmin?: boolean;
+  /** Whether this user's TOTP authenticator is enabled. */
+  mfaEnabled?: boolean;
+  /** Whether this user has any enrolled MFA method. */
+  mfaEnrolled?: boolean;
+  /** Whether the active organization has MFA enabled. */
+  mfaOrgEnabled?: boolean;
+  /** Whether the active organization requires MFA for its members. */
+  mfaRequired?: boolean;
   name?: string | null;
   orgId?: string | null;
   phone?: string | null;
 }
 
+export interface MfaTotpStartResponse {
+  secret: string;
+  uri: string;
+}
+
+export interface MfaTotpVerifyResponse {
+  backupCodes: string[];
+  enabled: boolean;
+}
+
+export interface MfaEnabledResponse {
+  enabled: boolean;
+}
+
+export interface PasskeyRegistrationOptionsResponse {
+  challengeId: string;
+  options: Record<string, unknown>;
+}
+
+export interface PasskeyLoginOptionsResponse {
+  challengeId: string;
+  options: Record<string, unknown>;
+}
 export interface UpdateAuthProfileRequest {
   currentPassword?: string;
   email?: string;
@@ -496,6 +529,8 @@ export interface OrganizationSummary {
   archivedAt?: string | null;
   createdAt: string;
   id: string;
+  mfaEnabled?: boolean;
+  mfaRequired?: boolean;
   monthlyLlmTokenLimit?: number;
   monthlyLlmTurnLimit?: number;
   monthlyLlmWarningPercent?: number;
@@ -522,6 +557,8 @@ export interface CreateOrganizationRequest {
 }
 
 export interface UpdateOrganizationRequest {
+  mfaEnabled?: boolean;
+  mfaRequired?: boolean;
   monthlyLlmTokenLimit?: number;
   monthlyLlmTurnLimit?: number;
   monthlyLlmWarningPercent?: number;
