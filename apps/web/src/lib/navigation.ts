@@ -37,8 +37,8 @@ export type PageId =
   | "providers"
   | "notifications"
   | "workers"
-  | "plugins"
-  | "plugin-management";
+  | "plugin-management"
+  | "security";
 
 export interface NavItem {
   description: string;
@@ -170,6 +170,12 @@ export const STANDALONE_PAGES: Partial<Record<PageId, NavItem>> = {
     "Notifications",
     "Automation runs and org memory proposals",
     Notification01Icon
+  ),
+  security: navItem(
+    "security",
+    "Security",
+    "Manage your authenticator and backup codes",
+    Settings01Icon
   ),
 };
 
@@ -401,6 +407,7 @@ export const PAGE_PATHS: Record<PageId, string> = {
   plugins: PLUGIN_PAGE_PREFIX,
   profiles: "/profiles",
   providers: "/customize/providers",
+  security: "/profile/security",
   settings: "/settings",
   skills: "/customize/skills",
   soul: "/system",

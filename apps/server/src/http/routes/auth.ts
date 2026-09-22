@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { createRoute, z } from "@hono/zod-openapi";
 import {
   type AcceptOrgInviteResponse,
@@ -24,6 +25,13 @@ import {
   ensureMfaEncryptionKey,
   hasMfaEncryptionKey,
 } from "../../services/mfa-config";
+import {
+  decryptTotpSecret,
+  encryptTotpSecret,
+  generateTotpSecret,
+  hashBackupCode,
+  verifyTotpCode,
+} from "../../services/mfa-crypto";
 import type { ServerOptions } from "../context";
 import {
   requireOrgAdminFromContext,
@@ -589,12 +597,169 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
         request: c.req.raw,
       }
     );
+
     const authBody = await orgService.buildAuthUserResponse(
       user,
       response.session.id,
       response.session.activeOrgId
     );
     return json<AuthUserResponse>(authBody, 200, response.headers);
+  });
+  app.post("/v1/auth/mfa/totp/start", async (c) => {
+    if (!(authService && databaseAdapter)) {
+      return errorResponse("Authentication not configured", 500);
+    }
+    const auth = getRequestAuth(c);
+    const orgId = auth.activeOrgId ?? auth.session?.activeOrgId;
+    if (!orgId) {
+      return errorResponse("Organization context required", 400);
+    }
+    assertBrowserCsrf(c.req.raw, auth, authService);
+    const secret = generateTotpSecret();
+    await databaseAdapter.updateUserMfa(
+      auth.user.id,
+      {
+        enabled: false,
+        totpSecretEnc: encryptTotpSecret(orgId, secret),
+      },
+      new Date().toISOString()
+    );
+    const organization = await databaseAdapter.getOrganizationById(orgId);
+    const issuer = encodeURIComponent(
+      `Nakama - ${organization?.name ?? "Organization"}`
+    );
+    const account = encodeURIComponent(auth.user.email);
+    return json({
+      secret,
+      uri: `otpauth://totp/${issuer}:${account}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`,
+    });
+  });
+
+  app.post("/v1/auth/mfa/totp/verify", async (c) => {
+    if (!(authService && databaseAdapter)) {
+      return errorResponse("Authentication not configured", 500);
+    }
+    const auth = getRequestAuth(c);
+    const orgId = auth.activeOrgId ?? auth.session?.activeOrgId;
+    if (!orgId) {
+      return errorResponse("Organization context required", 400);
+    }
+    assertBrowserCsrf(c.req.raw, auth, authService);
+    const body = await readJson<{ code: string }>(
+      c.req.raw,
+      z.object({ code: z.string().min(6).max(8) })
+    );
+    const user = await databaseAdapter.getUserById(auth.user.id);
+    if (
+      !(
+        user?.mfaTotpSecretEnc &&
+        verifyTotpCode(
+          decryptTotpSecret(orgId, user.mfaTotpSecretEnc),
+          body.code
+        )
+      )
+    ) {
+      return errorResponse("Invalid MFA code", 400);
+    }
+    const now = new Date().toISOString();
+    await databaseAdapter.updateUserMfa(
+      auth.user.id,
+      { enabled: true, totpSecretEnc: user.mfaTotpSecretEnc },
+      now
+    );
+    const backupCodes: string[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      const code = randomBytes(5).toString("hex").toUpperCase();
+      backupCodes.push(code);
+      await databaseAdapter.createMfaBackupCode({
+        codeHash: hashBackupCode(orgId, code),
+        createdAt: now,
+        id: crypto.randomUUID(),
+        usedAt: null,
+        userId: auth.user.id,
+      });
+    }
+    return json({ backupCodes, enabled: true });
+  });
+
+  app.post("/v1/auth/mfa/disable", async (c) => {
+    if (!(authService && databaseAdapter)) {
+      return errorResponse("Authentication not configured", 500);
+    }
+    const auth = getRequestAuth(c);
+    assertBrowserCsrf(c.req.raw, auth, authService);
+    await databaseAdapter.updateUserMfa(
+      auth.user.id,
+      { enabled: false, totpSecretEnc: null },
+      new Date().toISOString()
+    );
+    return json({ enabled: false });
+  });
+
+  app.post("/v1/auth/mfa/backup-codes/regenerate", async (c) => {
+    if (!(authService && databaseAdapter)) {
+      return errorResponse("Authentication not configured", 500);
+    }
+    const auth = getRequestAuth(c);
+    const orgId = auth.activeOrgId ?? auth.session?.activeOrgId;
+    if (!orgId) {
+      return errorResponse("Organization context required", 400);
+    }
+    assertBrowserCsrf(c.req.raw, auth, authService);
+    const { code } = await readJson<{ code: string }>(
+      c.req.raw,
+      z.object({ code: z.string().min(1) })
+    );
+    const user = await databaseAdapter.getUserById(auth.user.id);
+    if (!(user?.mfaEnabled && user.mfaTotpSecretEnc)) {
+      return errorResponse("MFA is not enabled.", 400);
+    }
+    const validTotp = verifyTotpCode(
+      decryptTotpSecret(orgId, user.mfaTotpSecretEnc),
+      code
+    );
+    const validBackup = validTotp
+      ? false
+      : await databaseAdapter.consumeMfaBackupCode(
+          user.id,
+          hashBackupCode(orgId, code),
+          new Date().toISOString()
+        );
+    if (!(validTotp || validBackup)) {
+      return errorResponse("Invalid MFA code.", 400);
+    }
+    const now = new Date().toISOString();
+    for (const backupCode of await databaseAdapter.listMfaBackupCodes(
+      user.id
+    )) {
+      if (!backupCode.usedAt) {
+        await databaseAdapter.consumeMfaBackupCode(
+          user.id,
+          backupCode.codeHash,
+          now
+        );
+      }
+    }
+    const backupCodes: string[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      const backupCode = randomBytes(5).toString("hex").toUpperCase();
+      backupCodes.push(backupCode);
+      await databaseAdapter.createMfaBackupCode({
+        codeHash: hashBackupCode(orgId, backupCode),
+        createdAt: now,
+        id: crypto.randomUUID(),
+        usedAt: null,
+        userId: user.id,
+      });
+    }
+    return json({ backupCodes });
+  });
+  app.get("/v1/auth/mfa/configured", async (c) => {
+    const auth = getRequestAuth(c);
+    const orgId = auth.activeOrgId ?? auth.session?.activeOrgId;
+    return json({
+      configured: Boolean(orgId && (await hasMfaEncryptionKey(orgId))),
+    });
   });
 
   app.get("/v1/settings/mfa/encryption-key", async (c) => {

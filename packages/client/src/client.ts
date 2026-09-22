@@ -114,6 +114,9 @@ import type {
   ListWorkspaceFilesResponse,
   MarkAutomationRunsReadResponse,
   McpServerResponse,
+  MfaEnabledResponse,
+  MfaTotpStartResponse,
+  MfaTotpVerifyResponse,
   ModelsResponse,
   MoveProfileRequest,
   NotificationDestinationSummary,
@@ -2471,6 +2474,40 @@ export class NakamaClient {
     const response = await this.request<AuthUserResponse>("/v1/auth/me");
     this.applyAuthUserResponse(response);
     return response;
+  }
+
+  async startTotp(): Promise<MfaTotpStartResponse> {
+    return this.request<MfaTotpStartResponse>("/v1/auth/mfa/totp/start", {
+      method: "POST",
+    });
+  }
+
+  async verifyTotp(code: string): Promise<MfaTotpVerifyResponse> {
+    return this.request<MfaTotpVerifyResponse>("/v1/auth/mfa/totp/verify", {
+      body: JSON.stringify({ code }),
+      method: "POST",
+    });
+  }
+
+  async disableMfa(): Promise<MfaEnabledResponse> {
+    return this.request<MfaEnabledResponse>("/v1/auth/mfa/disable", {
+      method: "POST",
+    });
+  }
+
+  async regenerateBackupCodes(
+    code: string
+  ): Promise<{ backupCodes: string[] }> {
+    return this.request<{ backupCodes: string[] }>(
+      "/v1/auth/mfa/backup-codes/regenerate",
+      {
+        body: JSON.stringify({ code }),
+        method: "POST",
+      }
+    );
+  }
+  async getMfaConfigurationStatus(): Promise<{ configured: boolean }> {
+    return this.request<{ configured: boolean }>("/v1/auth/mfa/configured");
   }
 
   async updateAuthProfile(

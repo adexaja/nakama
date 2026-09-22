@@ -421,12 +421,20 @@ export class OrgService {
       sessionId,
       requestedOrgId
     );
-
+    const activeMembership = activeOrgId
+      ? (await this.databaseAdapter.listUserOrganizations(user.id)).find(
+          (membership) => membership.organization.id === activeOrgId
+        )
+      : undefined;
     return {
       activeOrgId,
       email: user.email,
       id: user.id,
       isPlatformAdmin: Boolean(user.isPlatformAdmin),
+      mfaEnabled: user.mfaEnabled === true,
+      mfaEnrolled: user.mfaTotpSecretEnc != null,
+      mfaOrgEnabled: activeMembership?.organization.mfaEnabled === true,
+      mfaRequired: activeMembership?.organization.mfaRequired === true,
       name: user.name ?? null,
       orgId: activeOrgId,
       phone: user.phone ?? null,

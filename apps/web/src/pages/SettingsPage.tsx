@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { LocalAuthTokenCard } from "@/components/LocalAuthTokenCard";
 import { DataPortabilityPanel } from "@/components/settings/DataPortabilityPanel";
 import { ImageGenerationSettingsCard } from "@/components/settings/ImageGenerationSettingsCard";
+import { MfaSettingsCard } from "@/components/settings/MfaSettingsCard";
 import { ProviderSettingsCard } from "@/components/settings/ProviderSettingsCard";
 import { TranscriptionSettingsCard } from "@/components/settings/TranscriptionSettingsCard";
 import { VisionSettingsCard } from "@/components/settings/VisionSettingsCard";
@@ -138,6 +139,7 @@ export function SettingsPage() {
           {isOrgAdmin ? <WebPublicUrlSettingsRow /> : null}
         </CardContent>
       </Card>
+      <MfaSettingsCard />
 
       {formError ? (
         <p className="text-destructive text-sm" role="alert">

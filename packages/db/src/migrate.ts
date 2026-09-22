@@ -28,6 +28,7 @@ export function migrateDatabase(db: Database): void {
   atomic(migrateSkillsTables);
   atomic(migrateUsersTable);
   atomic(migrateOrgTables);
+  atomic(migrateMfaUserColumns);
   atomic(migrateApiKeysTable);
   atomic(migrateLegacyUserContextToOrgMembers);
   atomic(migrateOrgMemoryProposalsTable);
@@ -366,6 +367,35 @@ function migrateUsersTable(db: Database): void {
   if (!columnNames.has("disabled_at")) {
     db.exec("ALTER TABLE users ADD COLUMN disabled_at TEXT;");
   }
+}
+
+function migrateMfaUserColumns(db: Database): void {
+  const columns = db.prepare("PRAGMA table_info(users)").all() as Array<{
+    name: string;
+  }>;
+  const names = new Set(columns.map((column) => column.name));
+  if (!names.has("mfa_enabled")) {
+    db.exec(
+      "ALTER TABLE users ADD COLUMN mfa_enabled INTEGER DEFAULT 0 NOT NULL;"
+    );
+  }
+  if (!names.has("mfa_totp_secret_enc")) {
+    db.exec("ALTER TABLE users ADD COLUMN mfa_totp_secret_enc TEXT;");
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_mfa_backup_codes (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS user_mfa_backup_codes_hash_unique
+      ON user_mfa_backup_codes (code_hash);
+    CREATE INDEX IF NOT EXISTS user_mfa_backup_codes_user_idx
+      ON user_mfa_backup_codes (user_id, used_at);
+  `);
 }
 
 function migrateLlmUsageModelStatsTable(db: Database): void {

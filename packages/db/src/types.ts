@@ -405,10 +405,19 @@ export interface StoredUserRecord {
   email: string;
   id: string;
   isPlatformAdmin?: boolean;
+  mfaEnabled?: boolean;
+  mfaTotpSecretEnc?: string | null;
   name?: string | null;
   passwordHash: string;
   phone?: string | null;
   updatedAt: string;
+}
+export interface StoredMfaBackupCode {
+  codeHash: string;
+  createdAt: string;
+  id: string;
+  usedAt: string | null;
+  userId: string;
 }
 
 export type { OrgPluginLifecycleState } from "@nakama/core";
@@ -699,6 +708,11 @@ export interface DatabaseAdapter {
   compareAndSetOrgPluginState(
     input: CompareAndSetOrgPluginStateInput
   ): Promise<PluginPublishResult>;
+  consumeMfaBackupCode(
+    userId: string,
+    codeHash: string,
+    usedAt: string
+  ): Promise<boolean>;
   consumePasswordResetToken(
     tokenHash: string,
     passwordHash: string,
@@ -727,6 +741,7 @@ export interface DatabaseAdapter {
   createAuditEvent(record: StoredAuditEvent): Promise<void>;
 
   createBrowserSession(record: StoredBrowserSessionRecord): Promise<void>;
+  createMfaBackupCode(record: StoredMfaBackupCode): Promise<void>;
 
   createOrgInvite(record: StoredOrgInviteRecord): Promise<void>;
 
@@ -997,10 +1012,10 @@ export interface DatabaseAdapter {
   listMcpServers(): Promise<StoredMcpServerRecord[]>;
 
   listMcpServersForProfile(profileId: string): Promise<StoredMcpServerRecord[]>;
-
   listMessagesForSession(
     sessionId: string
   ): Promise<StoredSessionMessageRecord[]>;
+  listMfaBackupCodes(userId: string): Promise<StoredMfaBackupCode[]>;
 
   listNotificationDestinationsForOrg(
     orgId: string
@@ -1201,6 +1216,11 @@ export interface DatabaseAdapter {
       reviewedAt: string;
     }
   ): Promise<boolean>;
+  updateUserMfa(
+    id: string,
+    input: { enabled: boolean; totpSecretEnc: string | null },
+    updatedAt: string
+  ): Promise<void>;
   updateUserPassword(
     id: string,
     passwordHash: string,

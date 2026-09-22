@@ -267,6 +267,8 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT,
   phone TEXT,
   is_platform_admin INTEGER DEFAULT 0 NOT NULL,
+  mfa_enabled INTEGER DEFAULT 0 NOT NULL,
+  mfa_totp_secret_enc TEXT,
   -- Legacy: pre-org USER.md; migrateLegacyUserContextToOrgMembers copies into org_members (#550).
   user_context TEXT,
   disabled_at TEXT,
@@ -293,6 +295,20 @@ CREATE TABLE IF NOT EXISTS organizations (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS user_mfa_backup_codes (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_hash TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS user_mfa_backup_codes_hash_unique
+  ON user_mfa_backup_codes (code_hash);
+
+CREATE INDEX IF NOT EXISTS user_mfa_backup_codes_user_idx
+  ON user_mfa_backup_codes (user_id, used_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS organizations_slug_unique ON organizations (slug);
 

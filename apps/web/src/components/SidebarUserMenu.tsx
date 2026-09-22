@@ -19,10 +19,11 @@ import { cn } from "@nakama/ui/utils";
 import {
   Building03Icon,
   Logout03Icon,
+  Settings01Icon,
   SparklesIcon,
   UserIcon,
 } from "hugeicons-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { THEME_OPTIONS } from "@/components/theme-options";
 import { UserContextEditorDialog } from "@/components/UserContextCard";
@@ -38,6 +39,26 @@ export function SidebarUserMenu() {
   const { theme, setTheme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
   const [personalisationOpen, setPersonalisationOpen] = useState(false);
+  const [mfaConfigured, setMfaConfigured] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void client
+      .getMfaConfigurationStatus()
+      .then(({ configured }) => {
+        if (!cancelled) {
+          setMfaConfigured(configured);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMfaConfigured(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeOrg?.id]);
   const version = health?.version?.trim();
 
   if (!user) {
@@ -85,7 +106,6 @@ export function SidebarUserMenu() {
                       {user.email}
                     </p>
                   </div>
-
                   <div className="h-px bg-border" />
 
                   <div className="p-1">
@@ -98,6 +118,17 @@ export function SidebarUserMenu() {
                       <UserIcon className="size-4 text-muted-foreground" />
                       Profile
                     </DropdownMenuItem>
+                    {mfaConfigured ||
+                    user.mfaEnabled ||
+                    activeOrg?.mfaEnabled ? (
+                      <DropdownMenuItem
+                        className="px-2.5 py-2"
+                        render={<Link to="/profile/security" />}
+                      >
+                        <Settings01Icon className="size-4 text-muted-foreground" />
+                        Security
+                      </DropdownMenuItem>
+                    ) : null}
                     <DropdownMenuItem
                       className="px-2.5 py-2"
                       onClick={() => {

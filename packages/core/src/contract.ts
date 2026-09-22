@@ -477,9 +477,27 @@ export interface AuthUserResponse {
   email: string;
   id: string;
   isPlatformAdmin?: boolean;
+  mfaEnabled?: boolean;
+  mfaEnrolled?: boolean;
+  mfaOrgEnabled?: boolean;
+  mfaRequired?: boolean;
   name?: string | null;
   orgId?: string | null;
   phone?: string | null;
+}
+
+export interface MfaTotpStartResponse {
+  secret: string;
+  uri: string;
+}
+
+export interface MfaTotpVerifyResponse {
+  backupCodes: string[];
+  enabled: boolean;
+}
+
+export interface MfaEnabledResponse {
+  enabled: boolean;
 }
 
 export interface UpdateAuthProfileRequest {
