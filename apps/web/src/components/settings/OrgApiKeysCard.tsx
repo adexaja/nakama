@@ -25,7 +25,7 @@ type SecretState = { key: ApiKeySummary; secret: string } | null;
 const INTEGRATION_PROMPT = `Integrate this existing app with Nakama as the AI agent backend.
 
 Read these docs before coding:
-- https://ahmadrosid.github.io/nakama/lovable.md
+- https://ahmadrosid.github.io/nakama/app-backend.md
 - https://ahmadrosid.github.io/nakama/llms.txt
 - Treat the Nakama integration guide as the source of truth for endpoints, request bodies, and response formats.
 
@@ -530,7 +530,7 @@ export function OrgApiKeysCard() {
             </a>
             <a
               className="text-muted-foreground underline underline-offset-4 hover:text-foreground"
-              href="https://ahmadrosid.github.io/nakama/lovable"
+              href="https://ahmadrosid.github.io/nakama/app-backend"
               rel="noreferrer"
               target="_blank"
             >
