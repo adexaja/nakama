@@ -555,6 +555,8 @@ export function registerOrgMemberRoutes(
             "application/json": {
               schema: z
                 .object({
+                  mfaEnabled: z.boolean().optional(),
+                  mfaRequired: z.boolean().optional(),
                   monthlyLlmTokenLimit: z.number().int().min(0).optional(),
                   monthlyLlmTurnLimit: z.number().int().min(0).optional(),
                   monthlyLlmWarningPercent: z

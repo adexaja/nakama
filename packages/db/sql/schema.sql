@@ -280,6 +280,8 @@ CREATE TABLE IF NOT EXISTS organizations (
   id TEXT PRIMARY KEY NOT NULL,
   name TEXT NOT NULL,
   slug TEXT NOT NULL,
+  mfa_enabled INTEGER NOT NULL DEFAULT 0,
+  mfa_required INTEGER NOT NULL DEFAULT 0,
   skills_write_approval INTEGER NOT NULL DEFAULT 0,
   skills_post_turn_review INTEGER NOT NULL DEFAULT 0,
   skills_curator_enabled INTEGER NOT NULL DEFAULT 0,

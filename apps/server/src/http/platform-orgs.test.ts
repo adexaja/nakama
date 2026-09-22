@@ -50,6 +50,8 @@ describe("platform org routes", () => {
         archivedAt: null,
         createdAt: expect.any(String),
         id: expect.stringMatching(/^org_/),
+        mfaEnabled: false,
+        mfaRequired: false,
         monthlyLlmTurnLimit: 0,
         name: "Acme Corp",
         skillsCuratorArchiveAfterDays: 90,

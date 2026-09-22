@@ -384,6 +384,8 @@ interface OrganizationRow {
   archived_at: string | null;
   created_at: string;
   id: string;
+  mfa_enabled: number;
+  mfa_required: number;
   monthly_llm_token_limit: number | null;
   monthly_llm_turn_limit: number | null;
   monthly_llm_warning_percent: number;
@@ -1913,15 +1915,17 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     ]) {
       db.query(`DELETE FROM ${table} WHERE org_id = ?`).run(orgId);
     }
-
     return deleteOrganizationStmt.run(orgId).changes > 0;
   });
+
   const upsertOrganizationStmt = db.prepare(`
-    INSERT INTO organizations (id, name, slug, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO organizations (id, name, slug, mfa_enabled, mfa_required, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       slug = excluded.slug,
+      mfa_enabled = excluded.mfa_enabled,
+      mfa_required = excluded.mfa_required,
       monthly_llm_token_limit = excluded.monthly_llm_token_limit,
       monthly_llm_turn_limit = excluded.monthly_llm_turn_limit,
       monthly_llm_warning_percent = excluded.monthly_llm_warning_percent,
@@ -1956,18 +1960,18 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
         OR org_llm_monthly_quota.reserved_tokens + excluded.reserved_tokens <= (SELECT monthly_llm_token_limit FROM organizations WHERE id = org_llm_monthly_quota.org_id));
   `);
   const listOrganizationsStmt = db.prepare(`
-    SELECT id, name, slug, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at
+    SELECT id, name, slug, mfa_enabled, mfa_required, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at
     FROM organizations
     ORDER BY name ASC
   `);
   const getOrganizationBySlugStmt = db.prepare(`
-    SELECT id, name, slug, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at
+    SELECT id, name, slug, mfa_enabled, mfa_required, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at
     FROM organizations
     WHERE slug = ?
     LIMIT 1
   `);
   const getOrganizationByIdStmt = db.prepare(`
-    SELECT id, name, slug, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at
+    SELECT id, name, slug, mfa_enabled, mfa_required, monthly_llm_token_limit, monthly_llm_turn_limit, monthly_llm_warning_percent, skills_write_approval, skills_post_turn_review, skills_curator_enabled, skills_curator_stale_after_days, skills_curator_archive_after_days, skills_curator_consolidate_enabled, skills_curator_last_run_at, archived_at, created_at, updated_at
     FROM organizations
     WHERE id = ?
     LIMIT 1
@@ -2275,6 +2279,8 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
       record.id,
       record.name,
       record.slug,
+      record.mfaEnabled ? 1 : 0,
+      record.mfaRequired ? 1 : 0,
       record.monthlyLlmTokenLimit ?? null,
       record.monthlyLlmTurnLimit ?? 0,
       record.monthlyLlmWarningPercent ?? 80,
@@ -4984,6 +4990,8 @@ function toOrganizationRecord(row: OrganizationRow): StoredOrganizationRecord {
     archivedAt: row.archived_at,
     createdAt: row.created_at,
     id: row.id,
+    mfaEnabled: row.mfa_enabled !== 0,
+    mfaRequired: row.mfa_required !== 0,
     monthlyLlmTokenLimit: row.monthly_llm_token_limit ?? undefined,
     monthlyLlmTurnLimit: row.monthly_llm_turn_limit ?? 0,
     monthlyLlmWarningPercent: row.monthly_llm_warning_percent ?? 80,

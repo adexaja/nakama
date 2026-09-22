@@ -465,6 +465,8 @@ export interface StoredOrganizationRecord {
   archivedAt?: string | null;
   createdAt: string;
   id: string;
+  mfaEnabled?: boolean;
+  mfaRequired?: boolean;
   monthlyLlmTokenLimit?: number;
   monthlyLlmTurnLimit?: number;
   monthlyLlmWarningPercent?: number;

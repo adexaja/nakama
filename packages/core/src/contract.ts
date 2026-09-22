@@ -496,6 +496,8 @@ export interface OrganizationSummary {
   archivedAt?: string | null;
   createdAt: string;
   id: string;
+  mfaEnabled?: boolean;
+  mfaRequired?: boolean;
   monthlyLlmTokenLimit?: number;
   monthlyLlmTurnLimit?: number;
   monthlyLlmWarningPercent?: number;
@@ -520,8 +522,9 @@ export interface CreateOrganizationRequest {
   name: string;
   slug: string;
 }
-
 export interface UpdateOrganizationRequest {
+  mfaEnabled?: boolean;
+  mfaRequired?: boolean;
   monthlyLlmTokenLimit?: number;
   monthlyLlmTurnLimit?: number;
   monthlyLlmWarningPercent?: number;

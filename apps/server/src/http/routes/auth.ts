@@ -20,8 +20,10 @@ import {
   persistWebPublicUrl,
   resolveRequestClientOrigin,
 } from "../../services/composio-callback-url";
+import { ensureMfaEncryptionKey } from "../../services/mfa-config";
 import type { ServerOptions } from "../context";
 import {
+  requireActiveOrgIdFromContext,
   requirePlatformAdmin,
   requirePlatformAdminFromContext,
 } from "../org-guards";
@@ -590,6 +592,15 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
       response.session.activeOrgId
     );
     return json<AuthUserResponse>(authBody, 200, response.headers);
+  });
+
+  app.post("/v1/settings/mfa/encryption-key", async (c) => {
+    if (!authService) {
+      return errorResponse("Authentication not configured", 500);
+    }
+    const auth = requirePlatformAdminFromContext(c);
+    await ensureMfaEncryptionKey(requireActiveOrgIdFromContext(c));
+    return json({ configured: true });
   });
 
   app.openapi(meRoute, async (c) => {

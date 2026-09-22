@@ -505,6 +505,22 @@ function migrateOrgTables(db: Database): void {
   if (!columnNames.has("user_context")) {
     db.exec("ALTER TABLE org_members ADD COLUMN user_context TEXT;");
   }
+  const organizationColumns = db
+    .prepare("PRAGMA table_info(organizations)")
+    .all() as Array<{ name: string }>;
+  const organizationColumnNames = new Set(
+    organizationColumns.map((column) => column.name)
+  );
+  if (!organizationColumnNames.has("mfa_enabled")) {
+    db.exec(
+      "ALTER TABLE organizations ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 0;"
+    );
+  }
+  if (!organizationColumnNames.has("mfa_required")) {
+    db.exec(
+      "ALTER TABLE organizations ADD COLUMN mfa_required INTEGER NOT NULL DEFAULT 0;"
+    );
+  }
 }
 
 function migrateApiKeysTable(db: Database): void {

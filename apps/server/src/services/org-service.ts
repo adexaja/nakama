@@ -227,6 +227,14 @@ export class OrgService {
     );
     const updated: StoredOrganizationRecord = {
       ...org,
+      mfaEnabled:
+        request.mfaEnabled === undefined
+          ? (org.mfaEnabled ?? false)
+          : request.mfaEnabled,
+      mfaRequired:
+        request.mfaRequired === undefined
+          ? (org.mfaRequired ?? false)
+          : request.mfaRequired,
       monthlyLlmTokenLimit,
       monthlyLlmTurnLimit,
       monthlyLlmWarningPercent,
@@ -1466,6 +1474,8 @@ function toOrganizationSummary(
     archivedAt: record.archivedAt ?? null,
     createdAt: record.createdAt,
     id: record.id,
+    mfaEnabled: record.mfaEnabled ?? false,
+    mfaRequired: record.mfaRequired ?? false,
     monthlyLlmTurnLimit: record.monthlyLlmTurnLimit ?? 0,
     name: record.name,
     skillsCuratorArchiveAfterDays: record.skillsCuratorArchiveAfterDays ?? 90,

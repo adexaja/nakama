@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { LocalAuthTokenCard } from "@/components/LocalAuthTokenCard";
 import { DataPortabilityPanel } from "@/components/settings/DataPortabilityPanel";
 import { ImageGenerationSettingsCard } from "@/components/settings/ImageGenerationSettingsCard";
+import { MfaEncryptionKeyCard } from "@/components/settings/MfaEncryptionKeyCard";
 import { ProviderSettingsCard } from "@/components/settings/ProviderSettingsCard";
 import { TranscriptionSettingsCard } from "@/components/settings/TranscriptionSettingsCard";
 import { VisionSettingsCard } from "@/components/settings/VisionSettingsCard";
@@ -150,6 +151,7 @@ export function SettingsPage() {
           <LocalAuthTokenCard />
         </section>
       ) : null}
+      {isPlatformAdmin ? <MfaEncryptionKeyCard /> : null}
 
       {isPlatformAdmin ? (
         <Card className="w-full overflow-hidden shadow-none">

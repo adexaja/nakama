@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { NakamaApiError } from "./api-error";
 import {
   isValidBaseUrl,
@@ -585,11 +585,12 @@ export async function saveUserConfig(config: UserConfig): Promise<void> {
 export async function writeParsedConfigIni(
   global: Record<string, string | undefined>,
   sections: Record<string, Record<string, string>>,
-  patch: Record<string, string | undefined> = {}
+  patch: Record<string, string | undefined> = {},
+  path = getUserConfigPath()
 ): Promise<void> {
   const lines = buildConfigIniLines(global, sections, patch);
-  await writeTextFile(getUserConfigPath(), lines.join("\n"), {
-    ensureDir: getUserConfigDir(),
+  await writeTextFile(path, lines.join("\n"), {
+    ensureDir: dirname(path),
   });
 }
 

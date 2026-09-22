@@ -2765,6 +2765,12 @@ export class NakamaClient {
       }
     );
   }
+  async ensureMfaEncryptionKey(): Promise<{ configured: boolean }> {
+    return this.request<{ configured: boolean }>(
+      "/v1/settings/mfa/encryption-key",
+      { method: "POST" }
+    );
+  }
 
   async updatePlatformOrganization(
     orgId: string,
