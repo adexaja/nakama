@@ -6,6 +6,7 @@ import {
   type AgentQuestionnaire,
   type AgentTodo,
   type ApiErrorResponse,
+  type ChatTurnUsage,
   type ChatUsage,
   formatServerError,
   LOCAL_CLIENT_EMAIL,
@@ -789,10 +790,12 @@ export function streamMessage(
         const reply = await Promise.race(raced);
 
         const contextUsage = session.getContextUsage() ?? undefined;
+        const usage = session.getTurnUsage() ?? undefined;
         send({
           reply,
           type: "done",
           ...(contextUsage ? { contextUsage } : {}),
+          ...(usage ? { usage } : {}),
         });
       } catch (error) {
         const cancelled = turnSignal.aborted && !timedOut;
@@ -807,9 +810,19 @@ export function streamMessage(
           // The stream already told the user; without this the operator never hears.
           void reportError(error, { kind: "turn", source: "server" });
         }
+        // The provider charged for the calls that did land, so a failed turn
+        // still reports them rather than billing silently. Wrapped because a
+        // throw here would replace the real failure with a blank one.
+        let spent: ChatTurnUsage | undefined;
+        try {
+          spent = session.getTurnUsage() ?? undefined;
+        } catch {
+          spent = undefined;
+        }
         send({
           error: cancelled ? "Turn cancelled." : formatServerError(error),
           type: "error",
+          ...(spent ? { usage: spent } : {}),
         });
       } finally {
         // Every turn scheduled these. Left pending, a long-running server

@@ -3,6 +3,7 @@ import type { AgentChatSession } from "@nakama/agent";
 import type {
   BranchSessionRequest,
   BranchSessionResponse,
+  ChatTurnUsage,
   CompactionResponse,
   CompactSessionRequest,
   CreateSessionRequest,
@@ -209,10 +210,33 @@ export function registerSessionRoutes(
       usedTokens: z.number(),
     })
     .openapi("ChatContextUsage");
+  const chatUsageSchema = z
+    .object({
+      cachedInputTokens: z.number().optional(),
+      costUsd: z.number().optional(),
+      estimated: z.boolean().optional(),
+      inputTokens: z.number(),
+      modelId: z.string().optional(),
+      outputTokens: z.number(),
+      totalTokens: z.number(),
+    })
+    .openapi("ChatUsage");
+  const turnUsageSchema = z
+    .object({
+      cachedInputTokens: z.number(),
+      calls: z.array(chatUsageSchema),
+      costUsd: z.number().optional(),
+      estimated: z.boolean(),
+      inputTokens: z.number(),
+      outputTokens: z.number(),
+      totalTokens: z.number(),
+    })
+    .openapi("ChatTurnUsage");
   const sendMessageResponseSchema = z
     .object({
       contextUsage: contextUsageSchema.optional(),
       reply: z.string(),
+      usage: turnUsageSchema.optional(),
     })
     .openapi("SendMessageResponse", {
       example: {
@@ -228,6 +252,21 @@ export function registerSessionRoutes(
           usedTokens: 1710,
         },
         reply: "Hello! How can I help?",
+        usage: {
+          cachedInputTokens: 0,
+          calls: [
+            {
+              inputTokens: 1290,
+              modelId: "gemini-2.5-flash",
+              outputTokens: 64,
+              totalTokens: 1354,
+            },
+          ],
+          estimated: false,
+          inputTokens: 1290,
+          outputTokens: 64,
+          totalTokens: 1354,
+        },
       },
     });
   const sessionIdParamSchema = z.object({
@@ -817,26 +856,42 @@ export function registerSessionRoutes(
     try {
       const reply = await session.send(input);
       const contextUsage = session.getContextUsage() ?? undefined;
+      const usage = session.getTurnUsage() ?? undefined;
       sessionTurnRegistry.endTurn(sessionId, {
         reply,
         type: "done",
         ...(contextUsage ? { contextUsage } : {}),
+        ...(usage ? { usage } : {}),
       });
       agent.scheduleSessionTitleGeneration(sessionId);
       agent.schedulePostTurnSkillReview(sessionId);
       return json<SendMessageResponse>({
         reply,
         ...(contextUsage ? { contextUsage } : {}),
+        ...(usage ? { usage } : {}),
       });
     } catch (error) {
       if (!(error instanceof NakamaApiError && error.status < 500)) {
         void reportError(error, { kind: "turn", source: "server" });
       }
       const message = formatServerError(error);
-      sessionTurnRegistry.endTurn(sessionId, { error: message, type: "error" });
+      // Same guard as the stream error branch: this read sits inside the catch,
+      // so a throw would swallow the failure it is meant to report.
+      let spent: ChatTurnUsage | undefined;
+      try {
+        spent = session.getTurnUsage() ?? undefined;
+      } catch {
+        spent = undefined;
+      }
+      sessionTurnRegistry.endTurn(sessionId, {
+        error: message,
+        type: "error",
+        ...(spent ? { usage: spent } : {}),
+      });
       return errorResponse(
         message,
-        error instanceof NakamaApiError ? error.status : 500
+        error instanceof NakamaApiError ? error.status : 500,
+        spent ? { usage: spent } : undefined
       );
     }
   });
