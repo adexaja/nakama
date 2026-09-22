@@ -515,6 +515,7 @@ export function useHistorySessionsQuery(profileId: string) {
   // Turns are only ever started from the web chat page, so the other channels
   // have no reason to poll along with it.
   const localTurn = runningSessionIds.length > 0;
+  const runningSessionIdSet = new Set(runningSessionIds);
 
   const results = useQueries({
     queries: HISTORY_SESSION_CHANNELS.map((channel) => ({
@@ -537,7 +538,7 @@ export function useHistorySessionsQuery(profileId: string) {
     // The server answers from its own registry, which this tab can be ahead of
     // for the moment between starting a turn and the list catching up.
     .map((session) =>
-      session.active || !runningSessionIds.includes(session.id)
+      session.active || !runningSessionIdSet.has(session.id)
         ? session
         : { ...session, active: true }
     )
