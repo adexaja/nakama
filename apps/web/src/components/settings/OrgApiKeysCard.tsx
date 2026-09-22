@@ -26,7 +26,7 @@ const INTEGRATION_PROMPT = `Integrate this existing app with Nakama as the AI ag
 Read these docs before coding:
 - https://ahmadrosid.github.io/nakama/lovable.md
 - https://ahmadrosid.github.io/nakama/llms.txt
-- Treat the Lovable guide as the source of truth for Nakama endpoints, request bodies, and response formats.
+- Treat the Nakama integration guide as the source of truth for endpoints, request bodies, and response formats.
 
 Requirements:
 - Inspect the existing app and preserve its current UI, authentication, and data model.
@@ -363,7 +363,7 @@ export function OrgApiKeysCard() {
         <CardContent className="space-y-4 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="font-medium text-sm">Create a backend key</p>
+              <p className="font-medium text-sm">Connect an app backend</p>
             </div>
             <CreateApiKeyDialog controller={controller} />
           </div>
@@ -382,7 +382,7 @@ export function OrgApiKeysCard() {
               rel="noreferrer"
               target="_blank"
             >
-              Lovable guide ↗
+              Nakama integration guide ↗
             </a>
             <IntegrationPrompt controller={controller} />
           </div>
