@@ -3,7 +3,7 @@ import { Card, CardContent } from "@nakama/ui/card";
 import { Spinner } from "@nakama/ui/spinner";
 import { Switch } from "@nakama/ui/switch";
 import { toast } from "@nakama/ui/toast";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/context/use-auth";
 import { client, formatError } from "@/lib/client";
 
@@ -12,6 +12,16 @@ export function OrgMfaPolicyCard() {
   const [pending, setPending] = useState(false);
   const [generated, setGenerated] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activeOrg || activeOrg.role !== "admin") {
+      return;
+    }
+    client
+      .getMfaEncryptionKeyStatus()
+      .then(({ configured }) => setGenerated(configured))
+      .catch((err) => setError(formatError(err)));
+  }, [activeOrg]);
 
   if (!activeOrg || activeOrg.role !== "admin") {
     return null;

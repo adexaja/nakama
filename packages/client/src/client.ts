@@ -2765,6 +2765,11 @@ export class NakamaClient {
       }
     );
   }
+  async getMfaEncryptionKeyStatus(): Promise<{ configured: boolean }> {
+    return this.request<{ configured: boolean }>(
+      "/v1/settings/mfa/encryption-key"
+    );
+  }
   async ensureMfaEncryptionKey(): Promise<{ configured: boolean }> {
     return this.request<{ configured: boolean }>(
       "/v1/settings/mfa/encryption-key",

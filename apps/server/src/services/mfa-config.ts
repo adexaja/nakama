@@ -36,3 +36,16 @@ export async function ensureMfaEncryptionKey(orgId: string): Promise<string> {
   await writeParsedConfigIni(parsed.global, sections, {}, path);
   return key;
 }
+
+export async function hasMfaEncryptionKey(orgId: string): Promise<boolean> {
+  const path = join(getOrgConfigDir(orgId), "config.ini");
+  try {
+    const parsed = parseIniWithSections(await readFile(path, "utf8"));
+    return Boolean(parsed.sections[MFA_SECTION]?.[MFA_KEY]);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
