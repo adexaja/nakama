@@ -1843,6 +1843,7 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
   const revokeApiKeyStmt = db.prepare(`
     UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL
   `);
+  const deleteApiKeyStmt = db.prepare("DELETE FROM api_keys WHERE id = ?");
   const updateApiKeyLastUsedAtStmt = db.prepare(`
     UPDATE api_keys SET last_used_at = ? WHERE id = ?
   `);
@@ -2863,6 +2864,11 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
 
     async createUser(record) {
       runCreateUserStmt(record);
+    },
+
+    async deleteApiKey(id) {
+      const result = deleteApiKeyStmt.run(id);
+      return result.changes > 0;
     },
 
     async deleteAttachment(id) {

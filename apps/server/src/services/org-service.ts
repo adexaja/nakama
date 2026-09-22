@@ -936,6 +936,31 @@ export class OrgService {
     });
   }
 
+  async deleteApiKey(
+    orgId: string,
+    userId: string,
+    keyId: string
+  ): Promise<void> {
+    await this.requireActiveOrganization(orgId);
+    const key = (await this.databaseAdapter.listApiKeysForOrg(orgId)).find(
+      (candidate) => candidate.id === keyId
+    );
+    if (!(key && (await this.databaseAdapter.deleteApiKey(keyId)))) {
+      throw new NakamaApiError("Not found", 404);
+    }
+    await this.databaseAdapter.createAuditEvent({
+      action: "api_key.delete",
+      actorUserId: userId,
+      createdAt: new Date().toISOString(),
+      id: `audit_${crypto.randomUUID().replace(/-/g, "")}`,
+      metadata: {},
+      orgId,
+      requestId: null,
+      resourceId: keyId,
+      resourceType: "api_key",
+    });
+  }
+
   async rotateApiKey(
     orgId: string,
     userId: string,

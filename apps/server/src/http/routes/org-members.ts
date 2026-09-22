@@ -501,11 +501,11 @@ export function registerOrgMemberRoutes(
   app.openAPIRegistry.registerPath(
     createRoute({
       method: "delete",
-      operationId: "revokeOrgApiKey",
+      operationId: "deleteOrgApiKey",
       path: "/v1/orgs/{orgId}/api-keys/{keyId}",
       request: { params: apiKeyParams },
       responses: {
-        204: { description: "API key revoked" },
+        204: { description: "API key deleted" },
         403: {
           content: { "application/json": { schema: errorSchema } },
           description: "Error",
@@ -515,7 +515,7 @@ export function registerOrgMemberRoutes(
           description: "Error",
         },
       },
-      summary: "Revoke an organization backend API key",
+      summary: "Delete an organization backend API key",
       tags: ["Organizations"],
     })
   );
@@ -526,7 +526,7 @@ export function registerOrgMemberRoutes(
     if (auth.activeOrgId !== orgId || !orgService) {
       return errorResponse("Not found", 404);
     }
-    await orgService.revokeApiKey(orgId, auth.user.id, c.req.param("keyId"));
+    await orgService.deleteApiKey(orgId, auth.user.id, c.req.param("keyId"));
     return new Response(null, { status: 204 });
   });
 

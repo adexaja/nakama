@@ -2848,7 +2848,7 @@ export class NakamaClient {
     );
   }
 
-  async revokeApiKey(orgId: string, keyId: string): Promise<void> {
+  async deleteApiKey(orgId: string, keyId: string): Promise<void> {
     await this.request(
       `/v1/orgs/${encodeURIComponent(orgId)}/api-keys/${encodeURIComponent(keyId)}`,
       { method: "DELETE" }

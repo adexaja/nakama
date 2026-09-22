@@ -12,6 +12,7 @@ import {
 } from "@nakama/ui/dialog";
 import { Input } from "@nakama/ui/input";
 import { Spinner } from "@nakama/ui/spinner";
+import { Textarea } from "@nakama/ui/textarea";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy01Icon } from "hugeicons-react";
 import { useState } from "react";
@@ -46,7 +47,10 @@ function useOrgApiKeys(orgId: string) {
   const [name, setName] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [secretState, setSecretState] = useState<SecretState>(null);
-  const [copyHint, setCopyHint] = useState<string | null>(null);
+  const [secretCopyHint, setSecretCopyHint] = useState<string | null>(null);
+  const [environmentCopyHint, setEnvironmentCopyHint] = useState<string | null>(
+    null
+  );
   const [promptCopyHint, setPromptCopyHint] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,6 +68,8 @@ function useOrgApiKeys(orgId: string) {
     onError: (cause) => setError(formatError(cause)),
     onSuccess: (result) => {
       setError(null);
+      setEnvironmentCopyHint(null);
+      setSecretCopyHint(null);
       setSecretState(result);
       setCreateOpen(false);
       void queryClient.invalidateQueries({
@@ -77,6 +83,8 @@ function useOrgApiKeys(orgId: string) {
     onError: (cause) => setError(formatError(cause)),
     onSuccess: (result) => {
       setError(null);
+      setEnvironmentCopyHint(null);
+      setSecretCopyHint(null);
       setSecretState(result);
       void queryClient.invalidateQueries({
         queryKey: queryKeys.orgApiKeys(orgId),
@@ -84,8 +92,8 @@ function useOrgApiKeys(orgId: string) {
     },
   });
 
-  const revokeMutation = useMutation({
-    mutationFn: (keyId: string) => client.revokeApiKey(orgId, keyId),
+  const deleteMutation = useMutation({
+    mutationFn: (keyId: string) => client.deleteApiKey(orgId, keyId),
     onError: (cause) => setError(formatError(cause)),
     onSuccess: () => {
       setError(null);
@@ -98,19 +106,7 @@ function useOrgApiKeys(orgId: string) {
   const busy =
     createMutation.isPending ||
     rotateMutation.isPending ||
-    revokeMutation.isPending;
-
-  async function copySecret() {
-    if (!secretState) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(secretState.secret);
-      setCopyHint("Copied to clipboard.");
-    } catch {
-      setCopyHint("Copy failed — select the key manually.");
-    }
-  }
+    deleteMutation.isPending;
 
   async function copyIntegrationPrompt() {
     try {
@@ -121,11 +117,35 @@ function useOrgApiKeys(orgId: string) {
     }
   }
 
+  async function copySecret() {
+    if (!secretState) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(secretState.secret);
+      setSecretCopyHint("API key copied.");
+    } catch {
+      setSecretCopyHint("Copy failed — select the API key manually.");
+    }
+  }
+
+  async function copyEnvironment() {
+    try {
+      await navigator.clipboard.writeText(
+        `NAKAMA_URL=${window.location.origin}\nNAKAMA_API_KEY=${secretState?.secret ?? ""}`
+      );
+      setEnvironmentCopyHint("Environment copied.");
+    } catch {
+      setEnvironmentCopyHint("Copy failed — select the environment manually.");
+    }
+  }
+
   function createKey(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
+    setEnvironmentCopyHint(null);
+    setSecretCopyHint(null);
     setSecretState(null);
-    setCopyHint(null);
     if (!name.trim()) {
       setError("Name is required.");
       return;
@@ -135,18 +155,20 @@ function useOrgApiKeys(orgId: string) {
 
   return {
     busy,
-    copyHint,
+    copyEnvironment,
     copyIntegrationPrompt,
     copySecret,
     createKey,
     createMutation,
     createOpen,
+    deleteMutation,
+    environmentCopyHint,
     error,
     keysQuery,
     name,
     promptCopyHint,
-    revokeMutation,
     rotateMutation,
+    secretCopyHint,
     secretState,
     setCreateOpen,
     setName,
@@ -234,35 +256,91 @@ function CreateApiKeyDialog({
 }
 
 function SecretBanner({ controller }: { controller: OrgApiKeysController }) {
-  const { copyHint, copySecret, secretState } = controller;
+  const {
+    copyEnvironment,
+    copySecret,
+    environmentCopyHint,
+    secretCopyHint,
+    secretState,
+  } = controller;
   if (!secretState) {
     return null;
   }
+  const maskedSecret = "••••••••••••";
   return (
     <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/30">
-      <p className="font-medium text-sm">Save this secret now</p>
+      <p className="font-medium text-sm">Save this API key now</p>
       <p className="text-muted-foreground text-xs">
         Shown once. Store it in your backend secret manager.
       </p>
-      <div className="flex gap-2">
-        <Input readOnly value={secretState.secret} />
-        <Button
-          onClick={() => void copySecret()}
-          type="button"
-          variant="outline"
-        >
-          Copy
-        </Button>
-      </div>
-      {copyHint ? (
-        <p className="text-muted-foreground text-xs">{copyHint}</p>
+      <label className="flex flex-col gap-2 text-sm">
+        <span className="font-medium text-foreground/90">API key</span>
+        <div className="space-y-2">
+          <div className="relative">
+            <Input
+              aria-label="API key"
+              className="w-full bg-white pr-12 font-mono text-xs dark:bg-background"
+              readOnly
+              value={secretState.secret}
+            />
+            <Button
+              aria-label="Copy API key"
+              className="absolute top-1/2 right-1 -translate-y-1/2"
+              onClick={() => void copySecret()}
+              size="icon-sm"
+              title="Copy API key"
+              type="button"
+              variant="outline"
+            >
+              <Copy01Icon aria-hidden className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+      </label>
+      {secretCopyHint ? (
+        <p className="text-muted-foreground text-xs">{secretCopyHint}</p>
+      ) : null}
+      <label className="flex flex-col gap-2 text-sm">
+        <span className="font-medium text-foreground/90">
+          Environment variables
+        </span>
+        <div className="space-y-2">
+          <div className="relative">
+            <Textarea
+              aria-label="Environment variables"
+              className="min-h-20 w-full resize-none bg-white pr-12 font-mono text-xs dark:bg-background"
+              readOnly
+              rows={2}
+              value={`NAKAMA_URL=${window.location.origin}\nNAKAMA_API_KEY=${maskedSecret}`}
+            />
+            <Button
+              aria-label="Copy environment"
+              className="absolute top-2 right-2"
+              onClick={() => void copyEnvironment()}
+              size="icon-sm"
+              title="Copy environment"
+              type="button"
+              variant="outline"
+            >
+              <Copy01Icon aria-hidden className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+        <span className="text-muted-foreground text-xs">
+          The key is masked here for safety. Copy environment includes the full
+          value.
+        </span>
+      </label>
+      {environmentCopyHint ? (
+        <p className="text-muted-foreground text-xs">{environmentCopyHint}</p>
       ) : null}
     </div>
   );
 }
 
 function ApiKeysList({ controller }: { controller: OrgApiKeysController }) {
-  const { busy, keysQuery, revokeMutation, rotateMutation } = controller;
+  const [deleteKey, setDeleteKey] = useState<ApiKeySummary | null>(null);
+  const { busy, deleteMutation, keysQuery, rotateMutation } = controller;
   if (keysQuery.isLoading) {
     return <p className="text-muted-foreground text-sm">Loading keys…</p>;
   }
@@ -300,13 +378,16 @@ function ApiKeysList({ controller }: { controller: OrgApiKeysController }) {
               Rotate
             </Button>
             <Button
-              disabled={busy || Boolean(key.revokedAt)}
-              onClick={() => revokeMutation.mutate(key.id)}
+              disabled={busy}
+              onClick={() => {
+                deleteMutation.reset();
+                setDeleteKey(key);
+              }}
               size="sm"
               type="button"
               variant="destructive"
             >
-              Revoke
+              Delete
             </Button>
           </div>
         </div>
@@ -316,6 +397,58 @@ function ApiKeysList({ controller }: { controller: OrgApiKeysController }) {
           No backend keys yet.
         </p>
       ) : null}
+      <Dialog
+        onOpenChange={(open) => {
+          if (!(open || deleteMutation.isPending)) {
+            setDeleteKey(null);
+          }
+        }}
+        open={Boolean(deleteKey)}
+      >
+        <DialogContent className="gap-6 p-6 sm:max-w-md">
+          <DialogHeader className="gap-2">
+            <DialogTitle>Delete API key?</DialogTitle>
+            <DialogDescription>
+              {deleteKey?.name} will stop working immediately. This cannot be
+              undone.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteMutation.error ? (
+            <p className="text-destructive text-sm" role="alert">
+              {formatError(deleteMutation.error)}
+            </p>
+          ) : null}
+          <DialogFooter className="mx-0 mb-0 gap-2 border-0 bg-transparent p-0 sm:flex-row sm:justify-end">
+            <Button
+              disabled={deleteMutation.isPending}
+              onClick={() => setDeleteKey(null)}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={deleteMutation.isPending || !deleteKey}
+              onClick={() => {
+                if (!deleteKey) {
+                  return;
+                }
+                deleteMutation.mutate(deleteKey.id, {
+                  onSuccess: () => setDeleteKey(null),
+                });
+              }}
+              type="button"
+              variant="destructive"
+            >
+              {deleteMutation.isPending ? (
+                <Spinner className="size-4" />
+              ) : (
+                "Delete"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -339,6 +472,25 @@ function IntegrationPrompt({
       </Button>
       {promptCopyHint ? (
         <span className="text-muted-foreground">{promptCopyHint}</span>
+      ) : null}
+    </div>
+  );
+}
+
+function EnvironmentCopy({ controller }: { controller: OrgApiKeysController }) {
+  const { copyEnvironment, environmentCopyHint } = controller;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <Button
+        onClick={() => void copyEnvironment()}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        Copy environment
+      </Button>
+      {environmentCopyHint ? (
+        <span className="text-muted-foreground">{environmentCopyHint}</span>
       ) : null}
     </div>
   );
@@ -384,6 +536,9 @@ export function OrgApiKeysCard() {
             >
               Nakama integration guide ↗
             </a>
+            {controller.secretState ? null : (
+              <EnvironmentCopy controller={controller} />
+            )}
             <IntegrationPrompt controller={controller} />
           </div>
           <SecretBanner controller={controller} />
