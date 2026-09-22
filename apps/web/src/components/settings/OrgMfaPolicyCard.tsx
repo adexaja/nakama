@@ -54,9 +54,11 @@ export function OrgMfaPolicyCard() {
           </div>
         </div>
         <div className="flex items-center justify-between gap-4 px-4 py-3">
-          <p className="font-medium text-foreground text-sm">Require MFA</p>
+          <p className="font-medium text-foreground text-sm">
+            Enforce Organization MFA
+          </p>
           <Switch
-            aria-label="Require organization MFA"
+            aria-label="Enforce Organization MFA"
             checked={activeOrg.mfaRequired === true}
             disabled={pending || activeOrg.mfaEnabled !== true}
             onCheckedChange={(checked) =>
