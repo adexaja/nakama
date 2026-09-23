@@ -31,6 +31,7 @@ import { useAuth } from "@/context/use-auth";
 import { useChatUsageVisible } from "@/hooks/use-chat-usage-visible";
 import { useSaveUserTimezone, useUserTimezone } from "@/hooks/use-timezones";
 import { formatError } from "@/lib/client";
+import { isDemoLoginHost } from "@/lib/demo-login";
 import { getBrowserTimezone } from "@/lib/timezones";
 
 export function SettingsPage() {
@@ -38,6 +39,7 @@ export function SettingsPage() {
   const navigate = useNavigate();
   const { user, activeOrg } = useAuth();
   const { health } = useAppContext();
+  const isDemo = isDemoLoginHost();
   const isPlatformAdmin = user?.isPlatformAdmin === true;
   const isOrgAdmin = activeOrg?.role === "admin";
   const [mfaRequiredNotice, setMfaRequiredNotice] = useState(
@@ -210,7 +212,7 @@ export function SettingsPage() {
         ) : null}
 
         <MfaSettingsCard />
-        {isPlatformAdmin ? <PlatformMfaSettingsCard /> : null}
+        {!isDemo && isPlatformAdmin ? <PlatformMfaSettingsCard /> : null}
 
         {isPlatformAdmin ? (
           <Card className="w-full overflow-hidden shadow-none">
