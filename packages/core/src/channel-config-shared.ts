@@ -11,7 +11,7 @@ import {
 import { maskTrailingSecret } from "./secret-mask";
 import { getOrgConfigDir, getUserConfigDir } from "./user-config";
 
-export type ChannelPlatform = "telegram" | "discord" | "whatsapp";
+export type ChannelPlatform = "telegram" | "discord" | "whatsapp" | "slack";
 export interface ChannelOwner {
   orgId: string;
   profileId: string;
