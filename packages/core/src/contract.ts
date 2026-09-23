@@ -481,6 +481,9 @@ export interface AuthUserResponse {
    * by a platform admin is de-privileged, so it reports false here.
    */
   isPlatformAdmin?: boolean;
+  mfaEnabled?: boolean;
+  mfaEnrolled?: boolean;
+  mfaRequired?: boolean;
   /** Which credential answered, which is what explains the flag above. */
   mode?: "api-key" | "browser-session" | "local-token";
   name?: string | null;
@@ -488,6 +491,22 @@ export interface AuthUserResponse {
   phone?: string | null;
 }
 
+export interface MfaPolicyResponse {
+  enabled: boolean;
+  enforcedRoles: OrgRole[];
+  keyConfigured: boolean;
+  required: boolean;
+}
+
+export interface MfaTotpStartResponse {
+  secret: string;
+  uri: string;
+}
+
+export interface MfaTotpVerifyResponse {
+  backupCodes: string[];
+  enabled: boolean;
+}
 export interface UpdateAuthProfileRequest {
   currentPassword?: string;
   email?: string;

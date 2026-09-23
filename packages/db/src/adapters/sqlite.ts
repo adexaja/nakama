@@ -341,18 +341,27 @@ interface McpServerRow {
   transport: string;
   updated_at: string;
 }
-
 interface UserRow {
   created_at: string;
   disabled_at?: string | null;
   email: string;
   id: string;
   is_platform_admin?: number | null;
+  mfa_enabled?: number | null;
+  mfa_totp_secret_enc?: string | null;
   name?: string | null;
   password_hash: string;
   phone?: string | null;
   updated_at: string;
   user_context?: string | null;
+}
+
+interface MfaBackupCodeRow {
+  code_hash: string;
+  created_at: string;
+  id: string;
+  used_at: string | null;
+  user_id: string;
 }
 
 interface BrowserSessionRow {
@@ -1642,14 +1651,29 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
   const deleteComposioUserConnectionStmt = db.prepare(`
     DELETE FROM composio_user_connections WHERE id = ?
   `);
+  const updateUserMfaStmt = db.prepare(`
+    UPDATE users
+    SET mfa_enabled = ?, mfa_totp_secret_enc = ?, updated_at = ?
+    WHERE id = ?
+  `);
+  const createMfaBackupCodeStmt = db.prepare(`
+    INSERT INTO user_mfa_backup_codes (id, user_id, code_hash, used_at, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const consumeMfaBackupCodeStmt = db.prepare(`
+    UPDATE user_mfa_backup_codes
+    SET used_at = ?
+    WHERE user_id = ? AND code_hash = ? AND used_at IS NULL
+  `);
 
   const getUserByEmailStmt = db.prepare("SELECT * FROM users WHERE email = ?");
   const getUserByIdStmt = db.prepare("SELECT * FROM users WHERE id = ?");
   const createUserStmt = db.prepare(`
     INSERT INTO users (
-      id, email, password_hash, name, phone, is_platform_admin, created_at, updated_at
+      id, email, password_hash, name, phone, is_platform_admin,
+      mfa_enabled, mfa_totp_secret_enc, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const updateUserProfileStmt = db.prepare(`
     UPDATE users
@@ -2271,6 +2295,8 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
       record.name ?? null,
       record.phone ?? null,
       record.isPlatformAdmin ? 1 : 0,
+      record.mfaEnabled ? 1 : 0,
+      record.mfaTotpSecretEnc ?? null,
       record.createdAt,
       record.updatedAt
     );
@@ -2653,6 +2679,9 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     async compareAndSetOrgPluginState(input) {
       return compareAndSetOrgPluginStateTx(input);
     },
+    async consumeMfaBackupCode(userId, codeHash, usedAt) {
+      return consumeMfaBackupCodeStmt.run(usedAt, userId, codeHash).changes > 0;
+    },
 
     async consumePasswordResetToken(tokenHash, passwordHash, consumedAt) {
       return consumePasswordResetTokenTransaction.immediate(
@@ -2760,6 +2789,15 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
         record.revokedAt,
         record.lastUsedAt,
         record.activeOrgId ?? null
+      );
+    },
+    async createMfaBackupCode(record) {
+      createMfaBackupCodeStmt.run(
+        record.id,
+        record.userId,
+        record.codeHash,
+        record.usedAt,
+        record.createdAt
       );
     },
 
@@ -4115,6 +4153,14 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
       );
       return result.changes > 0;
     },
+    async updateUserMfa(id, mfa, updatedAt) {
+      updateUserMfaStmt.run(
+        mfa.enabled ? 1 : 0,
+        mfa.totpSecretEnc,
+        updatedAt,
+        id
+      );
+    },
 
     async updateUserPassword(id, passwordHash, updatedAt) {
       updateUserPasswordStmt.run(passwordHash, updatedAt, id);
@@ -4969,7 +5015,9 @@ function toProfileComposioToolkitRecord(
 ): StoredProfileComposioToolkitRecord {
   return {
     allowedActions: row.allowed_actions
-      ? (JSON.parse(row.allowed_actions) as string[])
+      ? (JSON.parse(
+          row.allowed_actions
+        ) as StoredProfileComposioToolkitRecord["allowedActions"])
       : null,
     profileId: row.profile_id,
     toolkitId: row.toolkit_id,
@@ -4983,6 +5031,8 @@ function toUserRecord(row: UserRow): StoredUserRecord {
     email: row.email,
     id: row.id,
     isPlatformAdmin: Boolean(row.is_platform_admin),
+    mfaEnabled: Boolean(row.mfa_enabled),
+    mfaTotpSecretEnc: row.mfa_totp_secret_enc ?? null,
     name: row.name ?? null,
     passwordHash: row.password_hash,
     phone: row.phone ?? null,
