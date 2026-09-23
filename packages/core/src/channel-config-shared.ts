@@ -287,6 +287,7 @@ export async function writeBotChannelIniConfig<
 
 export async function verifyAndPairBotChannelUser<
   TId extends string | number,
+  TConfig extends BotChannelConfigFile<TId> = BotChannelConfigFile<TId>,
 >(options: {
   handshakeInput: string;
   isAuthorized: (
@@ -294,9 +295,9 @@ export async function verifyAndPairBotChannelUser<
     config: Pick<BotChannelConfigFile<TId>, "pairedUserIds" | "allowedUserIds">
   ) => boolean;
   label: string;
-  load: () => Promise<BotChannelConfigFile<TId> | null>;
+  load: () => Promise<TConfig | null>;
   userId: TId;
-  write: (config: BotChannelConfigFile<TId>) => Promise<void>;
+  write: (config: TConfig) => Promise<void>;
 }): Promise<ChannelPairResult> {
   const config = await options.load();
 
