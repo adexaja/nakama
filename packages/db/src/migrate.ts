@@ -364,6 +364,10 @@ function migrateUsersTable(db: Database): void {
     db.exec("ALTER TABLE users ADD COLUMN user_context TEXT;");
   }
 
+  if (!columnNames.has("disabled_at")) {
+    db.exec("ALTER TABLE users ADD COLUMN disabled_at TEXT;");
+  }
+
   if (!columnNames.has("mfa_enabled")) {
     db.exec(
       "ALTER TABLE users ADD COLUMN mfa_enabled INTEGER DEFAULT 0 NOT NULL;"
