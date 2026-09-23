@@ -4087,7 +4087,10 @@ export class AgentService {
     const includeSkillManageTools =
       !(cognito || appUserId) && SKILL_MANAGE_CHANNELS[channel];
     const pluginOrgRole =
-      channel === "telegram" || channel === "whatsapp" || channel === "discord"
+      channel === "telegram" ||
+      channel === "whatsapp" ||
+      channel === "discord" ||
+      channel === "slack"
         ? "member"
         : orgRole;
     let tools = await this.resolveProfileTools(profile, {
