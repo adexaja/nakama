@@ -87,6 +87,7 @@ export const AGENT_CHANNELS = [
   "telegram",
   "whatsapp",
   "discord",
+  "slack",
   "automation",
   "task",
   "subagent",
