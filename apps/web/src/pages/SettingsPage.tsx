@@ -13,6 +13,7 @@ import { Switch } from "@nakama/ui/switch";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { LocalAuthTokenCard } from "@/components/LocalAuthTokenCard";
+import { BrowserSessionsCard } from "@/components/settings/BrowserSessionsCard";
 import { DataPortabilityPanel } from "@/components/settings/DataPortabilityPanel";
 import { ImageGenerationSettingsCard } from "@/components/settings/ImageGenerationSettingsCard";
 import { MfaSettingsCard } from "@/components/settings/MfaSettingsCard";
@@ -198,11 +199,16 @@ export function SettingsPage() {
           </p>
         ) : null}
 
+        <section id="sessions">
+          <BrowserSessionsCard />
+        </section>
+
         {isOrgAdmin ? (
           <section id="local-token">
             <LocalAuthTokenCard />
           </section>
         ) : null}
+
         <MfaSettingsCard />
         {isPlatformAdmin ? <PlatformMfaSettingsCard /> : null}
 
