@@ -16,7 +16,8 @@ RUN bun install --frozen-lockfile --ignore-scripts \
   && bun run --filter @nakama/automation build \
   && bun run --filter @nakama/telegram build \
   && bun run --filter @nakama/whatsapp build \
-  && bun run --filter @nakama/discord build
+  && bun run --filter @nakama/discord build \
+  && bun run --filter @nakama/slack build
 
 RUN mkdir -p /runtime-deps \
   && printf '{"private":true}\n' > /runtime-deps/package.json \
@@ -91,6 +92,7 @@ COPY --chown=1000:1000 --from=web-builder /app/apps/platform/automation/dist app
 COPY --chown=1000:1000 --from=web-builder /app/apps/platform/telegram/dist apps/platform/telegram/dist
 COPY --chown=1000:1000 --from=web-builder /app/apps/platform/whatsapp/dist apps/platform/whatsapp/dist
 COPY --chown=1000:1000 --from=web-builder /app/apps/platform/discord/dist apps/platform/discord/dist
+COPY --chown=1000:1000 --from=web-builder /app/apps/platform/slack/dist apps/platform/slack/dist
 COPY --chown=1000:1000 --from=web-builder /runtime-deps/node_modules node_modules
 
 RUN test -f apps/server/src/services/javascript-tool-runner.js \
