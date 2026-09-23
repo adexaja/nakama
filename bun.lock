@@ -48,6 +48,13 @@
         "discord.js": "^14.18.0",
       },
     },
+    "apps/platform/slack": {
+      "name": "@nakama/slack",
+      "dependencies": {
+        "@nakama/client": "workspace:*",
+        "@nakama/core": "workspace:*",
+      },
+    },
     "apps/platform/telegram": {
       "name": "@nakama/telegram",
       "dependencies": {
@@ -600,6 +607,8 @@
     "@nakama/plugin-workflows": ["@nakama/plugin-workflows@workspace:packages/plugins/workflows"],
 
     "@nakama/server": ["@nakama/server@workspace:apps/server"],
+
+    "@nakama/slack": ["@nakama/slack@workspace:apps/platform/slack"],
 
     "@nakama/telegram": ["@nakama/telegram@workspace:apps/platform/telegram"],
 
