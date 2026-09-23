@@ -2479,12 +2479,6 @@ export class NakamaClient {
     });
   }
 
-  async ensureMfaEncryptionKey(): Promise<MfaPolicyResponse> {
-    return this.request<MfaPolicyResponse>("/v1/settings/mfa/encryption-key", {
-      method: "POST",
-    });
-  }
-
   async startTotp(): Promise<MfaTotpStartResponse> {
     return this.request<MfaTotpStartResponse>("/v1/auth/mfa/totp/start", {
       method: "POST",

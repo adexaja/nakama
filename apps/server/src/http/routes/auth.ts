@@ -684,12 +684,6 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
     );
   });
 
-  app.post("/v1/settings/mfa/encryption-key", async (c) => {
-    requirePlatformAdminFromContext(c);
-    await ensureMfaEncryptionKey();
-    return json(await loadMfaPolicy());
-  });
-
   app.post("/v1/auth/mfa/totp/start", async (c) => {
     if (!databaseAdapter) {
       return errorResponse("Authentication not configured", 500);
