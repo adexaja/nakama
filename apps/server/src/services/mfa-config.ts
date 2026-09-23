@@ -37,13 +37,6 @@ async function readConfig() {
 export async function loadMfaPolicy(): Promise<MfaPolicy> {
   const parsed = await readConfig();
   const security = parsed.sections[MFA_SECTION] ?? {};
-  if (security[REQUIRED_KEY] === "true" && !security[ENFORCED_ROLES_KEY]) {
-    security[ENFORCED_ROLES_KEY] = ORG_ROLES.join(",");
-    await writeParsedConfigIni(parsed.global, {
-      ...parsed.sections,
-      [MFA_SECTION]: security,
-    });
-  }
   const enforcedRoles = security[ENFORCED_ROLES_KEY]
     ?.split(",")
     .filter((role): role is OrgRole =>
