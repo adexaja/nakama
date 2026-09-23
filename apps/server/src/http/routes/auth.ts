@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { createRoute, z } from "@hono/zod-openapi";
 import {
+  type AcceptOrgInviteResponse,
   type AuthUserResponse,
   type ChangePasswordRequest,
   type CreateOrganizationRequest,
