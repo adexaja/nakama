@@ -162,7 +162,12 @@ export class OrgService {
       );
     }
 
-    for (const platform of ["telegram", "discord", "whatsapp"] as const) {
+    for (const platform of [
+      "telegram",
+      "discord",
+      "whatsapp",
+      "slack",
+    ] as const) {
       for (const owner of await listChannelOwners(platform)) {
         if (owner.orgId === orgId) {
           await removeChannelConnection(platform, owner);
