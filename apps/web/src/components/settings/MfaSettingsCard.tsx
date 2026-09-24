@@ -144,7 +144,7 @@ export function MfaSettingsCard() {
           ) : null}
 
           {totpUri ? (
-            <div className="space-y-3 rounded-md border border-border p-4">
+            <div className="space-y-3">
               <p className="font-medium text-sm">
                 Scan with your authenticator app
               </p>
@@ -166,13 +166,6 @@ export function MfaSettingsCard() {
                 Enter the 6-digit code
               </label>
               <MfaCodeInput id="mfa-code" onChange={setCode} value={code} />
-              <Button
-                disabled={busy || code.trim().length < 6}
-                onClick={() => void verifyTotp()}
-                type="button"
-              >
-                Verify and enable
-              </Button>
             </div>
           ) : null}
 
@@ -190,14 +183,23 @@ export function MfaSettingsCard() {
                 Disable multi-factor authentication
               </Button>
             ) : totpUri ? (
-              <Button
-                disabled={busy}
-                onClick={cancelTotpSetup}
-                type="button"
-                variant="outline"
-              >
-                Cancel
-              </Button>
+              <>
+                <Button
+                  disabled={busy || code.trim().length < 6}
+                  onClick={() => void verifyTotp()}
+                  type="button"
+                >
+                  Verify and enable
+                </Button>
+                <Button
+                  disabled={busy}
+                  onClick={cancelTotpSetup}
+                  type="button"
+                  variant="outline"
+                >
+                  Cancel
+                </Button>
+              </>
             ) : (
               <Button
                 disabled={busy}
