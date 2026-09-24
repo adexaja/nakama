@@ -166,7 +166,9 @@ export function isPendingMfaAllowedRequest(
     (method === "POST" &&
       (pathname === "/v1/auth/logout" ||
         pathname === "/v1/auth/mfa/totp/start" ||
-        pathname === "/v1/auth/mfa/totp/verify"))
+        pathname === "/v1/auth/mfa/totp/verify" ||
+        pathname === "/v1/auth/mfa/passkey/start" ||
+        pathname === "/v1/auth/mfa/passkey/verify"))
   );
 }
 
@@ -188,7 +190,11 @@ export async function isPendingBrowserMfa(
   }
 
   const user = await databaseAdapter.getUserById(auth.user.id);
-  if (!user || (user.mfaEnabled && user.mfaTotpSecretEnc)) {
+  if (
+    !user ||
+    (user.mfaEnabled && user.mfaTotpSecretEnc) ||
+    (await databaseAdapter.listPasskeys(user.id)).length > 0
+  ) {
     return false;
   }
 

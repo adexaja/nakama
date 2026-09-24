@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import { MfaCodeInput } from "@/components/MfaCodeInput";
 import { useAuth } from "@/context/use-auth";
 import { client, formatError } from "@/lib/client";
+import { createPasskey, getPasskey } from "@/lib/passkey";
 
 export function MfaSettingsCard() {
   const { user, refreshSession } = useAuth();
@@ -38,6 +39,40 @@ export function MfaSettingsCard() {
       .catch(() => setAvailable(false));
   }, []);
 
+  async function startPasskey() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await client.startPasskey();
+      const credential = await createPasskey(result.options);
+      await client.verifyPasskey(result.challenge, credential);
+      await refreshSession();
+      toast("Passkey enabled.");
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disablePasskeyWithPasskey() {
+    if (!user?.email) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await client.getPasskeyLoginOptions(user.email);
+      const credential = await getPasskey(result.options);
+      await client.disablePasskey(result.challenge, credential);
+      await refreshSession();
+      toast("Passkey disabled.");
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
   if (!available) {
     return null;
   }
@@ -65,9 +100,7 @@ export function MfaSettingsCard() {
       setTotpUri(null);
       setCode("");
       await refreshSession();
-      toast(
-        "Multi-factor authentication enabled. Save these backup codes now."
-      );
+      toast("Authenticator enabled. Save these backup codes now.");
     } catch (err) {
       setError(formatError(err));
     } finally {
@@ -90,7 +123,7 @@ export function MfaSettingsCard() {
       setDisableBackupCode("");
       setDisableMethod("totp");
       await refreshSession();
-      toast("Multi-factor authentication disabled.");
+      toast("Authenticator disabled.");
     } catch (err) {
       setError(formatError(err));
     } finally {
@@ -113,16 +146,81 @@ export function MfaSettingsCard() {
                 Multi Factor Authentication
               </p>
               <p className="text-muted-foreground text-xs">
-                Use an authenticator app to protect this account.
+                Choose a passkey or authenticator app to protect this account.
               </p>
             </div>
             <span className="shrink-0 text-muted-foreground text-xs">
-              {user?.mfaEnabled ? "Enabled" : "Not enrolled"}
+              {user?.passkeyEnabled || user?.mfaEnabled
+                ? "Enabled"
+                : "Not enrolled"}
             </span>
+          </div>
+        </div>
+        <div className="border-border border-b px-4 py-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="font-medium text-sm">Passkey</p>
+              <p className="text-muted-foreground text-xs">
+                Use iCloud Keychain or another security key as your MFA method.
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-2">
+              {user?.passkeyEnabled ? (
+                <Button
+                  disabled={busy}
+                  onClick={() => void disablePasskeyWithPasskey()}
+                  type="button"
+                  variant="outline"
+                >
+                  Disable passkey
+                </Button>
+              ) : (
+                <Button
+                  disabled={busy}
+                  onClick={() => void startPasskey()}
+                  type="button"
+                >
+                  Add passkey
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="space-y-4 px-4 py-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="font-medium text-sm">Authenticator app</p>
+              <p className="text-muted-foreground text-xs">
+                Use an authenticator app to generate verification codes.
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-2">
+              {!totpUri &&
+                (user?.mfaEnabled ? (
+                  <Button
+                    disabled={busy}
+                    onClick={() => {
+                      setError(null);
+                      setDisableConfirmOpen(true);
+                    }}
+                    type="button"
+                    variant="outline"
+                  >
+                    Disable authenticator
+                  </Button>
+                ) : (
+                  <Button
+                    disabled={busy}
+                    onClick={() => void startTotp()}
+                    type="button"
+                  >
+                    Add authenticator
+                  </Button>
+                ))}
+            </div>
+          </div>
+
           {error ? (
             <p className="text-destructive text-sm" role="alert">
               {error}
@@ -169,59 +267,37 @@ export function MfaSettingsCard() {
             </div>
           ) : null}
 
-          <div className="flex flex-wrap gap-2">
-            {user?.mfaEnabled ? (
+          {totpUri ? (
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                disabled={busy || code.trim().length < 6}
+                onClick={() => void verifyTotp()}
+                type="button"
+              >
+                Verify and enable
+              </Button>
               <Button
                 disabled={busy}
-                onClick={() => {
-                  setError(null);
-                  setDisableConfirmOpen(true);
-                }}
+                onClick={cancelTotpSetup}
                 type="button"
                 variant="outline"
               >
-                Disable multi-factor authentication
+                Cancel
               </Button>
-            ) : totpUri ? (
-              <>
-                <Button
-                  disabled={busy || code.trim().length < 6}
-                  onClick={() => void verifyTotp()}
-                  type="button"
-                >
-                  Verify and enable
-                </Button>
-                <Button
-                  disabled={busy}
-                  onClick={cancelTotpSetup}
-                  type="button"
-                  variant="outline"
-                >
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <Button
-                disabled={busy}
-                onClick={() => void startTotp()}
-                type="button"
-              >
-                Add authenticator
-              </Button>
-            )}
-          </div>
+            </div>
+          ) : null}
         </div>
       </CardContent>
       {disableConfirmOpen ? (
         <ConfirmDialog
           confirmLabel="Continue"
-          description="Disabling multi-factor authentication removes the extra sign-in protection from this account. You will need to set it up again before using an authenticator. Continue?"
+          description="Disabling the authenticator removes this TOTP method. Continue?"
           onClose={() => setDisableConfirmOpen(false)}
           onConfirm={async () => {
             setError(null);
             setDisableVerifyOpen(true);
           }}
-          title="Disable multi-factor authentication?"
+          title="Disable authenticator?"
         />
       ) : null}
       <Dialog
@@ -241,8 +317,8 @@ export function MfaSettingsCard() {
             <DialogTitle>Verify your identity</DialogTitle>
             <DialogDescription>
               {disableMethod === "totp"
-                ? "Enter the 6-digit code from your authenticator app to confirm disabling multi-factor authentication."
-                : "Enter an unused backup code to confirm disabling multi-factor authentication. The code will be consumed if it is valid."}
+                ? "Enter the 6-digit code from your authenticator app to confirm disabling this TOTP method."
+                : "Enter an unused backup code to confirm disabling this TOTP method. The code will be consumed if it is valid."}
             </DialogDescription>
           </DialogHeader>
           {error ? (

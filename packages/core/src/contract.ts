@@ -488,6 +488,7 @@ export interface AuthUserResponse {
   mode?: "api-key" | "browser-session" | "local-token";
   name?: string | null;
   orgId?: string | null;
+  passkeyEnabled?: boolean;
   phone?: string | null;
 }
 
@@ -507,6 +508,33 @@ export interface MfaTotpVerifyResponse {
   backupCodes: string[];
   enabled: boolean;
 }
+export interface PasskeyRegistrationOptionsResponse {
+  challenge: string;
+  options: Record<string, unknown>;
+}
+
+export interface PasskeyAuthenticationOptionsResponse {
+  challenge: string;
+  options: Record<string, unknown>;
+  totpEnabled: boolean;
+}
+
+export interface PasskeyCredentialResponse {
+  authenticatorAttachment?: string;
+  clientExtensionResults: Record<string, unknown>;
+  id: string;
+  rawId: string;
+  response: {
+    attestationObject?: string;
+    authenticatorData?: string;
+    clientDataJSON: string;
+    signature?: string;
+    transports?: string[];
+    userHandle?: string;
+  };
+  type: string;
+}
+
 export interface UpdateAuthProfileRequest {
   currentPassword?: string;
   email?: string;

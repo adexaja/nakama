@@ -40,7 +40,7 @@ test("channel setup stays on the agent page and Connect apps excludes messaging 
     createOrg: async () => {},
     isAuthenticated: true,
     isLoading: false,
-    login: async () => {},
+    login: async () => ({ email: "", id: "" }),
     logout: async () => {},
     orgs: [],
     refreshSession: async () => {},

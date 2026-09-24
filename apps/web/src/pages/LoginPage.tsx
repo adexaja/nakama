@@ -3,14 +3,16 @@ import { DEMO_LOGIN_EMAIL, DEMO_LOGIN_PASSWORD } from "@nakama/core/demo-login";
 import { Button } from "@nakama/ui/button";
 import { Input } from "@nakama/ui/input";
 import { ArrowLeft02Icon } from "hugeicons-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { MfaCodeInput } from "@/components/MfaCodeInput";
 import { useAppContext } from "@/context/use-app-context";
 import { useAuth } from "@/context/use-auth";
 import { useTheme } from "@/context/use-theme";
+import { client } from "@/lib/client";
 import { isDemoLoginHost } from "@/lib/demo-login";
 import { SETUP_PATH } from "@/lib/navigation";
+import { getPasskey } from "@/lib/passkey";
 import { ditherLogoSrc } from "@/lib/theme";
 
 /**
@@ -32,6 +34,8 @@ export function LoginPage() {
   const [mfaCode, setMfaCode] = useState("");
   const [backupCode, setBackupCode] = useState("");
   const [useBackupCode, setUseBackupCode] = useState(false);
+  const [passkeyRequired, setPasskeyRequired] = useState(false);
+  const [passkeyTotpEnabled, setPasskeyTotpEnabled] = useState(false);
   const [mfaRequired, setMfaRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -41,7 +45,59 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from;
+  const passkeyAttemptedEmail = useRef("");
 
+  function shouldFallbackToPassword(error: unknown) {
+    return (
+      (error instanceof NakamaApiError && error.status === 401) ||
+      (error instanceof Error &&
+        (error.name === "AbortError" || error.name === "NotAllowedError"))
+    );
+  }
+
+  async function beginPasskeyLogin(options?: { silent?: boolean }) {
+    setError(null);
+    try {
+      const result = await client.getPasskeyLoginOptions(email);
+      setPasskeyTotpEnabled(result.totpEnabled);
+      const credential = await getPasskey(result.options);
+      const response = await login(email, "", {
+        passkey: credential,
+        passkeyChallenge: result.challenge,
+      });
+      if (response.mfaRequired && !response.mfaEnrolled) {
+        navigate("/settings?mfa=required", { replace: true });
+      } else {
+        navigate(resolvePostAuthPath(from), { replace: true });
+      }
+    } catch (err) {
+      if (!(options?.silent && shouldFallbackToPassword(err))) {
+        setError(
+          err instanceof Error ? err.message : "Passkey verification failed."
+        );
+      }
+    }
+  }
+
+  const maybeAutoPasskeyLogin = async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (
+      demoLogin ||
+      !normalizedEmail ||
+      !normalizedEmail.includes("@") ||
+      isSubmitting ||
+      passkeyAttemptedEmail.current === normalizedEmail
+    ) {
+      return;
+    }
+    passkeyAttemptedEmail.current = normalizedEmail;
+    setIsSubmitting(true);
+    try {
+      await beginPasskeyLogin({ silent: true });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
   if (isAuthenticated && !isSubmitting) {
     return <Navigate replace to={resolvePostAuthPath(from)} />;
   }
@@ -66,13 +122,21 @@ export function LoginPage() {
         navigate(resolvePostAuthPath(from), { replace: true });
       }
     } catch (err) {
+      const message = err instanceof Error ? err.message : "Login failed";
+      if (
+        err instanceof NakamaApiError &&
+        err.message === "Passkey verification required."
+      ) {
+        setPasskeyRequired(true);
+        await beginPasskeyLogin();
+        return;
+      }
       if (
         err instanceof NakamaApiError &&
         err.message === "MFA verification required."
       ) {
         setMfaRequired(true);
       }
-      const message = err instanceof Error ? err.message : "Login failed";
       setError(
         message === "MFA verification required."
           ? "Authentication code required."
@@ -93,14 +157,16 @@ export function LoginPage() {
             src={ditherLogoSrc(resolvedTheme)}
           />
           <h1 className="font-semibold text-xl tracking-tight">
-            {mfaRequired ? "Verify your identity" : "Sign in to Nakama"}
+            {mfaRequired || passkeyRequired
+              ? "Verify your identity"
+              : "Sign in to Nakama"}
           </h1>
-          {mfaRequired || demoLogin ? null : (
+          {mfaRequired || passkeyRequired || demoLogin ? null : (
             <p className="text-muted-foreground text-sm">
               Enter your credentials to access your account.
             </p>
           )}
-          {demoLogin && !mfaRequired ? (
+          {demoLogin && !mfaRequired && !passkeyRequired ? (
             <div className="space-y-2 rounded-md border bg-muted/40 px-3 py-3 text-sm">
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-muted-foreground">Email</span>
@@ -116,7 +182,7 @@ export function LoginPage() {
           ) : null}
         </div>
         <form className="space-y-4" onSubmit={handleSubmit}>
-          {mfaRequired ? null : (
+          {mfaRequired || passkeyRequired ? null : (
             <>
               <div>
                 <label
@@ -127,6 +193,7 @@ export function LoginPage() {
                 </label>
                 <Input
                   id="email"
+                  onBlur={() => void maybeAutoPasskeyLogin()}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="admin@example.com"
                   required
@@ -152,7 +219,7 @@ export function LoginPage() {
               </div>
             </>
           )}
-          {mfaRequired ? (
+          {mfaRequired || passkeyRequired ? (
             <div className="space-y-3 p-0">
               <div className="relative flex items-center">
                 <Button
@@ -160,6 +227,7 @@ export function LoginPage() {
                   className="absolute -left-8"
                   onClick={() => {
                     setMfaRequired(false);
+                    setPasskeyRequired(false);
                     setUseBackupCode(false);
                     setMfaCode("");
                     setBackupCode("");
@@ -178,46 +246,69 @@ export function LoginPage() {
               <p className="text-muted-foreground text-sm" id="login-email">
                 {email}
               </p>
-              {useBackupCode ? (
-                <div>
-                  <label
-                    className="mb-1 block font-medium text-sm"
-                    htmlFor="login-backup-code"
-                  >
-                    Backup code
-                  </label>
-                  <Input
-                    id="login-backup-code"
-                    onChange={(event) => setBackupCode(event.target.value)}
-                    placeholder="Enter a backup code"
-                    value={backupCode}
-                  />
+              {passkeyRequired ? (
+                <div className="space-y-3">
+                  <p className="text-muted-foreground text-sm">
+                    Approve the passkey prompt to continue.
+                  </p>
+                  {passkeyTotpEnabled ? (
+                    <Button
+                      onClick={() => {
+                        setPasskeyRequired(false);
+                        setMfaRequired(true);
+                        setError(null);
+                      }}
+                      type="button"
+                      variant="link"
+                    >
+                      Use another method
+                    </Button>
+                  ) : null}
                 </div>
               ) : (
-                <div>
-                  <label className="mb-1 block font-medium text-sm">
-                    Authentication code
-                  </label>
-                  <MfaCodeInput
-                    id="login-mfa-code"
-                    onChange={setMfaCode}
-                    value={mfaCode}
-                  />
-                </div>
+                <>
+                  {useBackupCode ? (
+                    <div>
+                      <label
+                        className="mb-1 block font-medium text-sm"
+                        htmlFor="login-backup-code"
+                      >
+                        Backup code
+                      </label>
+                      <Input
+                        id="login-backup-code"
+                        onChange={(event) => setBackupCode(event.target.value)}
+                        placeholder="Enter a backup code"
+                        value={backupCode}
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="mb-1 block font-medium text-sm">
+                        Authentication code
+                      </label>
+                      <MfaCodeInput
+                        id="login-mfa-code"
+                        onChange={setMfaCode}
+                        value={mfaCode}
+                      />
+                    </div>
+                  )}
+                  <Button
+                    onClick={() => {
+                      setUseBackupCode((current) => !current);
+                      setMfaCode("");
+                      setBackupCode("");
+                    }}
+                    type="button"
+                    variant="link"
+                  >
+                    {useBackupCode
+                      ? "Use authenticator code instead"
+                      : "Use a backup code instead"}
+                  </Button>
+                </>
               )}
-              <Button
-                onClick={() => {
-                  setUseBackupCode((current) => !current);
-                  setMfaCode("");
-                  setBackupCode("");
-                }}
-                type="button"
-                variant="link"
-              >
-                {useBackupCode
-                  ? "Use authenticator code instead"
-                  : "Use a backup code instead"}
-              </Button>
             </div>
           ) : null}
           {error && (
@@ -225,10 +316,16 @@ export function LoginPage() {
               {error}
             </div>
           )}
-          <Button className="w-full" disabled={isSubmitting} type="submit">
-            {isSubmitting ? "Verifying..." : mfaRequired ? "Verify" : "Sign in"}
-          </Button>
-          {mfaRequired || demoLogin ? null : (
+          {passkeyRequired ? null : (
+            <Button className="w-full" disabled={isSubmitting} type="submit">
+              {isSubmitting
+                ? "Verifying..."
+                : mfaRequired
+                  ? "Verify"
+                  : "Sign in"}
+            </Button>
+          )}
+          {mfaRequired || passkeyRequired || demoLogin ? null : (
             <Link
               className="block text-center font-medium text-primary text-sm hover:underline"
               to="/reset-password"

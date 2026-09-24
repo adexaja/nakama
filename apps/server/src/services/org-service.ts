@@ -418,13 +418,17 @@ export class OrgService {
       ? await this.databaseAdapter.getOrgMember(activeOrgId, user.id)
       : null;
     const mfaPolicy = await loadMfaPolicy();
+    const passkeyEnabled =
+      (await this.databaseAdapter.listPasskeys(user.id)).length > 0;
     return {
       activeOrgId,
       email: user.email,
       id: user.id,
       isPlatformAdmin: Boolean(user.isPlatformAdmin),
       mfaEnabled: Boolean(user.mfaEnabled),
-      mfaEnrolled: Boolean(user.mfaEnabled && user.mfaTotpSecretEnc),
+      mfaEnrolled: Boolean(
+        (user.mfaEnabled && user.mfaTotpSecretEnc) || passkeyEnabled
+      ),
       mfaRequired:
         mfaPolicy.enabled &&
         mfaPolicy.required &&
@@ -433,6 +437,7 @@ export class OrgService {
           : false),
       name: user.name ?? null,
       orgId: activeOrgId,
+      passkeyEnabled,
       phone: user.phone ?? null,
     };
   }

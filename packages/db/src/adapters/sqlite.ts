@@ -35,6 +35,7 @@ import type {
   StoredOrgMemberRecord,
   StoredOrgMemoryProposal,
   StoredOrgPluginRecord,
+  StoredPasskeyRecord,
   StoredPluginReleaseRecord,
   StoredProfileChangeEvent,
   StoredProfileComposioToolkitRecord,
@@ -363,6 +364,17 @@ interface MfaBackupCodeRow {
   created_at: string;
   id: string;
   used_at: string | null;
+  user_id: string;
+}
+
+interface PasskeyRow {
+  counter: number;
+  created_at: string;
+  credential_id: string;
+  id: string;
+  name: string;
+  public_key: string;
+  transports: string;
   user_id: string;
 }
 
@@ -1696,6 +1708,39 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     DELETE FROM user_mfa_backup_codes
     WHERE user_id = ?
   `);
+  const createPasskeyStmt = db.prepare(`
+    INSERT INTO user_passkeys (
+      id, user_id, credential_id, public_key, counter, transports, name, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const createPasskeyChallengeStmt = db.prepare(`
+    INSERT INTO user_passkey_challenges (
+      challenge, user_id, type, expires_at, created_at
+    )
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const consumePasskeyChallengeStmt = db.prepare(`
+    DELETE FROM user_passkey_challenges
+    WHERE challenge = ? AND user_id = ? AND type = ? AND expires_at > ?
+  `);
+  const deletePasskeysStmt = db.prepare(
+    "DELETE FROM user_passkeys WHERE user_id = ?"
+  );
+  const getPasskeyStmt = db.prepare(`
+    SELECT id, user_id, credential_id, public_key, counter, transports, name, created_at
+    FROM user_passkeys
+    WHERE user_id = ? AND credential_id = ?
+  `);
+  const listPasskeysStmt = db.prepare(`
+    SELECT id, user_id, credential_id, public_key, counter, transports, name, created_at
+    FROM user_passkeys
+    WHERE user_id = ?
+    ORDER BY created_at ASC
+  `);
+  const updatePasskeyCounterStmt = db.prepare(`
+    UPDATE user_passkeys SET counter = ? WHERE user_id = ? AND credential_id = ?
+  `);
 
   const getUserByEmailStmt = db.prepare("SELECT * FROM users WHERE email = ?");
   const getUserByIdStmt = db.prepare("SELECT * FROM users WHERE id = ?");
@@ -2735,6 +2780,12 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     async consumeMfaTotpStep(userId, step) {
       return consumeMfaTotpStepStmt.run(step, userId, step).changes > 0;
     },
+    async consumePasskeyChallenge(challenge, userId, type, consumedAt) {
+      return (
+        consumePasskeyChallengeStmt.run(challenge, userId, type, consumedAt)
+          .changes > 0
+      );
+    },
 
     async consumePasswordResetToken(tokenHash, passwordHash, consumedAt) {
       return consumePasswordResetTokenTransaction.immediate(
@@ -2887,6 +2938,27 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
         record.createdAt
       );
     },
+    async createPasskey(record) {
+      createPasskeyStmt.run(
+        record.id,
+        record.userId,
+        record.credentialId,
+        record.publicKey,
+        record.counter,
+        JSON.stringify(record.transports),
+        record.name,
+        record.createdAt
+      );
+    },
+    async createPasskeyChallenge(record) {
+      createPasskeyChallengeStmt.run(
+        record.challenge,
+        record.userId,
+        record.type,
+        record.expiresAt,
+        record.createdAt
+      );
+    },
 
     async createPasswordResetToken(record) {
       createPasswordResetTokenStmt.run(
@@ -2985,7 +3057,6 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
       const result = deleteComposioToolkitStmt.run(id);
       return result.changes > 0;
     },
-
     async deleteComposioUserConnection(id) {
       const result = deleteComposioUserConnectionStmt.run(id);
       return result.changes > 0;
@@ -3033,6 +3104,10 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
 
     async deleteOrgPlugin(orgId, pluginId, expectedRevision) {
       return deleteOrgPluginTx(orgId, pluginId, expectedRevision);
+    },
+
+    async deletePasskeys(userId) {
+      deletePasskeysStmt.run(userId);
     },
 
     async deletePluginRelease(pluginId, version) {
@@ -3273,6 +3348,10 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     async getOrgPlugin(orgId, pluginId) {
       const row = getOrgPluginStmt.get(orgId, pluginId) as OrgPluginRow | null;
       return row ? toOrgPluginRecord(row) : null;
+    },
+    async getPasskey(userId, credentialId) {
+      const row = getPasskeyStmt.get(userId, credentialId) as PasskeyRow | null;
+      return row ? toPasskeyRecord(row) : null;
     },
 
     async getPendingOrgInvite(orgId, email) {
@@ -3778,6 +3857,11 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
           : listOrgPluginsForOrgStmt.all(orgId);
       return rows.map((row) => toOrgPluginRecord(row as OrgPluginRow));
     },
+    async listPasskeys(userId) {
+      return listPasskeysStmt
+        .all(userId)
+        .map((row) => toPasskeyRecord(row as PasskeyRow));
+    },
 
     async listPlatformAdminUsers() {
       const rows = listPlatformAdminUsersStmt.all() as UserRow[];
@@ -4188,6 +4272,9 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
         id
       );
       return result.changes > 0;
+    },
+    async updatePasskeyCounter(userId, credentialId, counter) {
+      updatePasskeyCounterStmt.run(counter, userId, credentialId);
     },
 
     async updateSessionModel(sessionId, model) {
@@ -5023,6 +5110,24 @@ function parseCodingAgentHarnesses(
   } catch {
     return [];
   }
+}
+function toPasskeyRecord(row: PasskeyRow): StoredPasskeyRecord {
+  let transports: string[] = [];
+  try {
+    transports = JSON.parse(row.transports) as string[];
+  } catch {
+    transports = [];
+  }
+  return {
+    counter: row.counter,
+    createdAt: row.created_at,
+    credentialId: row.credential_id,
+    id: row.id,
+    name: row.name,
+    publicKey: row.public_key,
+    transports,
+    userId: row.user_id,
+  };
 }
 
 function toNotificationDestinationRecord(

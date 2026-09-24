@@ -132,6 +132,9 @@ import type {
   OrgMemorySearchRequest,
   OrgMemorySearchResponse,
   OrgPluginDetail,
+  PasskeyAuthenticationOptionsResponse,
+  PasskeyCredentialResponse,
+  PasskeyRegistrationOptionsResponse,
   PatchSkillRequest,
   PinOrgMemoryRequest,
   PluginContributionChangePreview,
@@ -2454,7 +2457,12 @@ export class NakamaClient {
   async login(
     email: string,
     password: string,
-    mfa?: { backupCode?: string; mfaCode?: string }
+    mfa?: {
+      backupCode?: string;
+      mfaCode?: string;
+      passkey?: PasskeyCredentialResponse;
+      passkeyChallenge?: string;
+    }
   ): Promise<AuthUserResponse> {
     const response = await this.request<AuthUserResponse>("/v1/auth/login", {
       body: JSON.stringify({ email, password, ...mfa }),
@@ -2463,6 +2471,21 @@ export class NakamaClient {
 
     this.applyAuthUserResponse(response);
     return response;
+  }
+  async getPasskeyLoginOptions(
+    email: string,
+    password?: string
+  ): Promise<PasskeyAuthenticationOptionsResponse> {
+    return this.request<PasskeyAuthenticationOptionsResponse>(
+      "/v1/auth/passkey/login/options",
+      {
+        body: JSON.stringify({
+          email,
+          ...(password === undefined ? {} : { password }),
+        }),
+        method: "POST",
+      }
+    );
   }
   async getMfaPolicy(): Promise<MfaPolicyResponse> {
     return this.request<MfaPolicyResponse>("/v1/settings/mfa");
@@ -2481,6 +2504,38 @@ export class NakamaClient {
 
   async startTotp(): Promise<MfaTotpStartResponse> {
     return this.request<MfaTotpStartResponse>("/v1/auth/mfa/totp/start", {
+      method: "POST",
+    });
+  }
+
+  async startPasskey(): Promise<PasskeyRegistrationOptionsResponse> {
+    return this.request<PasskeyRegistrationOptionsResponse>(
+      "/v1/auth/mfa/passkey/start",
+      { method: "POST" }
+    );
+  }
+
+  async verifyPasskey(
+    challenge: string,
+    credential: PasskeyCredentialResponse,
+    name?: string
+  ): Promise<{ enabled: boolean }> {
+    return this.request<{ enabled: boolean }>("/v1/auth/mfa/passkey/verify", {
+      body: JSON.stringify({
+        challenge,
+        credential,
+        ...(name ? { name } : {}),
+      }),
+      method: "POST",
+    });
+  }
+
+  async disablePasskey(
+    challenge: string,
+    credential: PasskeyCredentialResponse
+  ): Promise<{ enabled: boolean }> {
+    return this.request<{ enabled: boolean }>("/v1/auth/mfa/passkey/disable", {
+      body: JSON.stringify({ challenge, credential }),
       method: "POST",
     });
   }

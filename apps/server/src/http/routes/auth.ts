@@ -9,6 +9,7 @@ import {
   type ListBrowserSessionsResponse,
   type ListUserOrgsResponse,
   LocalAuthTokenManagedExternallyError,
+  type PasskeyCredentialResponse,
   type RequestPasswordResetRequest,
   type RequestPasswordResetResponse,
   type ResetPasswordRequest,
@@ -21,6 +22,17 @@ import {
 } from "@nakama/core";
 import { DEMO_LOGIN_EMAIL, DEMO_LOGIN_HOST } from "@nakama/core/demo-login";
 import { ORG_ROLES } from "@nakama/db";
+import type {
+  AuthenticationResponseJSON,
+  RegistrationResponseJSON,
+  VerifiedRegistrationResponse,
+} from "@simplewebauthn/server";
+import {
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse,
+} from "@simplewebauthn/server";
 import {
   persistWebPublicUrl,
   resolveRequestClientOrigin,
@@ -58,11 +70,28 @@ import type { HonoApp } from "../types";
 
 /**
  * A real bcrypt hash at the cost the app uses, kept only so a login for an
- * unknown email costs the same as one for a known email. Nothing verifies
- * against it successfully; it exists to be slow.
+ * unknown email costs the same as one for a known email.
  */
 const ABSENT_ACCOUNT_PASSWORD_HASH =
   "$2b$10$IJnCe7uf5MN2/Vo89wb4ReF6yVI5SNnLdjIbiZ4Uwj4/r7zcqrWLm";
+function passkeyVerificationErrorResponse(error: unknown, status: 400 | 401) {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.error("[passkey] verification failed", { error: detail });
+  return errorResponse(
+    process.env.NODE_ENV === "production"
+      ? "Passkey verification failed."
+      : `Passkey verification failed: ${detail}`,
+    status
+  );
+}
+function resolveWebAuthnContext(request: Request): {
+  origin: string;
+  rpID: string;
+} {
+  const origin =
+    resolveRequestClientOrigin(request) ?? new URL(request.url).origin;
+  return { origin, rpID: new URL(origin).hostname };
+}
 
 export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
   const { authService, databaseAdapter, orgService } = options;
@@ -71,7 +100,9 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
       backupCode: z.string().optional(),
       email: z.string(),
       mfaCode: z.string().optional(),
-      password: z.string(),
+      passkey: z.record(z.string(), z.unknown()).optional(),
+      passkeyChallenge: z.string().optional(),
+      password: z.string().optional(),
     })
     .openapi("AuthCredentialsRequest");
   const authUserSchema = z
@@ -80,6 +111,7 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
       email: z.string(),
       id: z.string(),
       isPlatformAdmin: z.boolean().optional(),
+      passkeyEnabled: z.boolean().optional(),
       mfaEnabled: z.boolean().optional(),
       mfaEnrolled: z.boolean().optional(),
       mfaRequired: z.boolean().optional(),
@@ -575,8 +607,11 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
       backupCode?: string;
       email: string;
       mfaCode?: string;
-      password: string;
+      passkey?: PasskeyCredentialResponse;
+      passkeyChallenge?: string;
+      password?: string;
     }>(c.req.raw, authCredentialsSchema);
+    const passkeyLogin = Boolean(body.passkey && body.passkeyChallenge);
     const user = await databaseAdapter.getUserByEmail(body.email);
     if (!user) {
       // Spend the same bcrypt work an existing account would, so the response
@@ -588,21 +623,78 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
       return errorResponse("Invalid credentials", 401);
     }
 
-    // Every path that sets a password trims it first, so login has to as well
-    // or a padded password can never be typed back in.
-    const valid = await authService.verifyPassword(
-      body.password?.trim() ?? "",
-      user.passwordHash
-    );
-    if (!valid) {
-      return errorResponse("Invalid credentials", 401);
+    if (!passkeyLogin) {
+      // Every path that sets a password trims it first, so login has to as well
+      // or a padded password can never be typed back in.
+      const valid = await authService.verifyPassword(
+        body.password?.trim() ?? "",
+        user.passwordHash
+      );
+      if (!valid) {
+        return errorResponse("Invalid credentials", 401);
+      }
     }
 
     if (user.disabledAt) {
       return errorResponse("Account disabled", 403);
     }
-    if (user.mfaEnabled) {
-      let validMfa = false;
+
+    const passkeys = await databaseAdapter.listPasskeys(user.id);
+    if (passkeyLogin && passkeys.length === 0) {
+      return errorResponse("Passkey verification failed.", 401);
+    }
+    let validPasskey = false;
+    if (passkeys.length > 0) {
+      if (body.passkey) {
+        const stored = await databaseAdapter.getPasskey(
+          user.id,
+          body.passkey.id
+        );
+        if (!(stored && body.passkeyChallenge)) {
+          return errorResponse("Passkey verification failed.", 401);
+        }
+        const { origin, rpID } = resolveWebAuthnContext(c.req.raw);
+        try {
+          const verification = await verifyAuthenticationResponse({
+            credential: {
+              counter: stored.counter,
+              id: stored.credentialId,
+              publicKey: Buffer.from(stored.publicKey, "base64url"),
+              transports: stored.transports,
+            },
+            expectedChallenge: body.passkeyChallenge,
+            expectedOrigin: origin,
+            expectedRPID: rpID,
+            response: body.passkey as unknown as AuthenticationResponseJSON,
+          });
+          if (verification.verified) {
+            validPasskey = await databaseAdapter.consumePasskeyChallenge(
+              body.passkeyChallenge,
+              user.id,
+              "authentication",
+              new Date().toISOString()
+            );
+            if (validPasskey) {
+              await databaseAdapter.updatePasskeyCounter(
+                user.id,
+                stored.credentialId,
+                verification.authenticationInfo.newCounter
+              );
+            }
+          }
+        } catch (error) {
+          return passkeyVerificationErrorResponse(error, 401);
+        }
+        if (!validPasskey) {
+          return errorResponse("Passkey verification failed.", 401);
+        }
+      } else if (!(body.mfaCode || body.backupCode)) {
+        return errorResponse("Passkey verification required.", 401);
+      }
+    }
+
+    let validMfa = false;
+    if (user.mfaEnabled && !validPasskey) {
       if (user.mfaTotpSecretEnc && body.mfaCode) {
         try {
           const step = findTotpStep(
@@ -624,14 +716,18 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
           new Date().toISOString()
         );
       }
-      if (!validMfa) {
-        return errorResponse(
-          body.backupCode
-            ? "Backup code is invalid or has already been used."
-            : "MFA verification required.",
-          401
-        );
-      }
+    }
+    if (
+      !validPasskey &&
+      (passkeys.length > 0 || user.mfaEnabled) &&
+      !validMfa
+    ) {
+      return errorResponse(
+        body.backupCode
+          ? "Backup code is invalid or has already been used."
+          : "MFA verification required.",
+        401
+      );
     }
 
     const response = await createBrowserSessionResponse(
@@ -655,6 +751,227 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
       return errorResponse("Authentication required", 401);
     }
     return json(await loadMfaPolicy());
+  });
+
+  app.post("/v1/auth/passkey/login/options", async (c) => {
+    if (!(authService && databaseAdapter)) {
+      return errorResponse("Authentication not configured", 500);
+    }
+    assertJsonRequest(c.req.raw);
+    const body = await readJson<{ email: string; password?: string }>(
+      c.req.raw,
+      z.object({ email: z.string(), password: z.string().optional() })
+    );
+    const user = await databaseAdapter.getUserByEmail(body.email);
+    if (
+      !user ||
+      (body.password !== undefined &&
+        !(await authService.verifyPassword(
+          body.password.trim(),
+          user.passwordHash
+        )))
+    ) {
+      return errorResponse("Invalid credentials", 401);
+    }
+    if (user.disabledAt) {
+      return errorResponse("Account disabled", 403);
+    }
+    const passkeys = await databaseAdapter.listPasskeys(user.id);
+    if (passkeys.length === 0) {
+      return errorResponse("Invalid credentials", 401);
+    }
+    const { rpID } = resolveWebAuthnContext(c.req.raw);
+    const options = await generateAuthenticationOptions({
+      allowCredentials: passkeys.map((passkey) => ({
+        id: passkey.credentialId,
+        transports: passkey.transports,
+      })),
+      rpID,
+      userVerification: "preferred",
+    });
+    await databaseAdapter.createPasskeyChallenge({
+      challenge: options.challenge,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      type: "authentication",
+      userId: user.id,
+    });
+    return json({
+      challenge: options.challenge,
+      options,
+      totpEnabled: Boolean(user.mfaEnabled && user.mfaTotpSecretEnc),
+    });
+  });
+
+  app.post("/v1/auth/mfa/passkey/start", async (c) => {
+    if (!databaseAdapter) {
+      return errorResponse("Authentication not configured", 500);
+    }
+    const auth = getRequestAuth(c);
+    assertBrowserCsrf(c.req.raw, auth, authService);
+    const user = await databaseAdapter.getUserById(auth.user.id);
+    if (!user) {
+      return errorResponse("Authentication required", 401);
+    }
+    const policy = await loadMfaPolicy();
+    if (!policy.enabled) {
+      return errorResponse("MFA is not enabled.", 400);
+    }
+    const { rpID } = resolveWebAuthnContext(c.req.raw);
+    const options = await generateRegistrationOptions({
+      attestationType: "none",
+      authenticatorSelection: {
+        residentKey: "preferred",
+        userVerification: "preferred",
+      },
+      excludeCredentials: (await databaseAdapter.listPasskeys(user.id)).map(
+        (passkey) => ({
+          id: passkey.credentialId,
+          transports: passkey.transports,
+        })
+      ),
+      rpID,
+      rpName: "Nakama",
+      userDisplayName: user.name ?? user.email,
+      userID: new TextEncoder().encode(user.id),
+      userName: user.email,
+    });
+    await databaseAdapter.createPasskeyChallenge({
+      challenge: options.challenge,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      type: "registration",
+      userId: user.id,
+    });
+    return json({
+      challenge: options.challenge,
+      options,
+    });
+  });
+
+  app.post("/v1/auth/mfa/passkey/verify", async (c) => {
+    if (!databaseAdapter) {
+      return errorResponse("Authentication not configured", 500);
+    }
+    const auth = getRequestAuth(c);
+    assertBrowserCsrf(c.req.raw, auth, authService);
+    const body = await readJson<{
+      challenge: string;
+      credential: PasskeyCredentialResponse;
+      name?: string;
+    }>(
+      c.req.raw,
+      z.object({
+        challenge: z.string().min(1),
+        credential: z.record(z.string(), z.unknown()),
+        name: z.string().trim().min(1).max(100).optional(),
+      })
+    );
+    const { origin, rpID } = resolveWebAuthnContext(c.req.raw);
+    let verification: VerifiedRegistrationResponse;
+    try {
+      verification = await verifyRegistrationResponse({
+        expectedChallenge: body.challenge,
+        expectedOrigin: origin,
+        expectedRPID: rpID,
+        response: body.credential as unknown as RegistrationResponseJSON,
+      });
+    } catch (error) {
+      return passkeyVerificationErrorResponse(error, 400);
+    }
+    if (!verification.verified) {
+      return errorResponse("Passkey verification failed.", 400);
+    }
+    const consumed = await databaseAdapter.consumePasskeyChallenge(
+      body.challenge,
+      auth.user.id,
+      "registration",
+      new Date().toISOString()
+    );
+    if (!consumed) {
+      return errorResponse("Passkey setup has expired.", 400);
+    }
+    const credential = verification.registrationInfo.credential;
+    try {
+      await databaseAdapter.createPasskey({
+        counter: credential.counter,
+        createdAt: new Date().toISOString(),
+        credentialId: credential.id,
+        id: crypto.randomUUID(),
+        name: body.name ?? "Passkey",
+        publicKey: Buffer.from(credential.publicKey).toString("base64url"),
+        transports: credential.transports ?? [],
+        userId: auth.user.id,
+      });
+    } catch {
+      return errorResponse("Passkey is already registered.", 409);
+    }
+    return json({ enabled: true });
+  });
+
+  app.post("/v1/auth/mfa/passkey/disable", async (c) => {
+    if (!(authService && databaseAdapter)) {
+      return errorResponse("Authentication not configured", 500);
+    }
+    const auth = getRequestAuth(c);
+    assertBrowserCsrf(c.req.raw, auth, authService);
+    const body = await readJson<{
+      challenge: string;
+      credential: PasskeyCredentialResponse;
+    }>(
+      c.req.raw,
+      z.object({
+        challenge: z.string(),
+        credential: z.record(z.string(), z.unknown()),
+      })
+    );
+    const user = await databaseAdapter.getUserById(auth.user.id);
+    let authorized = false;
+    if (user) {
+      const stored = await databaseAdapter.getPasskey(
+        user.id,
+        body.credential.id
+      );
+      if (stored) {
+        const { origin, rpID } = resolveWebAuthnContext(c.req.raw);
+        try {
+          const verification = await verifyAuthenticationResponse({
+            credential: {
+              counter: stored.counter,
+              id: stored.credentialId,
+              publicKey: Buffer.from(stored.publicKey, "base64url"),
+              transports: stored.transports,
+            },
+            expectedChallenge: body.challenge,
+            expectedOrigin: origin,
+            expectedRPID: rpID,
+            response: body.credential as unknown as AuthenticationResponseJSON,
+          });
+          if (verification.verified) {
+            authorized = await databaseAdapter.consumePasskeyChallenge(
+              body.challenge,
+              user.id,
+              "authentication",
+              new Date().toISOString()
+            );
+            if (authorized) {
+              await databaseAdapter.updatePasskeyCounter(
+                user.id,
+                stored.credentialId,
+                verification.authenticationInfo.newCounter
+              );
+            }
+          }
+        } catch (error) {
+          return passkeyVerificationErrorResponse(error, 401);
+        }
+      }
+    }
+    if (!authorized) {
+      return errorResponse("Reauthentication required.", 401);
+    }
+    await databaseAdapter.deletePasskeys(auth.user.id);
+    return json({ enabled: false });
   });
 
   app.put("/v1/settings/mfa", async (c) => {

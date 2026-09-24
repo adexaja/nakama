@@ -425,6 +425,27 @@ export interface StoredMfaBackupCode {
   userId: string;
 }
 
+export interface StoredPasskeyRecord {
+  counter: number;
+  createdAt: string;
+  credentialId: string;
+  id: string;
+  name: string;
+  publicKey: string;
+  transports: string[];
+  userId: string;
+}
+
+export type PasskeyChallengeType = "authentication" | "registration";
+
+export interface StoredPasskeyChallenge {
+  challenge: string;
+  createdAt: string;
+  expiresAt: string;
+  type: PasskeyChallengeType;
+  userId: string;
+}
+
 export type { OrgPluginLifecycleState } from "@nakama/core";
 
 export type StoredPluginReleaseRecord = PluginReleaseSummary;
@@ -723,6 +744,12 @@ export interface DatabaseAdapter {
     usedAt: string
   ): Promise<boolean>;
   consumeMfaTotpStep(userId: string, step: number): Promise<boolean>;
+  consumePasskeyChallenge(
+    challenge: string,
+    userId: string,
+    type: PasskeyChallengeType,
+    consumedAt: string
+  ): Promise<boolean>;
   consumePasswordResetToken(
     tokenHash: string,
     passwordHash: string,
@@ -756,6 +783,8 @@ export interface DatabaseAdapter {
   createOrgInvite(record: StoredOrgInviteRecord): Promise<void>;
 
   createOrgMemoryProposal(record: StoredOrgMemoryProposal): Promise<void>;
+  createPasskey(record: StoredPasskeyRecord): Promise<void>;
+  createPasskeyChallenge(record: StoredPasskeyChallenge): Promise<void>;
 
   createPasswordResetToken(
     record: StoredPasswordResetTokenRecord
@@ -785,6 +814,7 @@ export interface DatabaseAdapter {
     pluginId: string,
     expectedRevision: number
   ): Promise<boolean>;
+  deletePasskeys(userId: string): Promise<void>;
   deletePluginRelease(pluginId: string, version: string): Promise<boolean>;
   deleteProfile(id: string): Promise<boolean>;
   deleteSession(id: string): Promise<boolean>;
@@ -873,6 +903,10 @@ export interface DatabaseAdapter {
     orgId: string,
     pluginId: string
   ): Promise<StoredOrgPluginRecord | null>;
+  getPasskey(
+    userId: string,
+    credentialId: string
+  ): Promise<StoredPasskeyRecord | null>;
   getPendingOrgInvite(
     orgId: string,
     email: string
@@ -1044,6 +1078,7 @@ export interface DatabaseAdapter {
     status?: OrgMemoryProposalStatus
   ): Promise<StoredOrgMemoryProposal[]>;
   listOrgPlugins(orgId?: string): Promise<StoredOrgPluginRecord[]>;
+  listPasskeys(userId: string): Promise<StoredPasskeyRecord[]>;
 
   listPlatformAdminUsers(): Promise<StoredUserRecord[]>;
 
@@ -1231,6 +1266,11 @@ export interface DatabaseAdapter {
       pinned?: boolean;
     }
   ): Promise<boolean>;
+  updatePasskeyCounter(
+    userId: string,
+    credentialId: string,
+    counter: number
+  ): Promise<void>;
   updateSessionModel(sessionId: string, model: string | null): Promise<boolean>;
   updateSessionPinned(sessionId: string, pinned: boolean): Promise<boolean>;
   updateSessionQuestionnaire(

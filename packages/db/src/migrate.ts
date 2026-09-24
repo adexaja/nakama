@@ -27,6 +27,7 @@ export function migrateDatabase(db: Database): void {
   atomic(migrateMcpTables);
   atomic(migrateSkillsTables);
   atomic(migrateUsersTable);
+  atomic(migratePasskeyTables);
   atomic(migrateOrgTables);
   atomic(migrateApiKeysTable);
   atomic(migrateLegacyUserContextToOrgMembers);
@@ -399,6 +400,34 @@ function migrateUsersTable(db: Database): void {
       ON user_mfa_backup_codes (code_hash);
     CREATE INDEX IF NOT EXISTS user_mfa_backup_codes_user_idx
       ON user_mfa_backup_codes (user_id, used_at);
+  `);
+}
+
+function migratePasskeyTables(db: Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_passkeys (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      credential_id TEXT NOT NULL,
+      public_key TEXT NOT NULL,
+      counter INTEGER NOT NULL DEFAULT 0,
+      transports TEXT NOT NULL DEFAULT '[]',
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS user_passkeys_credential_unique
+      ON user_passkeys (credential_id);
+    CREATE INDEX IF NOT EXISTS user_passkeys_user_idx
+      ON user_passkeys (user_id);
+    CREATE TABLE IF NOT EXISTS user_passkey_challenges (
+      challenge TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
   `);
 }
 
