@@ -1,4 +1,5 @@
 import { NakamaApiError } from "@nakama/core/api-error";
+import { DEMO_LOGIN_EMAIL, DEMO_LOGIN_PASSWORD } from "@nakama/core/demo-login";
 import { Button } from "@nakama/ui/button";
 import { Input } from "@nakama/ui/input";
 import { ArrowLeft02Icon } from "hugeicons-react";
@@ -8,11 +9,7 @@ import { MfaCodeInput } from "@/components/MfaCodeInput";
 import { useAppContext } from "@/context/use-app-context";
 import { useAuth } from "@/context/use-auth";
 import { useTheme } from "@/context/use-theme";
-import {
-  DEMO_LOGIN_EMAIL,
-  DEMO_LOGIN_PASSWORD,
-  isDemoLoginHost,
-} from "@/lib/demo-login";
+import { isDemoLoginHost } from "@/lib/demo-login";
 import { SETUP_PATH } from "@/lib/navigation";
 import { ditherLogoSrc } from "@/lib/theme";
 

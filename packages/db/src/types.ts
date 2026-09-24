@@ -408,6 +408,8 @@ export interface StoredUserRecord {
   id: string;
   isPlatformAdmin?: boolean;
   mfaEnabled?: boolean;
+  mfaTotpLastStep?: number | null;
+  mfaTotpPendingSecretEnc?: string | null;
   mfaTotpSecretEnc?: string | null;
   name?: string | null;
   passwordHash: string;
@@ -687,6 +689,12 @@ export interface StoredAuditEvent {
 }
 
 export interface DatabaseAdapter {
+  activateUserMfa(
+    id: string,
+    totpSecretEnc: string,
+    lastStep: number,
+    updatedAt: string
+  ): Promise<boolean>;
   appendMessagesForSession(
     sessionId: string,
     messages: StoredSessionMessageRecord[]
@@ -714,6 +722,7 @@ export interface DatabaseAdapter {
     codeHash: string,
     usedAt: string
   ): Promise<boolean>;
+  consumeMfaTotpStep(userId: string, step: number): Promise<boolean>;
   consumePasswordResetToken(
     tokenHash: string,
     passwordHash: string,
@@ -1159,6 +1168,11 @@ export interface DatabaseAdapter {
     path: string,
     pinned: boolean
   ): Promise<void>;
+  setPendingMfaSecret(
+    id: string,
+    pendingTotpSecretEnc: string,
+    updatedAt: string
+  ): Promise<void>;
   setUserContext(
     orgId: string,
     userId: string,
@@ -1236,7 +1250,12 @@ export interface DatabaseAdapter {
   ): Promise<boolean>;
   updateUserMfa(
     id: string,
-    mfa: { enabled: boolean; totpSecretEnc: string | null },
+    mfa: {
+      enabled: boolean;
+      mfaTotpLastStep: number | null;
+      pendingTotpSecretEnc: string | null;
+      totpSecretEnc: string | null;
+    },
     updatedAt: string
   ): Promise<void>;
   updateUserPassword(

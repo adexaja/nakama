@@ -348,6 +348,8 @@ interface UserRow {
   id: string;
   is_platform_admin?: number | null;
   mfa_enabled?: number | null;
+  mfa_totp_last_step?: number | null;
+  mfa_totp_pending_secret_enc?: string | null;
   mfa_totp_secret_enc?: string | null;
   name?: string | null;
   password_hash: string;
@@ -1653,8 +1655,33 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
   `);
   const updateUserMfaStmt = db.prepare(`
     UPDATE users
-    SET mfa_enabled = ?, mfa_totp_secret_enc = ?, updated_at = ?
+    SET mfa_enabled = ?,
+        mfa_totp_secret_enc = ?,
+        mfa_totp_pending_secret_enc = ?,
+        mfa_totp_last_step = ?,
+        updated_at = ?
     WHERE id = ?
+  `);
+  const activateUserMfaStmt = db.prepare(`
+    UPDATE users
+    SET mfa_enabled = 1,
+        mfa_totp_secret_enc = ?,
+        mfa_totp_pending_secret_enc = NULL,
+        mfa_totp_last_step = ?,
+        updated_at = ?
+    WHERE id = ? AND mfa_totp_pending_secret_enc IS NOT NULL
+  `);
+  const setPendingMfaSecretStmt = db.prepare(`
+    UPDATE users
+    SET mfa_totp_pending_secret_enc = ?, updated_at = ?
+    WHERE id = ?
+  `);
+  const consumeMfaTotpStepStmt = db.prepare(`
+    UPDATE users
+    SET mfa_totp_last_step = ?
+    WHERE id = ?
+      AND mfa_enabled = 1
+      AND (mfa_totp_last_step IS NULL OR mfa_totp_last_step < ?)
   `);
   const createMfaBackupCodeStmt = db.prepare(`
     INSERT INTO user_mfa_backup_codes (id, user_id, code_hash, used_at, created_at)
@@ -2664,6 +2691,15 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
   );
 
   return {
+    async activateUserMfa(id, totpSecretEnc, lastStep, updatedAt) {
+      const result = activateUserMfaStmt.run(
+        totpSecretEnc,
+        lastStep,
+        updatedAt,
+        id
+      );
+      return result.changes > 0;
+    },
     async appendMessagesForSession(sessionId, messages) {
       appendMessagesTransaction(sessionId, messages);
     },
@@ -2695,6 +2731,9 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     },
     async consumeMfaBackupCode(userId, codeHash, usedAt) {
       return consumeMfaBackupCodeStmt.run(usedAt, userId, codeHash).changes > 0;
+    },
+    async consumeMfaTotpStep(userId, step) {
+      return consumeMfaTotpStepStmt.run(step, userId, step).changes > 0;
     },
 
     async consumePasswordResetToken(tokenHash, passwordHash, consumedAt) {
@@ -4046,6 +4085,9 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
         ).run(orgId, userId, profileId, path);
       }
     },
+    async setPendingMfaSecret(id, pendingTotpSecretEnc, updatedAt) {
+      setPendingMfaSecretStmt.run(pendingTotpSecretEnc, updatedAt, id);
+    },
 
     async setUserContext(orgId, userId, content, _updatedAt) {
       setUserContextStmt.run(content, orgId, userId);
@@ -4187,6 +4229,8 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
       updateUserMfaStmt.run(
         mfa.enabled ? 1 : 0,
         mfa.totpSecretEnc,
+        mfa.pendingTotpSecretEnc,
+        mfa.mfaTotpLastStep,
         updatedAt,
         id
       );
@@ -5062,6 +5106,8 @@ function toUserRecord(row: UserRow): StoredUserRecord {
     id: row.id,
     isPlatformAdmin: Boolean(row.is_platform_admin),
     mfaEnabled: Boolean(row.mfa_enabled),
+    mfaTotpLastStep: row.mfa_totp_last_step ?? null,
+    mfaTotpPendingSecretEnc: row.mfa_totp_pending_secret_enc ?? null,
     mfaTotpSecretEnc: row.mfa_totp_secret_enc ?? null,
     name: row.name ?? null,
     passwordHash: row.password_hash,

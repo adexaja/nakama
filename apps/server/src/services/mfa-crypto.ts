@@ -3,6 +3,7 @@ import {
   createDecipheriv,
   createHmac,
   randomBytes,
+  timingSafeEqual,
 } from "node:crypto";
 import { getMfaEncryptionKey } from "./mfa-config";
 
@@ -93,15 +94,25 @@ export function createTotpCode(secret: string, timestamp = Date.now()): string {
   return String(code).padStart(DIGITS, "0");
 }
 
-export function verifyTotpCode(
+export function findTotpStep(
   secret: string,
   code: string,
   timestamp = Date.now()
-): boolean {
-  const normalized = code.trim();
-  return [-1, 0, 1].some(
-    (offset) =>
-      createTotpCode(secret, timestamp + offset * STEP_SECONDS * 1000) ===
-      normalized
-  );
+): number | null {
+  const normalized = Buffer.from(code.trim(), "utf8");
+  const currentStep = Math.floor(timestamp / 1000 / STEP_SECONDS);
+  for (const offset of [-1, 0, 1]) {
+    const step = currentStep + offset;
+    const expected = Buffer.from(
+      createTotpCode(secret, step * STEP_SECONDS * 1000),
+      "utf8"
+    );
+    if (
+      expected.length === normalized.length &&
+      timingSafeEqual(expected, normalized)
+    ) {
+      return step;
+    }
+  }
+  return null;
 }

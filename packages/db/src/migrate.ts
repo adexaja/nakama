@@ -378,6 +378,14 @@ function migrateUsersTable(db: Database): void {
     db.exec("ALTER TABLE users ADD COLUMN mfa_totp_secret_enc TEXT;");
   }
 
+  if (!columnNames.has("mfa_totp_pending_secret_enc")) {
+    db.exec("ALTER TABLE users ADD COLUMN mfa_totp_pending_secret_enc TEXT;");
+  }
+
+  if (!columnNames.has("mfa_totp_last_step")) {
+    db.exec("ALTER TABLE users ADD COLUMN mfa_totp_last_step INTEGER;");
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_mfa_backup_codes (
       id TEXT PRIMARY KEY NOT NULL,

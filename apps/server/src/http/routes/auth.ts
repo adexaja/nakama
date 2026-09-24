@@ -19,6 +19,7 @@ import {
   type SetupAuthRequest,
   type UpdateAuthProfileRequest,
 } from "@nakama/core";
+import { DEMO_LOGIN_EMAIL, DEMO_LOGIN_HOST } from "@nakama/core/demo-login";
 import { ORG_ROLES } from "@nakama/db";
 import {
   persistWebPublicUrl,
@@ -33,9 +34,9 @@ import {
 import {
   decryptTotpSecret,
   encryptTotpSecret,
+  findTotpStep,
   generateTotpSecret,
   hashBackupCode,
-  verifyTotpCode,
 } from "../../services/mfa-crypto";
 import type { ServerOptions } from "../context";
 import {
@@ -604,10 +605,13 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
       let validMfa = false;
       if (user.mfaTotpSecretEnc && body.mfaCode) {
         try {
-          validMfa = verifyTotpCode(
+          const step = findTotpStep(
             decryptTotpSecret(user.mfaTotpSecretEnc),
             body.mfaCode
           );
+          validMfa =
+            step !== null &&
+            (await databaseAdapter.consumeMfaTotpStep(user.id, step));
         } catch {
           validMfa = false;
         }
@@ -654,7 +658,13 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
   });
 
   app.put("/v1/settings/mfa", async (c) => {
-    requirePlatformAdminFromContext(c);
+    const auth = requirePlatformAdminFromContext(c);
+    if (
+      new URL(c.req.url).hostname.toLowerCase() === DEMO_LOGIN_HOST ||
+      auth.user.email.toLowerCase() === DEMO_LOGIN_EMAIL
+    ) {
+      return errorResponse("MFA policy is not available in the demo.", 403);
+    }
     const body = await readJson<{
       enabled?: boolean;
       enforcedRoles?: Array<"admin" | "member" | "viewer">;
@@ -700,9 +710,9 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
     }
     assertBrowserCsrf(c.req.raw, auth, authService);
     const secret = generateTotpSecret();
-    await databaseAdapter.updateUserMfa(
+    await databaseAdapter.setPendingMfaSecret(
       auth.user.id,
-      { enabled: false, totpSecretEnc: encryptTotpSecret(secret) },
+      encryptTotpSecret(secret),
       new Date().toISOString()
     );
     const account = encodeURIComponent(auth.user.email);
@@ -726,22 +736,31 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
       z.object({ code: z.string().min(6).max(8) })
     );
     const user = await databaseAdapter.getUserById(auth.user.id);
-    if (!user?.mfaTotpSecretEnc) {
+    if (!user?.mfaTotpPendingSecretEnc) {
       return errorResponse("MFA setup has not started.", 400);
     }
-    let valid = false;
+    let step: number | null = null;
     try {
-      valid = verifyTotpCode(
-        decryptTotpSecret(user.mfaTotpSecretEnc),
+      step = findTotpStep(
+        decryptTotpSecret(user.mfaTotpPendingSecretEnc),
         body.code
       );
     } catch {
-      valid = false;
+      step = null;
     }
-    if (!valid) {
+    if (step === null) {
       return errorResponse("Invalid MFA code.", 400);
     }
     const now = new Date().toISOString();
+    const activated = await databaseAdapter.activateUserMfa(
+      auth.user.id,
+      user.mfaTotpPendingSecretEnc,
+      step,
+      now
+    );
+    if (!activated) {
+      return errorResponse("MFA setup has already been completed.", 400);
+    }
     const backupCodes: string[] = [];
     await databaseAdapter.deleteMfaBackupCodes(auth.user.id);
     const mfaEncryptionKey = getMfaEncryptionKey();
@@ -756,11 +775,6 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
         userId: auth.user.id,
       });
     }
-    await databaseAdapter.updateUserMfa(
-      auth.user.id,
-      { enabled: true, totpSecretEnc: user.mfaTotpSecretEnc },
-      now
-    );
     return json({ backupCodes, enabled: true });
   });
 
@@ -799,10 +813,13 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
       );
     } else if (user.mfaTotpSecretEnc) {
       try {
-        valid = verifyTotpCode(
+        const step = findTotpStep(
           decryptTotpSecret(user.mfaTotpSecretEnc),
           body.code ?? ""
         );
+        valid =
+          step !== null &&
+          (await databaseAdapter.consumeMfaTotpStep(user.id, step));
       } catch {
         valid = false;
       }
@@ -818,7 +835,12 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
 
     await databaseAdapter.updateUserMfa(
       user.id,
-      { enabled: false, totpSecretEnc: null },
+      {
+        enabled: false,
+        mfaTotpLastStep: null,
+        pendingTotpSecretEnc: null,
+        totpSecretEnc: null,
+      },
       new Date().toISOString()
     );
     return json({ enabled: false });
