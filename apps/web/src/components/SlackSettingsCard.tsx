@@ -1,4 +1,7 @@
-import { parseSlackMemberIdInput } from "@nakama/core/contract";
+import {
+  parseSlackMemberIdInput,
+  type SlackSettingsResponse,
+} from "@nakama/core/contract";
 import { Button } from "@nakama/ui/button";
 import { buttonVariants } from "@nakama/ui/button-variants";
 import {
@@ -10,7 +13,13 @@ import {
 import { Spinner } from "@nakama/ui/spinner";
 import { Switch } from "@nakama/ui/switch";
 import { Cancel01Icon, ViewIcon, ViewOffIcon } from "hugeicons-react";
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   IntegrationSettingsFooter,
   IntegrationStatusHeader,
@@ -338,27 +347,41 @@ export function SlackSettingsCard({
   const [allowWorkspace, setAllowWorkspace] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  // True while the form holds edits that are not saved yet.
-  const [dirty, setDirty] = useState(false);
+  // True while the form holds edits that are not saved yet. A ref, so marking
+  // an edit never re-runs the sync below.
+  const dirtyRef = useRef(false);
+  // Paired IDs the form has already shown, so a refresh adds only new ones
+  // and never restores a member the admin just removed.
+  const seenPairedRef = useRef<string[]>([]);
+
+  const applySaved = useCallback((saved: SlackSettingsResponse) => {
+    seenPairedRef.current = saved.pairedUserIds;
+    setAllowWorkspace(saved.allowWorkspace);
+    // One access list: members who paired show up next to manual IDs.
+    setAllowedUserIds([
+      ...new Set([...saved.pairedUserIds, ...saved.allowedUserIds]),
+    ]);
+  }, []);
 
   useEffect(() => {
     if (!settings) {
       return;
     }
-    // One access list: members who paired show up next to manual IDs.
-    const saved = [
-      ...new Set([...settings.pairedUserIds, ...settings.allowedUserIds]),
-    ];
-    if (dirty) {
-      // A poll must not wipe unsaved edits; it only adds who just paired.
-      setAllowedUserIds((current) => [
-        ...new Set([...current, ...settings.pairedUserIds]),
-      ]);
+    if (!dirtyRef.current) {
+      applySaved(settings);
       return;
     }
-    setAllowWorkspace(settings.allowWorkspace);
-    setAllowedUserIds(saved);
-  }, [settings, dirty]);
+    // Unsaved edits win; a refresh only adds members who paired since.
+    const newlyPaired = settings.pairedUserIds.filter(
+      (id) => !seenPairedRef.current.includes(id)
+    );
+    seenPairedRef.current = settings.pairedUserIds;
+    if (newlyPaired.length > 0) {
+      setAllowedUserIds((current) => [
+        ...new Set([...current, ...newlyPaired]),
+      ]);
+    }
+  }, [settings, applySaved]);
 
   // Pairing happens in Slack, so poll while a code is out and the tab is in
   // view, for at most ten minutes per code. A code never expires on its own.
@@ -420,7 +443,8 @@ export function SlackSettingsCard({
       {
         onError: (error) => setFormError(formatError(error)),
         onSuccess: (saved) => {
-          setDirty(false);
+          dirtyRef.current = false;
+          applySaved(saved);
           setBotToken("");
           setAppToken("");
           setHint(
@@ -593,7 +617,7 @@ export function SlackSettingsCard({
                 id="slack-allow-workspace"
                 onCheckedChange={(checked) => {
                   setAllowWorkspace(checked);
-                  setDirty(true);
+                  dirtyRef.current = true;
                 }}
               />
             </SettingsRow>
@@ -612,7 +636,7 @@ export function SlackSettingsCard({
               disabled={pending}
               onChange={(ids) => {
                 setAllowedUserIds(ids);
-                setDirty(true);
+                dirtyRef.current = true;
               }}
               pairedIds={settings?.pairedUserIds ?? []}
               value={allowedUserIds}
