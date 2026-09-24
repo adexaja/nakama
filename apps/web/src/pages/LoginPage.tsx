@@ -25,6 +25,124 @@ function resolvePostAuthPath(from?: string): string {
   return from ?? "/chat";
 }
 
+function LoginMfaFields({
+  backupCode,
+  email,
+  mfaCode,
+  onBack,
+  onBackupCodeChange,
+  onMfaCodeChange,
+  onToggleMethod,
+  useBackupCode,
+}: {
+  backupCode: string;
+  email: string;
+  mfaCode: string;
+  onBack: () => void;
+  onBackupCodeChange: (value: string) => void;
+  onMfaCodeChange: (value: string) => void;
+  onToggleMethod: () => void;
+  useBackupCode: boolean;
+}) {
+  return (
+    <div className="space-y-3 p-0">
+      <div className="relative flex items-center">
+        <Button
+          aria-label="Back to sign in"
+          className="absolute -left-8"
+          onClick={onBack}
+          size="icon"
+          type="button"
+          variant="ghost"
+        >
+          <ArrowLeft02Icon aria-hidden className="size-4" />
+        </Button>
+        <span className="font-medium text-sm">Email</span>
+      </div>
+      <p className="text-muted-foreground text-sm">{email}</p>
+      {useBackupCode ? (
+        <div>
+          <label
+            className="mb-1 block font-medium text-sm"
+            htmlFor="login-backup-code"
+          >
+            Backup code
+          </label>
+          <Input
+            id="login-backup-code"
+            onChange={(event) => onBackupCodeChange(event.target.value)}
+            placeholder="Enter a backup code"
+            value={backupCode}
+          />
+        </div>
+      ) : (
+        <div>
+          <label
+            className="mb-1 block font-medium text-sm"
+            htmlFor="login-mfa-code"
+          >
+            Authentication code
+          </label>
+          <MfaCodeInput
+            id="login-mfa-code"
+            onChange={onMfaCodeChange}
+            value={mfaCode}
+          />
+        </div>
+      )}
+      <Button onClick={onToggleMethod} type="button" variant="link">
+        {useBackupCode
+          ? "Use authenticator code instead"
+          : "Use a backup code instead"}
+      </Button>
+    </div>
+  );
+}
+
+function LoginHeader({
+  demoLogin,
+  mfaRequired,
+  passkeyRequired,
+  resolvedTheme,
+}: {
+  demoLogin: boolean;
+  mfaRequired: boolean;
+  passkeyRequired: boolean;
+  resolvedTheme: Parameters<typeof ditherLogoSrc>[0];
+}) {
+  return (
+    <div className="flex flex-col items-center text-center">
+      <img
+        alt="Nakama"
+        className="mb-4 size-14 rounded-xl"
+        src={ditherLogoSrc(resolvedTheme)}
+      />
+      <h1 className="font-semibold text-xl tracking-tight">
+        {mfaRequired || passkeyRequired
+          ? "Verify your identity"
+          : "Sign in to Nakama"}
+      </h1>
+      {mfaRequired || passkeyRequired || demoLogin ? null : (
+        <p className="text-muted-foreground text-sm">
+          Enter your credentials to access your account.
+        </p>
+      )}
+      {demoLogin && !mfaRequired && !passkeyRequired ? (
+        <div className="space-y-2 rounded-md border bg-muted/40 px-3 py-3 text-sm">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-muted-foreground">Email</span>
+            <span className="text-right font-mono">{DEMO_LOGIN_EMAIL}</span>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-muted-foreground">Password</span>
+            <span className="text-right font-mono">{DEMO_LOGIN_PASSWORD}</span>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function LoginPage() {
   const demoLogin = isDemoLoginHost();
   const [email, setEmail] = useState(demoLogin ? DEMO_LOGIN_EMAIL : "");
@@ -150,37 +268,12 @@ export function LoginPage() {
   return (
     <div className="flex h-svh items-center justify-center bg-background px-4 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       <div className="w-full max-w-sm space-y-6">
-        <div className="flex flex-col items-center text-center">
-          <img
-            alt="Nakama"
-            className="mb-4 size-14 rounded-xl"
-            src={ditherLogoSrc(resolvedTheme)}
-          />
-          <h1 className="font-semibold text-xl tracking-tight">
-            {mfaRequired || passkeyRequired
-              ? "Verify your identity"
-              : "Sign in to Nakama"}
-          </h1>
-          {mfaRequired || passkeyRequired || demoLogin ? null : (
-            <p className="text-muted-foreground text-sm">
-              Enter your credentials to access your account.
-            </p>
-          )}
-          {demoLogin && !mfaRequired && !passkeyRequired ? (
-            <div className="space-y-2 rounded-md border bg-muted/40 px-3 py-3 text-sm">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="text-muted-foreground">Email</span>
-                <span className="text-right font-mono">{DEMO_LOGIN_EMAIL}</span>
-              </div>
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="text-muted-foreground">Password</span>
-                <span className="text-right font-mono">
-                  {DEMO_LOGIN_PASSWORD}
-                </span>
-              </div>
-            </div>
-          ) : null}
-        </div>
+        <LoginHeader
+          demoLogin={demoLogin}
+          mfaRequired={mfaRequired}
+          passkeyRequired={passkeyRequired}
+          resolvedTheme={resolvedTheme}
+        />
         <form className="space-y-4" onSubmit={handleSubmit}>
           {mfaRequired || passkeyRequired ? null : (
             <>
@@ -219,14 +312,34 @@ export function LoginPage() {
               </div>
             </>
           )}
-          {mfaRequired || passkeyRequired ? (
+          {mfaRequired ? (
+            <LoginMfaFields
+              backupCode={backupCode}
+              email={email}
+              mfaCode={mfaCode}
+              onBack={() => {
+                setMfaRequired(false);
+                setUseBackupCode(false);
+                setMfaCode("");
+                setBackupCode("");
+                setError(null);
+              }}
+              onBackupCodeChange={setBackupCode}
+              onMfaCodeChange={setMfaCode}
+              onToggleMethod={() => {
+                setUseBackupCode((current) => !current);
+                setMfaCode("");
+                setBackupCode("");
+              }}
+              useBackupCode={useBackupCode}
+            />
+          ) : passkeyRequired ? (
             <div className="space-y-3 p-0">
               <div className="relative flex items-center">
                 <Button
                   aria-label="Back to sign in"
                   className="absolute -left-8"
                   onClick={() => {
-                    setMfaRequired(false);
                     setPasskeyRequired(false);
                     setUseBackupCode(false);
                     setMfaCode("");
@@ -239,76 +352,27 @@ export function LoginPage() {
                 >
                   <ArrowLeft02Icon aria-hidden className="size-4" />
                 </Button>
-                <label className="font-medium text-sm" htmlFor="login-email">
-                  Email
-                </label>
+                <span className="font-medium text-sm">Email</span>
               </div>
-              <p className="text-muted-foreground text-sm" id="login-email">
-                {email}
-              </p>
-              {passkeyRequired ? (
-                <div className="space-y-3">
-                  <p className="text-muted-foreground text-sm">
-                    Approve the passkey prompt to continue.
-                  </p>
-                  {passkeyTotpEnabled ? (
-                    <Button
-                      onClick={() => {
-                        setPasskeyRequired(false);
-                        setMfaRequired(true);
-                        setError(null);
-                      }}
-                      type="button"
-                      variant="link"
-                    >
-                      Use another method
-                    </Button>
-                  ) : null}
-                </div>
-              ) : (
-                <>
-                  {useBackupCode ? (
-                    <div>
-                      <label
-                        className="mb-1 block font-medium text-sm"
-                        htmlFor="login-backup-code"
-                      >
-                        Backup code
-                      </label>
-                      <Input
-                        id="login-backup-code"
-                        onChange={(event) => setBackupCode(event.target.value)}
-                        placeholder="Enter a backup code"
-                        value={backupCode}
-                      />
-                    </div>
-                  ) : (
-                    <div>
-                      <label className="mb-1 block font-medium text-sm">
-                        Authentication code
-                      </label>
-                      <MfaCodeInput
-                        id="login-mfa-code"
-                        onChange={setMfaCode}
-                        value={mfaCode}
-                      />
-                    </div>
-                  )}
+              <p className="text-muted-foreground text-sm">{email}</p>
+              <div className="space-y-3">
+                <p className="text-muted-foreground text-sm">
+                  Approve the passkey prompt to continue.
+                </p>
+                {passkeyTotpEnabled ? (
                   <Button
                     onClick={() => {
-                      setUseBackupCode((current) => !current);
-                      setMfaCode("");
-                      setBackupCode("");
+                      setPasskeyRequired(false);
+                      setMfaRequired(true);
+                      setError(null);
                     }}
                     type="button"
                     variant="link"
                   >
-                    {useBackupCode
-                      ? "Use authenticator code instead"
-                      : "Use a backup code instead"}
+                    Use another method
                   </Button>
-                </>
-              )}
+                ) : null}
+              </div>
             </div>
           ) : null}
           {error && (
