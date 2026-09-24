@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { createRoute, z } from "@hono/zod-openapi";
 import {
   type AcceptOrgInviteResponse,
@@ -18,10 +19,25 @@ import {
   type SetupAuthRequest,
   type UpdateAuthProfileRequest,
 } from "@nakama/core";
+import { DEMO_LOGIN_EMAIL, DEMO_LOGIN_HOST } from "@nakama/core/demo-login";
+import { ORG_ROLES } from "@nakama/db";
 import {
   persistWebPublicUrl,
   resolveRequestClientOrigin,
 } from "../../services/composio-callback-url";
+import {
+  ensureMfaEncryptionKey,
+  getMfaEncryptionKey,
+  loadMfaPolicy,
+  updateMfaPolicy,
+} from "../../services/mfa-config";
+import {
+  decryptTotpSecret,
+  encryptTotpSecret,
+  findTotpStep,
+  generateTotpSecret,
+  hashBackupCode,
+} from "../../services/mfa-crypto";
 import type { ServerOptions } from "../context";
 import {
   requirePlatformAdmin,
@@ -52,7 +68,9 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
   const { authService, databaseAdapter, orgService } = options;
   const authCredentialsSchema = z
     .object({
+      backupCode: z.string().optional(),
       email: z.string(),
+      mfaCode: z.string().optional(),
       password: z.string(),
     })
     .openapi("AuthCredentialsRequest");
@@ -62,6 +80,9 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
       email: z.string(),
       id: z.string(),
       isPlatformAdmin: z.boolean().optional(),
+      mfaEnabled: z.boolean().optional(),
+      mfaEnrolled: z.boolean().optional(),
+      mfaRequired: z.boolean().optional(),
       mode: z.enum(["api-key", "browser-session", "local-token"]).optional(),
       name: z.string().nullable().optional(),
       orgId: z.string().nullable().optional(),
@@ -550,10 +571,12 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
 
     assertJsonRequest(c.req.raw);
 
-    const body = await readJson<{ email: string; password: string }>(
-      c.req.raw,
-      authCredentialsSchema
-    );
+    const body = await readJson<{
+      backupCode?: string;
+      email: string;
+      mfaCode?: string;
+      password: string;
+    }>(c.req.raw, authCredentialsSchema);
     const user = await databaseAdapter.getUserByEmail(body.email);
     if (!user) {
       // Spend the same bcrypt work an existing account would, so the response
@@ -578,6 +601,38 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
     if (user.disabledAt) {
       return errorResponse("Account disabled", 403);
     }
+    if (user.mfaEnabled) {
+      let validMfa = false;
+      if (user.mfaTotpSecretEnc && body.mfaCode) {
+        try {
+          const step = findTotpStep(
+            decryptTotpSecret(user.mfaTotpSecretEnc),
+            body.mfaCode
+          );
+          validMfa =
+            step !== null &&
+            (await databaseAdapter.consumeMfaTotpStep(user.id, step));
+        } catch {
+          validMfa = false;
+        }
+      }
+      if (!validMfa && body.backupCode) {
+        const mfaEncryptionKey = getMfaEncryptionKey();
+        validMfa = await databaseAdapter.consumeMfaBackupCode(
+          user.id,
+          hashBackupCode(body.backupCode, mfaEncryptionKey),
+          new Date().toISOString()
+        );
+      }
+      if (!validMfa) {
+        return errorResponse(
+          body.backupCode
+            ? "Backup code is invalid or has already been used."
+            : "MFA verification required.",
+          401
+        );
+      }
+    }
 
     const response = await createBrowserSessionResponse(
       authService,
@@ -595,6 +650,202 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
     return json<AuthUserResponse>(authBody, 200, response.headers);
   });
 
+  app.get("/v1/settings/mfa", async (c) => {
+    if (!getRequestAuth(c).user) {
+      return errorResponse("Authentication required", 401);
+    }
+    return json(await loadMfaPolicy());
+  });
+
+  app.put("/v1/settings/mfa", async (c) => {
+    const auth = requirePlatformAdminFromContext(c);
+    if (
+      new URL(c.req.url).hostname.toLowerCase() === DEMO_LOGIN_HOST ||
+      auth.user.email.toLowerCase() === DEMO_LOGIN_EMAIL
+    ) {
+      return errorResponse("MFA policy is not available in the demo.", 403);
+    }
+    const body = await readJson<{
+      enabled?: boolean;
+      enforcedRoles?: Array<"admin" | "member" | "viewer">;
+      required?: boolean;
+    }>(
+      c.req.raw,
+      z.object({
+        enabled: z.boolean().optional(),
+        enforcedRoles: z.array(z.enum(ORG_ROLES)).min(1).optional(),
+        required: z.boolean().optional(),
+      })
+    );
+    const current = await loadMfaPolicy();
+    if (body.enabled === true && !current.keyConfigured) {
+      await ensureMfaEncryptionKey();
+    }
+    if (body.required === true && (body.enabled ?? current.enabled) !== true) {
+      return errorResponse(
+        "MFA must be enabled before it can be enforced.",
+        400
+      );
+    }
+    return json(
+      await updateMfaPolicy({
+        enabled: body.enabled,
+        enforcedRoles: body.enforcedRoles,
+        required: body.required,
+      })
+    );
+  });
+
+  app.post("/v1/auth/mfa/totp/start", async (c) => {
+    if (!databaseAdapter) {
+      return errorResponse("Authentication not configured", 500);
+    }
+    const auth = getRequestAuth(c);
+    if (!auth.user) {
+      return errorResponse("Authentication required", 401);
+    }
+    const policy = await loadMfaPolicy();
+    if (!(policy.enabled && policy.keyConfigured)) {
+      return errorResponse("MFA is not enabled.", 400);
+    }
+    assertBrowserCsrf(c.req.raw, auth, authService);
+    const secret = generateTotpSecret();
+    await databaseAdapter.setPendingMfaSecret(
+      auth.user.id,
+      encryptTotpSecret(secret),
+      new Date().toISOString()
+    );
+    const account = encodeURIComponent(auth.user.email);
+    return json({
+      secret,
+      uri: `otpauth://totp/Nakama:${account}?secret=${secret}&issuer=Nakama&algorithm=SHA1&digits=6&period=30`,
+    });
+  });
+
+  app.post("/v1/auth/mfa/totp/verify", async (c) => {
+    if (!databaseAdapter) {
+      return errorResponse("Authentication not configured", 500);
+    }
+    const auth = getRequestAuth(c);
+    if (!auth.user) {
+      return errorResponse("Authentication required", 401);
+    }
+    assertBrowserCsrf(c.req.raw, auth, authService);
+    const body = await readJson<{ code: string }>(
+      c.req.raw,
+      z.object({ code: z.string().min(6).max(8) })
+    );
+    const user = await databaseAdapter.getUserById(auth.user.id);
+    if (!user?.mfaTotpPendingSecretEnc) {
+      return errorResponse("MFA setup has not started.", 400);
+    }
+    let step: number | null = null;
+    try {
+      step = findTotpStep(
+        decryptTotpSecret(user.mfaTotpPendingSecretEnc),
+        body.code
+      );
+    } catch {
+      step = null;
+    }
+    if (step === null) {
+      return errorResponse("Invalid MFA code.", 400);
+    }
+    const now = new Date().toISOString();
+    const activated = await databaseAdapter.activateUserMfa(
+      auth.user.id,
+      user.mfaTotpPendingSecretEnc,
+      step,
+      now
+    );
+    if (!activated) {
+      return errorResponse("MFA setup has already been completed.", 400);
+    }
+    const backupCodes: string[] = [];
+    await databaseAdapter.deleteMfaBackupCodes(auth.user.id);
+    const mfaEncryptionKey = getMfaEncryptionKey();
+    for (let index = 0; index < 10; index += 1) {
+      const code = randomBytes(5).toString("hex").toUpperCase();
+      backupCodes.push(code);
+      await databaseAdapter.createMfaBackupCode({
+        codeHash: hashBackupCode(code, mfaEncryptionKey),
+        createdAt: now,
+        id: crypto.randomUUID(),
+        usedAt: null,
+        userId: auth.user.id,
+      });
+    }
+    return json({ backupCodes, enabled: true });
+  });
+
+  app.post("/v1/auth/mfa/disable", async (c) => {
+    if (!databaseAdapter) {
+      return errorResponse("Authentication not configured", 500);
+    }
+    const auth = getRequestAuth(c);
+    if (!auth.user) {
+      return errorResponse("Authentication required", 401);
+    }
+    assertBrowserCsrf(c.req.raw, auth, authService);
+    const body = await readJson<{ backupCode?: string; code?: string }>(
+      c.req.raw,
+      z
+        .object({
+          backupCode: z.string().trim().min(1).optional(),
+          code: z.string().trim().min(6).max(8).optional(),
+        })
+        .refine(
+          ({ backupCode, code }) => Boolean(backupCode) !== Boolean(code),
+          "Provide a TOTP or backup code."
+        )
+    );
+    const user = await databaseAdapter.getUserById(auth.user.id);
+    if (!user?.mfaEnabled) {
+      return errorResponse("MFA is not enabled.", 400);
+    }
+
+    let valid = false;
+    if (body.backupCode) {
+      valid = await databaseAdapter.consumeMfaBackupCode(
+        user.id,
+        hashBackupCode(body.backupCode, getMfaEncryptionKey()),
+        new Date().toISOString()
+      );
+    } else if (user.mfaTotpSecretEnc) {
+      try {
+        const step = findTotpStep(
+          decryptTotpSecret(user.mfaTotpSecretEnc),
+          body.code ?? ""
+        );
+        valid =
+          step !== null &&
+          (await databaseAdapter.consumeMfaTotpStep(user.id, step));
+      } catch {
+        valid = false;
+      }
+    }
+    if (!valid) {
+      return errorResponse(
+        body.backupCode
+          ? "Backup code is invalid or has already been used."
+          : "Invalid MFA code.",
+        401
+      );
+    }
+
+    await databaseAdapter.updateUserMfa(
+      user.id,
+      {
+        enabled: false,
+        mfaTotpLastStep: null,
+        pendingTotpSecretEnc: null,
+        totpSecretEnc: null,
+      },
+      new Date().toISOString()
+    );
+    await databaseAdapter.deleteMfaBackupCodes(auth.user.id);
+    return json({ enabled: false });
+  });
   app.openapi(meRoute, async (c) => {
     if (!(authService && databaseAdapter && orgService)) {
       return c.json({ error: "Authentication not configured" }, 500);
