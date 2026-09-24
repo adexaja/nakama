@@ -57,7 +57,7 @@ test("acks envelopes, drops redelivered events, and reconnects on disconnect", a
   });
 
   const deadline = Date.now() + 5000;
-  while (connections < 2 && Date.now() < deadline) {
+  while (statuses.length < 3 && Date.now() < deadline) {
     await Bun.sleep(20);
   }
   socket.close();
