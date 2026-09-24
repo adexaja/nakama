@@ -3,7 +3,7 @@ import { DEMO_LOGIN_EMAIL, DEMO_LOGIN_PASSWORD } from "@nakama/core/demo-login";
 import { Button } from "@nakama/ui/button";
 import { Input } from "@nakama/ui/input";
 import { ArrowLeft02Icon } from "hugeicons-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { MfaCodeInput } from "@/components/MfaCodeInput";
 import { useAppContext } from "@/context/use-app-context";
@@ -33,6 +33,7 @@ function LoginMfaFields({
   onBackupCodeChange,
   onMfaCodeChange,
   onToggleMethod,
+  totpEnabled,
   useBackupCode,
 }: {
   backupCode: string;
@@ -42,6 +43,7 @@ function LoginMfaFields({
   onBackupCodeChange: (value: string) => void;
   onMfaCodeChange: (value: string) => void;
   onToggleMethod: () => void;
+  totpEnabled: boolean;
   useBackupCode: boolean;
 }) {
   return (
@@ -57,9 +59,11 @@ function LoginMfaFields({
         >
           <ArrowLeft02Icon aria-hidden className="size-4" />
         </Button>
-        <span className="font-medium text-sm">Email</span>
+        <span className="font-medium text-sm">
+          {email ? "Email" : "Sign in"}
+        </span>
       </div>
-      <p className="text-muted-foreground text-sm">{email}</p>
+      {email ? <p className="text-muted-foreground text-sm">{email}</p> : null}
       {useBackupCode ? (
         <div>
           <label
@@ -90,11 +94,13 @@ function LoginMfaFields({
           />
         </div>
       )}
-      <Button onClick={onToggleMethod} type="button" variant="link">
-        {useBackupCode
-          ? "Use authenticator code instead"
-          : "Use a backup code instead"}
-      </Button>
+      {totpEnabled ? (
+        <Button onClick={onToggleMethod} type="button" variant="link">
+          {useBackupCode
+            ? "Use authenticator instead"
+            : "Use a backup code instead"}
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -154,6 +160,8 @@ export function LoginPage() {
   const [useBackupCode, setUseBackupCode] = useState(false);
   const [passkeyRequired, setPasskeyRequired] = useState(false);
   const [passkeyTotpEnabled, setPasskeyTotpEnabled] = useState(false);
+  const [passkeyFallbackAvailable, setPasskeyFallbackAvailable] =
+    useState(false);
   const [mfaRequired, setMfaRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -163,23 +171,13 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from;
-  const passkeyAttemptedEmail = useRef("");
-
-  function shouldFallbackToPassword(error: unknown) {
-    return (
-      (error instanceof NakamaApiError && error.status === 401) ||
-      (error instanceof Error &&
-        (error.name === "AbortError" || error.name === "NotAllowedError"))
-    );
-  }
-
-  async function beginPasskeyLogin(options?: { silent?: boolean }) {
+  async function beginPasskeyLogin(passwordFlow = false) {
     setError(null);
     try {
-      const result = await client.getPasskeyLoginOptions(email);
-      setPasskeyTotpEnabled(result.totpEnabled);
+      const result = await client.getPasskeyLoginOptions();
+      setPasskeyFallbackAvailable(passwordFlow);
       const credential = await getPasskey(result.options);
-      const response = await login(email, "", {
+      const response = await login("", "", {
         passkey: credential,
         passkeyChallenge: result.challenge,
       });
@@ -189,33 +187,22 @@ export function LoginPage() {
         navigate(resolvePostAuthPath(from), { replace: true });
       }
     } catch (err) {
-      if (!(options?.silent && shouldFallbackToPassword(err))) {
-        setError(
-          err instanceof Error ? err.message : "Passkey verification failed."
-        );
-      }
+      setError(
+        err instanceof Error ? err.message : "Passkey verification failed."
+      );
     }
   }
 
-  const maybeAutoPasskeyLogin = async () => {
-    const normalizedEmail = email.trim().toLowerCase();
-    if (
-      demoLogin ||
-      !normalizedEmail ||
-      !normalizedEmail.includes("@") ||
-      isSubmitting ||
-      passkeyAttemptedEmail.current === normalizedEmail
-    ) {
-      return;
-    }
-    passkeyAttemptedEmail.current = normalizedEmail;
+  async function handlePasskeyLogin() {
+    setPasskeyRequired(true);
+    setPasskeyFallbackAvailable(false);
     setIsSubmitting(true);
     try {
-      await beginPasskeyLogin({ silent: true });
+      await beginPasskeyLogin();
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }
   if (isAuthenticated && !isSubmitting) {
     return <Navigate replace to={resolvePostAuthPath(from)} />;
   }
@@ -245,8 +232,9 @@ export function LoginPage() {
         err instanceof NakamaApiError &&
         err.message === "Passkey verification required."
       ) {
+        setPasskeyTotpEnabled(err.totpEnabled === true);
         setPasskeyRequired(true);
-        await beginPasskeyLogin();
+        await beginPasskeyLogin(true);
         return;
       }
       if (
@@ -286,7 +274,6 @@ export function LoginPage() {
                 </label>
                 <Input
                   id="email"
-                  onBlur={() => void maybeAutoPasskeyLogin()}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="admin@example.com"
                   required
@@ -331,6 +318,7 @@ export function LoginPage() {
                 setMfaCode("");
                 setBackupCode("");
               }}
+              totpEnabled={passkeyFallbackAvailable ? passkeyTotpEnabled : true}
               useBackupCode={useBackupCode}
             />
           ) : passkeyRequired ? (
@@ -341,6 +329,7 @@ export function LoginPage() {
                   className="absolute -left-8"
                   onClick={() => {
                     setPasskeyRequired(false);
+                    setPasskeyFallbackAvailable(false);
                     setUseBackupCode(false);
                     setMfaCode("");
                     setBackupCode("");
@@ -352,24 +341,26 @@ export function LoginPage() {
                 >
                   <ArrowLeft02Icon aria-hidden className="size-4" />
                 </Button>
-                <span className="font-medium text-sm">Email</span>
+                <span className="font-medium text-sm">Passkey</span>
               </div>
-              <p className="text-muted-foreground text-sm">{email}</p>
               <div className="space-y-3">
                 <p className="text-muted-foreground text-sm">
                   Approve the passkey prompt to continue.
                 </p>
-                {passkeyTotpEnabled ? (
+                {passkeyFallbackAvailable ? (
                   <Button
                     onClick={() => {
                       setPasskeyRequired(false);
                       setMfaRequired(true);
+                      setUseBackupCode(!passkeyTotpEnabled);
                       setError(null);
                     }}
                     type="button"
                     variant="link"
                   >
-                    Use another method
+                    {passkeyTotpEnabled
+                      ? "Use authenticator instead"
+                      : "Use a recovery code"}
                   </Button>
                 ) : null}
               </div>
@@ -388,6 +379,23 @@ export function LoginPage() {
                   ? "Verify"
                   : "Sign in"}
             </Button>
+          )}
+          {mfaRequired || passkeyRequired || demoLogin ? null : (
+            <>
+              <div className="flex items-center gap-3 text-muted-foreground text-xs uppercase">
+                <span className="h-px flex-1 bg-border" />
+                <span>or</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+              <Button
+                className="w-full"
+                onClick={() => void handlePasskeyLogin()}
+                type="button"
+                variant="outline"
+              >
+                Sign in with a passkey
+              </Button>
+            </>
           )}
           {mfaRequired || passkeyRequired || demoLogin ? null : (
             <Link

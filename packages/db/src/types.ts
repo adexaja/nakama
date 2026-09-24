@@ -443,7 +443,7 @@ export interface StoredPasskeyChallenge {
   createdAt: string;
   expiresAt: string;
   type: PasskeyChallengeType;
-  userId: string;
+  userId: string | null;
 }
 
 export type { OrgPluginLifecycleState } from "@nakama/core";
@@ -746,7 +746,7 @@ export interface DatabaseAdapter {
   consumeMfaTotpStep(userId: string, step: number): Promise<boolean>;
   consumePasskeyChallenge(
     challenge: string,
-    userId: string,
+    userId: string | null,
     type: PasskeyChallengeType,
     consumedAt: string
   ): Promise<boolean>;
@@ -770,6 +770,7 @@ export interface DatabaseAdapter {
     userId: string,
     orgId: string
   ): Promise<AutomationUnreadCountRecord[]>;
+  countUnusedMfaBackupCodes(userId: string): Promise<number>;
   countUsers(): Promise<number>;
   createApiKey(record: StoredApiKeyRecord): Promise<void>;
 
@@ -905,6 +906,9 @@ export interface DatabaseAdapter {
   ): Promise<StoredOrgPluginRecord | null>;
   getPasskey(
     userId: string,
+    credentialId: string
+  ): Promise<StoredPasskeyRecord | null>;
+  getPasskeyByCredentialId(
     credentialId: string
   ): Promise<StoredPasskeyRecord | null>;
   getPendingOrgInvite(

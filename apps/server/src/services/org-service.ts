@@ -425,8 +425,11 @@ export class OrgService {
     const mfaPolicy = await loadMfaPolicy();
     const passkeyEnabled =
       (await this.databaseAdapter.listPasskeys(user.id)).length > 0;
+    const backupCodesEnabled =
+      (await this.databaseAdapter.countUnusedMfaBackupCodes(user.id)) > 0;
     return {
       activeOrgId,
+      backupCodesEnabled,
       email: user.email,
       id: user.id,
       isPlatformAdmin: Boolean(user.isPlatformAdmin),

@@ -314,7 +314,7 @@ CREATE INDEX IF NOT EXISTS user_passkeys_user_idx
 
 CREATE TABLE IF NOT EXISTS user_passkey_challenges (
   challenge TEXT PRIMARY KEY NOT NULL,
-  user_id TEXT NOT NULL,
+  user_id TEXT,
   type TEXT NOT NULL,
   expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL,

@@ -1,3 +1,4 @@
+import type { PasskeyCredentialResponse } from "@nakama/core/contract";
 import { Button } from "@nakama/ui/button";
 import { Card, CardContent } from "@nakama/ui/card";
 import {
@@ -17,6 +18,8 @@ import { MfaCodeInput } from "@/components/MfaCodeInput";
 import { useAuth } from "@/context/use-auth";
 import { client, formatError } from "@/lib/client";
 import { createPasskey, getPasskey } from "@/lib/passkey";
+
+type BackupCodeMethod = "mfa" | "passkey";
 
 function DisableMfaDialogs({
   busy,
@@ -179,12 +182,19 @@ export function MfaSettingsCard() {
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [disablePasskeyDialogOpen, setDisablePasskeyDialogOpen] =
+    useState(false);
+  const [disablePasskeyBackupCode, setDisablePasskeyBackupCode] = useState("");
   const [available, setAvailable] = useState(false);
   const [disableCode, setDisableCode] = useState("");
   const [disableBackupCode, setDisableBackupCode] = useState("");
   const [disableMethod, setDisableMethod] = useState<"totp" | "backup">("totp");
   const [disableConfirmOpen, setDisableConfirmOpen] = useState(false);
   const [disableVerifyOpen, setDisableVerifyOpen] = useState(false);
+  const [backupCodeDialogOpen, setBackupCodeDialogOpen] = useState(false);
+  const [backupCodeInput, setBackupCodeInput] = useState("");
+  const [backupCodeMethod, setBackupCodeMethod] =
+    useState<BackupCodeMethod>("passkey");
 
   useEffect(() => {
     client
@@ -193,15 +203,70 @@ export function MfaSettingsCard() {
       .catch(() => setAvailable(false));
   }, []);
 
+  function openBackupCodeDialog() {
+    if (!(user?.passkeyEnabled || user?.mfaEnabled)) {
+      return;
+    }
+    setBackupCodeInput("");
+    setBackupCodeMethod(user.passkeyEnabled ? "passkey" : "mfa");
+    setError(null);
+    setBackupCodeDialogOpen(true);
+  }
+
+  async function generateBackupCodes() {
+    setBusy(true);
+    setError(null);
+    try {
+      let input:
+        | { mfaCode: string }
+        | {
+            passkey: PasskeyCredentialResponse;
+            passkeyChallenge: string;
+          };
+      if (backupCodeMethod === "passkey") {
+        if (!user?.email) {
+          return;
+        }
+        const result = await client.getPasskeyLoginOptions();
+        input = {
+          passkey: await getPasskey(result.options),
+          passkeyChallenge: result.challenge,
+        };
+      } else {
+        input = { mfaCode: backupCodeInput.trim() };
+      }
+      const result = await client.generateBackupCodes(input);
+      setBackupCodes(result.backupCodes);
+      setBackupCodeInput("");
+      setBackupCodeDialogOpen(false);
+      await refreshSession();
+      toast("Backup codes generated. Save them now.");
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function startPasskey() {
     setBusy(true);
     setError(null);
     try {
       const result = await client.startPasskey();
       const credential = await createPasskey(result.options);
-      await client.verifyPasskey(result.challenge, credential);
+      const verification = await client.verifyPasskey(
+        result.challenge,
+        credential
+      );
+      if (verification.backupCodes.length > 0) {
+        setBackupCodes(verification.backupCodes);
+      }
       await refreshSession();
-      toast("Passkey enabled.");
+      toast(
+        verification.backupCodes.length > 0
+          ? "Passkey enabled. Save these backup codes now."
+          : "Passkey enabled. Existing backup codes were kept."
+      );
     } catch (err) {
       setError(formatError(err));
     } finally {
@@ -210,16 +275,36 @@ export function MfaSettingsCard() {
   }
 
   async function disablePasskeyWithPasskey() {
-    if (!user?.email) {
-      return;
-    }
     setBusy(true);
     setError(null);
     try {
-      const result = await client.getPasskeyLoginOptions(user.email);
+      const result = await client.getPasskeyLoginOptions();
       const credential = await getPasskey(result.options);
-      await client.disablePasskey(result.challenge, credential);
+      await client.disablePasskey({
+        challenge: result.challenge,
+        credential,
+      });
       await refreshSession();
+      setDisablePasskeyDialogOpen(false);
+      setDisablePasskeyBackupCode("");
+      toast("Passkey disabled.");
+    } catch (err) {
+      setError(formatError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disablePasskeyWithBackupCode() {
+    setBusy(true);
+    setError(null);
+    try {
+      await client.disablePasskey({
+        backupCode: disablePasskeyBackupCode.trim(),
+      });
+      await refreshSession();
+      setDisablePasskeyDialogOpen(false);
+      setDisablePasskeyBackupCode("");
       toast("Passkey disabled.");
     } catch (err) {
       setError(formatError(err));
@@ -254,7 +339,11 @@ export function MfaSettingsCard() {
       setTotpUri(null);
       setCode("");
       await refreshSession();
-      toast("Authenticator enabled. Save these backup codes now.");
+      toast(
+        result.backupCodes.length > 0
+          ? "Authenticator enabled. Save these backup codes now."
+          : "Authenticator enabled."
+      );
     } catch (err) {
       setError(formatError(err));
     } finally {
@@ -322,7 +411,11 @@ export function MfaSettingsCard() {
               {user?.passkeyEnabled ? (
                 <Button
                   disabled={busy}
-                  onClick={() => void disablePasskeyWithPasskey()}
+                  onClick={() => {
+                    setDisablePasskeyBackupCode("");
+                    setError(null);
+                    setDisablePasskeyDialogOpen(true);
+                  }}
                   type="button"
                   variant="outline"
                 >
@@ -381,20 +474,6 @@ export function MfaSettingsCard() {
             </p>
           ) : null}
 
-          {backupCodes.length > 0 ? (
-            <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/30">
-              <p className="font-medium text-sm">Backup codes</p>
-              <p className="text-muted-foreground text-xs">
-                Each code works once. Save them before leaving this page.
-              </p>
-              <code className="grid grid-cols-2 gap-1 font-mono text-sm sm:grid-cols-5">
-                {backupCodes.map((backupCode) => (
-                  <span key={backupCode}>{backupCode}</span>
-                ))}
-              </code>
-            </div>
-          ) : null}
-
           {totpUri ? (
             <div className="space-y-3">
               <p className="font-medium text-sm">
@@ -440,6 +519,36 @@ export function MfaSettingsCard() {
               </Button>
             </div>
           ) : null}
+          <div className="flex items-start justify-between gap-4 border-border border-t pt-4">
+            <div>
+              <p className="font-medium text-sm">Backup codes</p>
+              <p className="text-muted-foreground text-xs">
+                Codes are shown only when generated. Regenerate them if you no
+                longer have them.
+              </p>
+            </div>
+            <Button
+              disabled={busy || !(user?.passkeyEnabled || user?.mfaEnabled)}
+              onClick={openBackupCodeDialog}
+              type="button"
+              variant="outline"
+            >
+              {user?.backupCodesEnabled ? "Regenerate codes" : "Generate codes"}
+            </Button>
+          </div>
+          {backupCodes.length > 0 ? (
+            <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/30">
+              <p className="font-medium text-sm">Backup codes</p>
+              <p className="text-muted-foreground text-xs">
+                Each code works once. Save them before leaving this page.
+              </p>
+              <code className="grid grid-cols-2 gap-1 font-mono text-sm sm:grid-cols-5">
+                {backupCodes.map((backupCode) => (
+                  <span key={backupCode}>{backupCode}</span>
+                ))}
+              </code>
+            </div>
+          ) : null}
         </div>
       </CardContent>
       <DisableMfaDialogs
@@ -458,6 +567,169 @@ export function MfaSettingsCard() {
         setDisableVerifyOpen={setDisableVerifyOpen}
         setError={setError}
       />
+      <Dialog
+        onOpenChange={(open) => {
+          if (!(open || busy)) {
+            setDisablePasskeyDialogOpen(false);
+            setDisablePasskeyBackupCode("");
+            setError(null);
+          }
+        }}
+        open={disablePasskeyDialogOpen}
+      >
+        <DialogContent showCloseButton={!busy}>
+          <DialogHeader>
+            <DialogTitle>Disable passkey?</DialogTitle>
+            <DialogDescription>
+              Confirm with your passkey or an unused backup code.
+            </DialogDescription>
+          </DialogHeader>
+          {error ? (
+            <p className="text-destructive text-sm" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <Button
+            disabled={busy}
+            onClick={() => void disablePasskeyWithPasskey()}
+            type="button"
+            variant="outline"
+          >
+            Use passkey
+          </Button>
+          <div className="space-y-2">
+            <label
+              className="block font-medium text-sm"
+              htmlFor="disable-passkey-backup-code"
+            >
+              Backup code
+            </label>
+            <Input
+              autoComplete="off"
+              id="disable-passkey-backup-code"
+              onChange={(event) =>
+                setDisablePasskeyBackupCode(event.target.value)
+              }
+              placeholder="Enter a backup code"
+              value={disablePasskeyBackupCode}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              disabled={busy}
+              onClick={() => {
+                setDisablePasskeyDialogOpen(false);
+                setDisablePasskeyBackupCode("");
+                setError(null);
+              }}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={busy || disablePasskeyBackupCode.trim().length === 0}
+              onClick={() => void disablePasskeyWithBackupCode()}
+              type="button"
+              variant="destructive"
+            >
+              Disable passkey
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        onOpenChange={(open) => {
+          if (!(open || busy)) {
+            setBackupCodeDialogOpen(false);
+            setBackupCodeInput("");
+            setError(null);
+          }
+        }}
+        open={backupCodeDialogOpen}
+      >
+        <DialogContent showCloseButton={!busy}>
+          <DialogHeader>
+            <DialogTitle>
+              {user?.backupCodesEnabled
+                ? "Regenerate backup codes?"
+                : "Generate backup codes"}
+            </DialogTitle>
+            <DialogDescription>
+              Regenerating codes invalidates every existing backup code.
+            </DialogDescription>
+          </DialogHeader>
+          {error ? (
+            <p className="text-destructive text-sm" role="alert">
+              {error}
+            </p>
+          ) : null}
+          {backupCodeMethod === "passkey" ? (
+            <p className="text-muted-foreground text-sm">
+              Approve your passkey to continue.
+            </p>
+          ) : (
+            <>
+              <label
+                className="block font-medium text-sm"
+                htmlFor="backup-mfa-code"
+              >
+                Authenticator code
+              </label>
+              <MfaCodeInput
+                id="backup-mfa-code"
+                onChange={setBackupCodeInput}
+                value={backupCodeInput}
+              />
+            </>
+          )}
+          {user?.passkeyEnabled && user.mfaEnabled ? (
+            <Button
+              className="w-fit px-0"
+              disabled={busy}
+              onClick={() => {
+                setBackupCodeMethod(
+                  backupCodeMethod === "passkey" ? "mfa" : "passkey"
+                );
+                setBackupCodeInput("");
+                setError(null);
+              }}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              {backupCodeMethod === "passkey"
+                ? "Use authenticator code instead"
+                : "Use passkey instead"}
+            </Button>
+          ) : null}
+          <DialogFooter>
+            <Button
+              disabled={busy}
+              onClick={() => {
+                setBackupCodeDialogOpen(false);
+                setBackupCodeInput("");
+                setError(null);
+              }}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                busy ||
+                (backupCodeMethod !== "passkey" &&
+                  backupCodeInput.trim().length === 0)
+              }
+              onClick={() => void generateBackupCodes()}
+              type="button"
+            >
+              Generate codes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

@@ -485,6 +485,7 @@ export interface WebPublicUrlSettingsResponse {
 
 export interface AuthUserResponse {
   activeOrgId?: string | null;
+  backupCodesEnabled?: boolean;
   email: string;
   id: string;
   /**
@@ -519,6 +520,13 @@ export interface MfaTotpVerifyResponse {
   backupCodes: string[];
   enabled: boolean;
 }
+export interface MfaBackupCodesResponse {
+  backupCodes: string[];
+}
+export interface PasskeyVerificationResponse {
+  backupCodes: string[];
+  enabled: boolean;
+}
 export interface PasskeyRegistrationOptionsResponse {
   challenge: string;
   options: Record<string, unknown>;
@@ -527,7 +535,6 @@ export interface PasskeyRegistrationOptionsResponse {
 export interface PasskeyAuthenticationOptionsResponse {
   challenge: string;
   options: Record<string, unknown>;
-  totpEnabled: boolean;
 }
 
 export interface PasskeyCredentialResponse {
@@ -1889,6 +1896,7 @@ export interface ProfileRef {
 export interface ApiErrorResponse {
   error: string;
   profiles?: ProfileRef[];
+  totpEnabled?: boolean;
   /** Tokens a failed turn had already spent. They are billable regardless. */
   usage?: ChatTurnUsage;
 }

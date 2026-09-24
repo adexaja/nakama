@@ -1704,6 +1704,11 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     SET used_at = ?
     WHERE user_id = ? AND code_hash = ? AND used_at IS NULL
   `);
+  const countUnusedMfaBackupCodesStmt = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM user_mfa_backup_codes
+    WHERE user_id = ? AND used_at IS NULL
+  `);
   const deleteMfaBackupCodesStmt = db.prepare(`
     DELETE FROM user_mfa_backup_codes
     WHERE user_id = ?
@@ -1726,7 +1731,8 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
   `);
   const consumePasskeyChallengeStmt = db.prepare(`
     DELETE FROM user_passkey_challenges
-    WHERE challenge = ? AND user_id = ? AND type = ? AND expires_at > ?
+    WHERE challenge = ? AND type = ? AND expires_at > ?
+      AND (user_id = ? OR user_id IS NULL)
   `);
   const deletePasskeysStmt = db.prepare(
     "DELETE FROM user_passkeys WHERE user_id = ?"
@@ -1735,6 +1741,11 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     SELECT id, user_id, credential_id, public_key, counter, transports, name, created_at
     FROM user_passkeys
     WHERE user_id = ? AND credential_id = ?
+  `);
+  const getPasskeyByCredentialIdStmt = db.prepare(`
+    SELECT id, user_id, credential_id, public_key, counter, transports, name, created_at
+    FROM user_passkeys
+    WHERE credential_id = ?
   `);
   const listPasskeysStmt = db.prepare(`
     SELECT id, user_id, credential_id, public_key, counter, transports, name, created_at
@@ -2786,7 +2797,7 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     },
     async consumePasskeyChallenge(challenge, userId, type, consumedAt) {
       return (
-        consumePasskeyChallengeStmt.run(challenge, userId, type, consumedAt)
+        consumePasskeyChallengeStmt.run(challenge, type, consumedAt, userId)
           .changes > 0
       );
     },
@@ -2834,6 +2845,12 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
           automationId: (row as { automation_id: string }).automation_id,
           unreadCount: Number((row as { unread_count: number }).unread_count),
         }));
+    },
+    async countUnusedMfaBackupCodes(userId) {
+      const row = countUnusedMfaBackupCodesStmt.get(userId) as {
+        count: number;
+      };
+      return Number(row.count);
     },
 
     async countUsers() {
@@ -3356,6 +3373,12 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     },
     async getPasskey(userId, credentialId) {
       const row = getPasskeyStmt.get(userId, credentialId) as PasskeyRow | null;
+      return row ? toPasskeyRecord(row) : null;
+    },
+    async getPasskeyByCredentialId(credentialId) {
+      const row = getPasskeyByCredentialIdStmt.get(
+        credentialId
+      ) as PasskeyRow | null;
       return row ? toPasskeyRecord(row) : null;
     },
 

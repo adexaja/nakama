@@ -1711,5 +1711,25 @@ describe("createHonoApp", () => {
       );
       expect(skillsResponse.status).toBe(403);
     });
+    test("returns generic passkey options without authentication", async () => {
+      const app = createHonoApp(createServerOptions());
+      const response = await app.fetch(
+        new Request("http://localhost:4310/v1/auth/passkey/login/options", {
+          body: "{}",
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        })
+      );
+
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        challenge: string;
+        options: { allowCredentials?: unknown };
+        totpEnabled?: unknown;
+      };
+      expect(body.challenge).toBeString();
+      expect(body.options.allowCredentials).toBeUndefined();
+      expect(body.totpEnabled).toBeUndefined();
+    });
   });
 });
