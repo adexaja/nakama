@@ -233,6 +233,13 @@ test("platform admin configures MFA and login requires the user's TOTP", async (
     })
   );
   expect(disableResponse.status).toBe(200);
+  expect(
+    await databaseAdapter.consumeMfaBackupCode(
+      user.id,
+      hashBackupCode("STALE-BACKUP", mfaEncryptionKey),
+      new Date().toISOString()
+    )
+  ).toBe(false);
 
   const startResponse = await app.fetch(
     new Request("http://localhost:4310/v1/auth/mfa/totp/start", {

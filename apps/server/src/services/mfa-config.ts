@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import {
   getUserConfigPath,
@@ -14,6 +14,14 @@ const ENABLED_KEY = "mfa_enabled";
 const REQUIRED_KEY = "mfa_required";
 const ENFORCED_ROLES_KEY = "mfa_enforced_roles";
 const ENCRYPTION_KEY = "mfa_encryption_key";
+type CachedMfaEncryptionKey = {
+  ino: number;
+  mtimeMs: number;
+  path: string;
+  size: number;
+  value: string;
+};
+let cachedMfaEncryptionKey: CachedMfaEncryptionKey | null = null;
 
 export interface MfaPolicy {
   enabled: boolean;
@@ -85,10 +93,38 @@ export async function updateMfaPolicy(input: {
   return loadMfaPolicy();
 }
 
+type MfaConfigMetadata = Pick<
+  CachedMfaEncryptionKey,
+  "ino" | "mtimeMs" | "size"
+>;
+
+function readMfaConfigMetadata(configPath: string): MfaConfigMetadata {
+  try {
+    const { ino, mtimeMs, size } = statSync(configPath);
+    return { ino, mtimeMs, size };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      cachedMfaEncryptionKey = null;
+      throw new Error("MFA encryption key is not configured.");
+    }
+    throw error;
+  }
+}
+
+function cacheMfaEncryptionKey(configPath: string, value: string): void {
+  cachedMfaEncryptionKey = {
+    path: configPath,
+    ...readMfaConfigMetadata(configPath),
+    value,
+  };
+}
+
 export async function ensureMfaEncryptionKey(): Promise<string> {
+  const configPath = getUserConfigPath();
   const parsed = await readConfig();
   const existing = parsed.sections[MFA_SECTION]?.[ENCRYPTION_KEY];
   if (existing) {
+    cacheMfaEncryptionKey(configPath, existing);
     return existing;
   }
   const key = randomBytes(32).toString("base64url");
@@ -99,22 +135,28 @@ export async function ensureMfaEncryptionKey(): Promise<string> {
       [ENCRYPTION_KEY]: key,
     },
   });
+  cacheMfaEncryptionKey(configPath, key);
   return key;
 }
 
 export function getMfaEncryptionKey(): string {
-  let raw = "";
-  try {
-    raw = readFileSync(getUserConfigPath(), "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw error;
-    }
+  const configPath = getUserConfigPath();
+  const metadata = readMfaConfigMetadata(configPath);
+  if (
+    cachedMfaEncryptionKey &&
+    cachedMfaEncryptionKey.path === configPath &&
+    cachedMfaEncryptionKey.ino === metadata.ino &&
+    cachedMfaEncryptionKey.mtimeMs === metadata.mtimeMs &&
+    cachedMfaEncryptionKey.size === metadata.size
+  ) {
+    return cachedMfaEncryptionKey.value;
   }
-  const value =
-    parseIniWithSections(raw).sections[MFA_SECTION]?.[ENCRYPTION_KEY];
+  const value = parseIniWithSections(readFileSync(configPath, "utf8")).sections[
+    MFA_SECTION
+  ]?.[ENCRYPTION_KEY];
   if (!value) {
     throw new Error("MFA encryption key is not configured.");
   }
+  cachedMfaEncryptionKey = { path: configPath, ...metadata, value };
   return value;
 }

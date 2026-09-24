@@ -843,6 +843,7 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
       },
       new Date().toISOString()
     );
+    await databaseAdapter.deleteMfaBackupCodes(auth.user.id);
     return json({ enabled: false });
   });
   app.openapi(meRoute, async (c) => {
