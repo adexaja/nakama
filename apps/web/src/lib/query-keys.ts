@@ -94,6 +94,9 @@ export const queryKeys = {
     all: ["skills"] as const,
     detail: (skillId: string) => ["skills", skillId] as const,
   },
+  slack: {
+    settings: ["slack", "settings"] as const,
+  },
   soul: {
     profile: (profileId: string) => ["soul", "profile", profileId] as const,
   },
