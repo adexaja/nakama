@@ -26,6 +26,7 @@ import {
 } from "../../services/composio-callback-url";
 import {
   ensureMfaEncryptionKey,
+  getMfaEncryptionKey,
   loadMfaPolicy,
   updateMfaPolicy,
 } from "../../services/mfa-config";
@@ -612,9 +613,10 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
         }
       }
       if (!validMfa && body.backupCode) {
+        const mfaEncryptionKey = getMfaEncryptionKey();
         validMfa = await databaseAdapter.consumeMfaBackupCode(
           user.id,
-          hashBackupCode(body.backupCode),
+          hashBackupCode(body.backupCode, mfaEncryptionKey),
           new Date().toISOString()
         );
       }
@@ -741,11 +743,13 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
     }
     const now = new Date().toISOString();
     const backupCodes: string[] = [];
+    await databaseAdapter.deleteMfaBackupCodes(auth.user.id);
+    const mfaEncryptionKey = getMfaEncryptionKey();
     for (let index = 0; index < 10; index += 1) {
       const code = randomBytes(5).toString("hex").toUpperCase();
       backupCodes.push(code);
       await databaseAdapter.createMfaBackupCode({
-        codeHash: hashBackupCode(code),
+        codeHash: hashBackupCode(code, mfaEncryptionKey),
         createdAt: now,
         id: crypto.randomUUID(),
         usedAt: null,
@@ -769,8 +773,51 @@ export function registerAuthRoutes(app: HonoApp, options: ServerOptions): void {
       return errorResponse("Authentication required", 401);
     }
     assertBrowserCsrf(c.req.raw, auth, authService);
+    const body = await readJson<{ backupCode?: string; code?: string }>(
+      c.req.raw,
+      z
+        .object({
+          backupCode: z.string().trim().min(1).optional(),
+          code: z.string().trim().min(6).max(8).optional(),
+        })
+        .refine(
+          ({ backupCode, code }) => Boolean(backupCode) !== Boolean(code),
+          "Provide a TOTP or backup code."
+        )
+    );
+    const user = await databaseAdapter.getUserById(auth.user.id);
+    if (!user?.mfaEnabled) {
+      return errorResponse("MFA is not enabled.", 400);
+    }
+
+    let valid = false;
+    if (body.backupCode) {
+      valid = await databaseAdapter.consumeMfaBackupCode(
+        user.id,
+        hashBackupCode(body.backupCode, getMfaEncryptionKey()),
+        new Date().toISOString()
+      );
+    } else if (user.mfaTotpSecretEnc) {
+      try {
+        valid = verifyTotpCode(
+          decryptTotpSecret(user.mfaTotpSecretEnc),
+          body.code ?? ""
+        );
+      } catch {
+        valid = false;
+      }
+    }
+    if (!valid) {
+      return errorResponse(
+        body.backupCode
+          ? "Backup code is invalid or has already been used."
+          : "Invalid MFA code.",
+        401
+      );
+    }
+
     await databaseAdapter.updateUserMfa(
-      auth.user.id,
+      user.id,
       { enabled: false, totpSecretEnc: null },
       new Date().toISOString()
     );

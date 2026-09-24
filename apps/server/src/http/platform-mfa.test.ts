@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { getMfaEncryptionKey } from "../services/mfa-config";
 import {
   createTotpCode,
   encryptTotpSecret,
@@ -100,8 +101,9 @@ test("platform admin configures MFA and login requires the user's TOTP", async (
     { enabled: true, totpSecretEnc: encryptTotpSecret(secret) },
     new Date().toISOString()
   );
+  const mfaEncryptionKey = getMfaEncryptionKey();
   await databaseAdapter.createMfaBackupCode({
-    codeHash: hashBackupCode("BACKUP-123"),
+    codeHash: hashBackupCode("BACKUP-123", mfaEncryptionKey),
     createdAt: new Date().toISOString(),
     id: "backup-123",
     usedAt: null,
@@ -159,4 +161,72 @@ test("platform admin configures MFA and login requires the user's TOTP", async (
   expect(await reusedBackupLogin.json()).toMatchObject({
     error: "Backup code is invalid or has already been used.",
   });
+  await databaseAdapter.createMfaBackupCode({
+    codeHash: hashBackupCode("STALE-BACKUP", mfaEncryptionKey),
+    createdAt: new Date().toISOString(),
+    id: "stale-backup",
+    usedAt: null,
+    userId: user.id,
+  });
+
+  const disableResponse = await app.fetch(
+    new Request("http://localhost:4310/v1/auth/mfa/disable", {
+      body: JSON.stringify({ code: createTotpCode(secret) }),
+      headers: session.headers({
+        "Content-Type": "application/json",
+        "X-CSRF-Token": session.csrfToken,
+      }),
+      method: "POST",
+    })
+  );
+  expect(disableResponse.status).toBe(200);
+
+  const startResponse = await app.fetch(
+    new Request("http://localhost:4310/v1/auth/mfa/totp/start", {
+      headers: session.headers({ "X-CSRF-Token": session.csrfToken }),
+      method: "POST",
+    })
+  );
+  expect(startResponse.status).toBe(200);
+  const startBody = (await startResponse.json()) as { secret: string };
+
+  const verifyResponse = await app.fetch(
+    new Request("http://localhost:4310/v1/auth/mfa/totp/verify", {
+      body: JSON.stringify({ code: createTotpCode(startBody.secret) }),
+      headers: session.headers({
+        "Content-Type": "application/json",
+        "X-CSRF-Token": session.csrfToken,
+      }),
+      method: "POST",
+    })
+  );
+  expect(verifyResponse.status).toBe(200);
+  const verifyBody = (await verifyResponse.json()) as { backupCodes: string[] };
+
+  const staleBackupLogin = await app.fetch(
+    new Request("http://localhost:4310/v1/auth/login", {
+      body: JSON.stringify({
+        backupCode: "STALE-BACKUP",
+        email: "admin@example.com",
+        password: "password123",
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+  );
+  expect(staleBackupLogin.status).toBe(401);
+  expect(await staleBackupLogin.json()).toMatchObject({
+    error: "Backup code is invalid or has already been used.",
+  });
+  const disableWithBackupResponse = await app.fetch(
+    new Request("http://localhost:4310/v1/auth/mfa/disable", {
+      body: JSON.stringify({ backupCode: verifyBody.backupCodes[0] }),
+      headers: session.headers({
+        "Content-Type": "application/json",
+        "X-CSRF-Token": session.csrfToken,
+      }),
+      method: "POST",
+    })
+  );
+  expect(disableWithBackupResponse.status).toBe(200);
 });

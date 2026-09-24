@@ -75,8 +75,8 @@ export function decryptTotpSecret(value: string): string {
   ]).toString("utf8");
 }
 
-export function hashBackupCode(code: string): string {
-  return createHmac("sha256", Buffer.from(getMfaEncryptionKey(), "base64url"))
+export function hashBackupCode(code: string, mfaEncryptionKey: string): string {
+  return createHmac("sha256", Buffer.from(mfaEncryptionKey, "base64url"))
     .update(code.trim().toUpperCase())
     .digest("base64url");
 }

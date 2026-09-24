@@ -767,6 +767,7 @@ export interface DatabaseAdapter {
   deleteComposioUserConnection(id: string): Promise<boolean>;
   deleteMcpServer(id: string): Promise<boolean>;
   deleteMessagesForSession(sessionId: string): Promise<void>;
+  deleteMfaBackupCodes(userId: string): Promise<void>;
   deleteNotificationDestination(id: string): Promise<boolean>;
   deleteOrganization(id: string): Promise<boolean>;
   deleteOrgMember(orgId: string, userId: string): Promise<boolean>;

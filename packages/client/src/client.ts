@@ -2492,8 +2492,12 @@ export class NakamaClient {
     });
   }
 
-  async disableMfa(): Promise<{ enabled: boolean }> {
+  async disableMfa(input: {
+    backupCode?: string;
+    code?: string;
+  }): Promise<{ enabled: boolean }> {
     return this.request<{ enabled: boolean }>("/v1/auth/mfa/disable", {
+      body: JSON.stringify(input),
       method: "POST",
     });
   }

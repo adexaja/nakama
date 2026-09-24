@@ -1,5 +1,15 @@
 import { Button } from "@nakama/ui/button";
 import { Card, CardContent } from "@nakama/ui/card";
+import {
+  ConfirmDialog,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@nakama/ui/dialog";
+import { Input } from "@nakama/ui/input";
 import { toast } from "@nakama/ui/toast";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useState } from "react";
@@ -15,6 +25,11 @@ export function MfaSettingsCard() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [available, setAvailable] = useState(false);
+  const [disableCode, setDisableCode] = useState("");
+  const [disableBackupCode, setDisableBackupCode] = useState("");
+  const [disableMethod, setDisableMethod] = useState<"totp" | "backup">("totp");
+  const [disableConfirmOpen, setDisableConfirmOpen] = useState(false);
+  const [disableVerifyOpen, setDisableVerifyOpen] = useState(false);
 
   useEffect(() => {
     client
@@ -64,8 +79,16 @@ export function MfaSettingsCard() {
     setBusy(true);
     setError(null);
     try {
-      await client.disableMfa();
+      await client.disableMfa(
+        disableMethod === "totp"
+          ? { code: disableCode.trim() }
+          : { backupCode: disableBackupCode.trim() }
+      );
       setBackupCodes([]);
+      setDisableVerifyOpen(false);
+      setDisableCode("");
+      setDisableBackupCode("");
+      setDisableMethod("totp");
       await refreshSession();
       toast("Multi-factor authentication disabled.");
     } catch (err) {
@@ -157,7 +180,10 @@ export function MfaSettingsCard() {
             {user?.mfaEnabled ? (
               <Button
                 disabled={busy}
-                onClick={() => void disableMfa()}
+                onClick={() => {
+                  setError(null);
+                  setDisableConfirmOpen(true);
+                }}
                 type="button"
                 variant="outline"
               >
@@ -184,6 +210,123 @@ export function MfaSettingsCard() {
           </div>
         </div>
       </CardContent>
+      {disableConfirmOpen ? (
+        <ConfirmDialog
+          confirmLabel="Continue"
+          description="Disabling multi-factor authentication removes the extra sign-in protection from this account. You will need to set it up again before using an authenticator. Continue?"
+          onClose={() => setDisableConfirmOpen(false)}
+          onConfirm={async () => {
+            setError(null);
+            setDisableVerifyOpen(true);
+          }}
+          title="Disable multi-factor authentication?"
+        />
+      ) : null}
+      <Dialog
+        onOpenChange={(open) => {
+          if (!(open || busy)) {
+            setDisableVerifyOpen(false);
+            setDisableCode("");
+            setDisableBackupCode("");
+            setDisableMethod("totp");
+            setError(null);
+          }
+        }}
+        open={disableVerifyOpen}
+      >
+        <DialogContent showCloseButton={!busy}>
+          <DialogHeader>
+            <DialogTitle>Verify your identity</DialogTitle>
+            <DialogDescription>
+              {disableMethod === "totp"
+                ? "Enter the 6-digit code from your authenticator app to confirm disabling multi-factor authentication."
+                : "Enter an unused backup code to confirm disabling multi-factor authentication. The code will be consumed if it is valid."}
+            </DialogDescription>
+          </DialogHeader>
+          {error ? (
+            <p className="text-destructive text-sm" role="alert">
+              {error}
+            </p>
+          ) : null}
+          {disableMethod === "totp" ? (
+            <>
+              <label
+                className="block font-medium text-sm"
+                htmlFor="disable-mfa-code"
+              >
+                Authenticator code
+              </label>
+              <MfaCodeInput
+                id="disable-mfa-code"
+                onChange={setDisableCode}
+                value={disableCode}
+              />
+            </>
+          ) : (
+            <>
+              <label
+                className="block font-medium text-sm"
+                htmlFor="disable-mfa-backup-code"
+              >
+                Backup code
+              </label>
+              <Input
+                autoComplete="off"
+                id="disable-mfa-backup-code"
+                onChange={(event) => setDisableBackupCode(event.target.value)}
+                placeholder="Enter a backup code"
+                value={disableBackupCode}
+              />
+            </>
+          )}
+          <Button
+            className="w-fit px-0"
+            disabled={busy}
+            onClick={() => {
+              setDisableMethod(disableMethod === "totp" ? "backup" : "totp");
+              setDisableCode("");
+              setDisableBackupCode("");
+              setError(null);
+            }}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            {disableMethod === "totp"
+              ? "Use a backup code instead"
+              : "Use an authenticator code instead"}
+          </Button>
+          <DialogFooter>
+            <Button
+              disabled={busy}
+              onClick={() => {
+                setDisableVerifyOpen(false);
+                setDisableCode("");
+                setDisableBackupCode("");
+                setDisableMethod("totp");
+                setError(null);
+              }}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                busy ||
+                (disableMethod === "totp"
+                  ? disableCode.trim().length < 6
+                  : disableBackupCode.trim().length === 0)
+              }
+              onClick={() => void disableMfa()}
+              type="button"
+              variant="destructive"
+            >
+              Disable MFA
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

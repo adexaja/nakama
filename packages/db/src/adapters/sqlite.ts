@@ -1665,6 +1665,10 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     SET used_at = ?
     WHERE user_id = ? AND code_hash = ? AND used_at IS NULL
   `);
+  const deleteMfaBackupCodesStmt = db.prepare(`
+    DELETE FROM user_mfa_backup_codes
+    WHERE user_id = ?
+  `);
 
   const getUserByEmailStmt = db.prepare("SELECT * FROM users WHERE email = ?");
   const getUserByIdStmt = db.prepare("SELECT * FROM users WHERE id = ?");
@@ -2955,6 +2959,9 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
 
     async deleteMessagesForSession(sessionId) {
       deleteMessagesForSessionStmt.run(sessionId);
+    },
+    async deleteMfaBackupCodes(userId) {
+      deleteMfaBackupCodesStmt.run(userId);
     },
 
     async deleteNotificationDestination(id) {
