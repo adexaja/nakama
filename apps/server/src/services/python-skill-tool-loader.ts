@@ -5,9 +5,12 @@ import { spawnJsonTool } from "./custom-tool-subprocess";
 import { resolvePythonBin } from "./python-tool-loader";
 
 export async function loadPythonSkillTool(
-  skill: DiscoveredSkill
+  skill: DiscoveredSkill,
+  script?: { description: string; name: string; path: string }
 ): Promise<ToolDefinition | null> {
-  const modulePath = skill.toolPath;
+  const modulePath = script?.path ?? skill.toolPath;
+  const toolName = script?.name ?? skill.name;
+  const toolDescription = script?.description ?? skill.description;
   if (!modulePath?.endsWith(".py")) {
     return null;
   }
@@ -17,21 +20,25 @@ export async function loadPythonSkillTool(
     if (!/\bdef\s+run\s*\(/.test(source)) {
       throw new Error("Python skill tool must define run(input, context).");
     }
+    // No check on how the result is written. `print(json.dumps(...))` is the
+    // ordinary way to reach stdout in Python and a substring search for
+    // `sys.stdout` refused it, claiming a harness was missing from a file that
+    // had one. spawnJsonTool answers the same question truthfully at run time:
+    // "produced no output; it must print its JSON result to stdout".
     if (
       !(
         /if\s+__name__\s*==\s*["']__main__["']\s*:/.test(source) &&
-        source.includes("sys.stdin") &&
-        source.includes("sys.stdout")
+        source.includes("sys.stdin")
       )
     ) {
       throw new Error(
-        "Python skill tool must include a JSON stdin/stdout harness."
+        "Python skill tool must read its JSON input from sys.stdin inside a __main__ block."
       );
     }
 
     return {
-      description: skill.description,
-      name: skill.name,
+      description: toolDescription,
+      name: toolName,
       parameters: { additionalProperties: true, type: "object" },
       async run(input, context) {
         return spawnJsonTool({
@@ -51,8 +58,8 @@ export async function loadPythonSkillTool(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
-      description: skill.description,
-      name: skill.name,
+      description: toolDescription,
+      name: toolName,
       parameters: { additionalProperties: true, type: "object" },
       async run() {
         return { error: `Python skill tool failed to load: ${message}` };
