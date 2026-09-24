@@ -115,6 +115,9 @@ import type {
   ListWorkspaceFilesResponse,
   MarkAutomationRunsReadResponse,
   McpServerResponse,
+  MfaPolicyResponse,
+  MfaTotpStartResponse,
+  MfaTotpVerifyResponse,
   ModelsResponse,
   MoveProfileRequest,
   NotificationDestinationSummary,
@@ -2480,14 +2483,55 @@ export class NakamaClient {
     return response;
   }
 
-  async login(email: string, password: string): Promise<AuthUserResponse> {
+  async login(
+    email: string,
+    password: string,
+    mfa?: { backupCode?: string; mfaCode?: string }
+  ): Promise<AuthUserResponse> {
     const response = await this.request<AuthUserResponse>("/v1/auth/login", {
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, ...mfa }),
       method: "POST",
     });
 
     this.applyAuthUserResponse(response);
     return response;
+  }
+  async getMfaPolicy(): Promise<MfaPolicyResponse> {
+    return this.request<MfaPolicyResponse>("/v1/settings/mfa");
+  }
+
+  async updateMfaPolicy(
+    request: Partial<
+      Pick<MfaPolicyResponse, "enabled" | "enforcedRoles" | "required">
+    >
+  ): Promise<MfaPolicyResponse> {
+    return this.request<MfaPolicyResponse>("/v1/settings/mfa", {
+      body: JSON.stringify(request),
+      method: "PUT",
+    });
+  }
+
+  async startTotp(): Promise<MfaTotpStartResponse> {
+    return this.request<MfaTotpStartResponse>("/v1/auth/mfa/totp/start", {
+      method: "POST",
+    });
+  }
+
+  async verifyTotp(code: string): Promise<MfaTotpVerifyResponse> {
+    return this.request<MfaTotpVerifyResponse>("/v1/auth/mfa/totp/verify", {
+      body: JSON.stringify({ code }),
+      method: "POST",
+    });
+  }
+
+  async disableMfa(input: {
+    backupCode?: string;
+    code?: string;
+  }): Promise<{ enabled: boolean }> {
+    return this.request<{ enabled: boolean }>("/v1/auth/mfa/disable", {
+      body: JSON.stringify(input),
+      method: "POST",
+    });
   }
 
   async acceptOrgInvite(

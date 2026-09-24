@@ -5,6 +5,7 @@
   "exports": {
     "./supermemory-client": "./src/supermemory-client.ts",
     ".": "./src/index.ts",
+    "./demo-login": "./src/demo-login.ts",
     "./agent-questionnaire": "./src/agent-questionnaire.ts",
     "./artifact-mime": "./src/artifact-mime.ts",
     "./agent-todo": "./src/agent-todo.ts",

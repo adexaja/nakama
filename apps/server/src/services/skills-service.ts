@@ -223,7 +223,10 @@ export class SkillsService {
       throw new Error("Skill name is required.");
     }
 
-    if (!request.description.trim()) {
+    // Optional chaining because a create with no description used to reach
+    // .trim() on undefined and answer 500, which reads as a server fault for
+    // what is a missing field.
+    if (!request.description?.trim()) {
       throw new Error("Skill description is required.");
     }
 
@@ -235,6 +238,7 @@ export class SkillsService {
       name,
       orgId: profileId ? orgId : undefined,
       profileId,
+      scripts: request.scripts,
     });
 
     const discovered = await discoverSkillDirectory(directory);
@@ -302,6 +306,10 @@ export class SkillsService {
       description,
       disableModelInvocation,
       name: parsed.frontmatter.name,
+      // Carried from what is on disk. A patch edits prose; it has no opinion
+      // about which scripts the skill ships, and dropping the key here leaves
+      // the skill installed with none of its scripts loaded as tools.
+      scripts: parsed.frontmatter.scripts,
     });
 
     parseSkillMarkdown(content, skillFilePath);
@@ -1072,9 +1080,22 @@ export class SkillsService {
         .filter((item) => item.discovered.toolPath?.endsWith(".py"))
         .map((item) => loadPythonSkillTool(item.discovered))
     );
+    // Scripts named in `scripts:` each become their own tool, so a skill is no
+    // longer capped at the single tool.py slot.
+    const declaredTools = await Promise.all(
+      assigned
+        .filter((item) => !isPluginOwnedSkill(item.record))
+        .flatMap((item) =>
+          item.discovered.scriptTools.map((script) =>
+            loadPythonSkillTool(item.discovered, script)
+          )
+        )
+    );
     return [
       ...javascriptTools,
-      ...pythonTools.filter((tool): tool is ToolDefinition => tool !== null),
+      ...[...pythonTools, ...declaredTools].filter(
+        (tool): tool is ToolDefinition => tool !== null
+      ),
     ];
   }
 

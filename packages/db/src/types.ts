@@ -407,10 +407,22 @@ export interface StoredUserRecord {
   email: string;
   id: string;
   isPlatformAdmin?: boolean;
+  mfaEnabled?: boolean;
+  mfaTotpLastStep?: number | null;
+  mfaTotpPendingSecretEnc?: string | null;
+  mfaTotpSecretEnc?: string | null;
   name?: string | null;
   passwordHash: string;
   phone?: string | null;
   updatedAt: string;
+}
+
+export interface StoredMfaBackupCode {
+  codeHash: string;
+  createdAt: string;
+  id: string;
+  usedAt: string | null;
+  userId: string;
 }
 
 export type { OrgPluginLifecycleState } from "@nakama/core";
@@ -677,6 +689,12 @@ export interface StoredAuditEvent {
 }
 
 export interface DatabaseAdapter {
+  activateUserMfa(
+    id: string,
+    totpSecretEnc: string,
+    lastStep: number,
+    updatedAt: string
+  ): Promise<boolean>;
   appendMessagesForSession(
     sessionId: string,
     messages: StoredSessionMessageRecord[]
@@ -699,6 +717,12 @@ export interface DatabaseAdapter {
   compareAndSetOrgPluginState(
     input: CompareAndSetOrgPluginStateInput
   ): Promise<PluginPublishResult>;
+  consumeMfaBackupCode(
+    userId: string,
+    codeHash: string,
+    usedAt: string
+  ): Promise<boolean>;
+  consumeMfaTotpStep(userId: string, step: number): Promise<boolean>;
   consumePasswordResetToken(
     tokenHash: string,
     passwordHash: string,
@@ -727,6 +751,7 @@ export interface DatabaseAdapter {
   createAuditEvent(record: StoredAuditEvent): Promise<void>;
 
   createBrowserSession(record: StoredBrowserSessionRecord): Promise<void>;
+  createMfaBackupCode(record: StoredMfaBackupCode): Promise<void>;
 
   createOrgInvite(record: StoredOrgInviteRecord): Promise<void>;
 
@@ -751,6 +776,7 @@ export interface DatabaseAdapter {
   deleteComposioUserConnection(id: string): Promise<boolean>;
   deleteMcpServer(id: string): Promise<boolean>;
   deleteMessagesForSession(sessionId: string): Promise<void>;
+  deleteMfaBackupCodes(userId: string): Promise<void>;
   deleteNotificationDestination(id: string): Promise<boolean>;
   deleteOrganization(id: string): Promise<boolean>;
   deleteOrgMember(orgId: string, userId: string): Promise<boolean>;
@@ -1142,6 +1168,11 @@ export interface DatabaseAdapter {
     path: string,
     pinned: boolean
   ): Promise<void>;
+  setPendingMfaSecret(
+    id: string,
+    pendingTotpSecretEnc: string,
+    updatedAt: string
+  ): Promise<void>;
   setUserContext(
     orgId: string,
     userId: string,
@@ -1217,6 +1248,16 @@ export interface DatabaseAdapter {
       reviewedAt: string;
     }
   ): Promise<boolean>;
+  updateUserMfa(
+    id: string,
+    mfa: {
+      enabled: boolean;
+      mfaTotpLastStep: number | null;
+      pendingTotpSecretEnc: string | null;
+      totpSecretEnc: string | null;
+    },
+    updatedAt: string
+  ): Promise<void>;
   updateUserPassword(
     id: string,
     passwordHash: string,
