@@ -1720,6 +1720,10 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
     )
     VALUES (?, ?, ?, ?, ?)
   `);
+  const deleteExpiredPasskeyChallengesStmt = db.prepare(`
+    DELETE FROM user_passkey_challenges
+    WHERE expires_at <= ?
+  `);
   const consumePasskeyChallengeStmt = db.prepare(`
     DELETE FROM user_passkey_challenges
     WHERE challenge = ? AND user_id = ? AND type = ? AND expires_at > ?
@@ -2951,6 +2955,7 @@ function createSqliteDatabaseAdapter(db: Database): DatabaseAdapter {
       );
     },
     async createPasskeyChallenge(record) {
+      deleteExpiredPasskeyChallengesStmt.run(record.createdAt);
       createPasskeyChallengeStmt.run(
         record.challenge,
         record.userId,
