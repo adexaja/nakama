@@ -228,6 +228,33 @@ test("a script that only uses the standard library is reported clean", async () 
   await rm(directory, { force: true, recursive: true });
 });
 
+test("a skill's own modules are not mistaken for packages to install", async () => {
+  // Python puts the running script's directory first on sys.path, so a skill
+  // split across files imports its siblings by bare name. Naming those as
+  // missing dependencies sends the author looking for a package that is
+  // already sitting next to the script.
+  const directory = await skillDir({
+    "SKILL.md": "---\n---\n",
+    "scripts/beam.py": `"""Size a beam."""\nimport json\nimport material\nfrom limits import PHI\nimport matplotlib.pyplot as plt\n${BODY}${HARNESS}`,
+    "scripts/limits.py": `"""Limits."""\nPHI = 0.9\n${BODY}${HARNESS}`,
+    "scripts/material.py": `"""Material properties."""\n${BODY}${HARNESS}`,
+  });
+  const resolved = await resolveSkillScripts({
+    declared: ["scripts/beam.py", "scripts/limits.py", "scripts/material.py"],
+    directory,
+    skillName: "calc",
+    toolPath: null,
+  });
+
+  expect(resolved.tools).toHaveLength(3);
+  const reason =
+    resolved.issues.find((i) => i.path === "scripts/beam.py")?.reason ?? "";
+  expect(reason).toContain("matplotlib");
+  expect(reason).not.toContain("material");
+  expect(reason).not.toContain("limits");
+  await rm(directory, { force: true, recursive: true });
+});
+
 test("a script that prints its result is accepted, not read as missing a harness", async () => {
   // print(json.dumps(...)) is how most Python reaches stdout. Requiring the
   // literal string sys.stdout refused working scripts and told their author
