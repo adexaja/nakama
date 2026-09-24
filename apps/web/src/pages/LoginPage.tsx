@@ -46,7 +46,7 @@ export function LoginPage() {
   const from = (location.state as { from?: string } | null)?.from;
 
   if (isAuthenticated && !isSubmitting) {
-    return <Navigate replace to={resolvePostAuthPath(health, from)} />;
+    return <Navigate replace to={resolvePostAuthPath(from)} />;
   }
 
   if (health?.userConfigured === false) {
@@ -66,7 +66,7 @@ export function LoginPage() {
       if (response.mfaRequired && !response.mfaEnrolled) {
         navigate("/settings?mfa=required", { replace: true });
       } else {
-        navigate(resolvePostAuthPath(health, from), { replace: true });
+        navigate(resolvePostAuthPath(from), { replace: true });
       }
     } catch (err) {
       if (
