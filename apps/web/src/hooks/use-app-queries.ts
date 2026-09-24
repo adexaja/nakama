@@ -50,6 +50,7 @@ function createSettingsHooks<TData, TRequest>(config: {
   const settingsQueryOptions = queryOptions({
     queryFn: config.queryFn,
     queryKey: config.queryKey,
+    staleTime: defaultStaleTime,
   });
 
   function useSettings() {
