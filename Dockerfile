@@ -16,7 +16,8 @@ RUN bun install --frozen-lockfile --ignore-scripts \
   && bun run --filter @nakama/automation build \
   && bun run --filter @nakama/telegram build \
   && bun run --filter @nakama/whatsapp build \
-  && bun run --filter @nakama/discord build
+  && bun run --filter @nakama/discord build \
+  && bun run --filter @nakama/slack build
 
 FROM scratch AS build-assets
 COPY --from=web-builder /app/apps/web/dist /app/apps/web/dist
@@ -25,6 +26,7 @@ COPY --from=web-builder /app/apps/platform/automation/dist /app/apps/platform/au
 COPY --from=web-builder /app/apps/platform/telegram/dist /app/apps/platform/telegram/dist
 COPY --from=web-builder /app/apps/platform/whatsapp/dist /app/apps/platform/whatsapp/dist
 COPY --from=web-builder /app/apps/platform/discord/dist /app/apps/platform/discord/dist
+COPY --from=web-builder /app/apps/platform/slack/dist /app/apps/platform/slack/dist
 
 FROM oven/bun:1.4-slim AS runtime-deps
 RUN mkdir -p /runtime-deps \
@@ -100,6 +102,7 @@ COPY --chown=1000:1000 --from=build-assets /app/apps/platform/automation/dist ap
 COPY --chown=1000:1000 --from=build-assets /app/apps/platform/telegram/dist apps/platform/telegram/dist
 COPY --chown=1000:1000 --from=build-assets /app/apps/platform/whatsapp/dist apps/platform/whatsapp/dist
 COPY --chown=1000:1000 --from=build-assets /app/apps/platform/discord/dist apps/platform/discord/dist
+COPY --chown=1000:1000 --from=build-assets /app/apps/platform/slack/dist apps/platform/slack/dist
 COPY --chown=1000:1000 --from=runtime-deps /runtime-deps/node_modules node_modules
 
 RUN test -f apps/server/src/services/javascript-tool-runner.js \

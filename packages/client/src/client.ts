@@ -184,6 +184,7 @@ import type {
   SkillFilesResponse,
   SkillProposalResponse,
   SkillResponse,
+  SlackSettingsResponse,
   SoulStackResponse,
   SoulStatusResponse,
   StartTelegramPairingRequest,
@@ -231,6 +232,7 @@ import type {
   UpdateProviderRequest,
   UpdateProviderResponse,
   UpdateSessionRequest,
+  UpdateSlackSettingsRequest,
   UpdateSoulFileRequest,
   UpdateTelegramSettingsRequest,
   UpdateThinkingRequest,
@@ -2148,6 +2150,36 @@ export class NakamaClient {
   ): Promise<DiscordSettingsResponse> {
     return this.request<DiscordSettingsResponse>(
       `/v1/settings/discord/handshake?profileId=${encodeURIComponent(profileId ?? "")}`,
+      {
+        method: "POST",
+      }
+    );
+  }
+
+  async getSlackSettings(profileId?: string): Promise<SlackSettingsResponse> {
+    return this.request<SlackSettingsResponse>(
+      `/v1/settings/slack?profileId=${encodeURIComponent(profileId ?? "")}`
+    );
+  }
+
+  async setSlackSettings(
+    request: UpdateSlackSettingsRequest,
+    profileId?: string
+  ): Promise<SlackSettingsResponse> {
+    return this.request<SlackSettingsResponse>(
+      `/v1/settings/slack?profileId=${encodeURIComponent(profileId ?? "")}`,
+      {
+        body: JSON.stringify(request),
+        method: "PUT",
+      }
+    );
+  }
+
+  async regenerateSlackHandshake(
+    profileId?: string
+  ): Promise<SlackSettingsResponse> {
+    return this.request<SlackSettingsResponse>(
+      `/v1/settings/slack/handshake?profileId=${encodeURIComponent(profileId ?? "")}`,
       {
         method: "POST",
       }

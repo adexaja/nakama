@@ -7,6 +7,7 @@ import type {
   UpdateDiscordSettingsRequest,
   UpdateEmailSettingsRequest,
   UpdateErrorTrackingSettingsRequest,
+  UpdateSlackSettingsRequest,
   UpdateTelegramSettingsRequest,
   UpdateThinkingRequest,
   UpdateWebSearchSettingsRequest,
@@ -248,6 +249,32 @@ export function useRegenerateDiscordHandshake() {
   const api = client.forOrg(activeOrg?.id ?? null);
   return useDiscordSettingsHooks().useSetQueryDataMutation(() =>
     api.regenerateDiscordHandshake(profileId)
+  );
+}
+
+function useSlackSettingsHooks() {
+  const profileId = useChannelProfileId();
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
+  return createSettingsHooks({
+    mutationFn: (request: UpdateSlackSettingsRequest) =>
+      api.setSlackSettings(request, profileId),
+    queryFn: () => api.getSlackSettings(profileId),
+    queryKey: [...queryKeys.slack.settings, activeOrg?.id, profileId],
+  });
+}
+export function useSlackSettings() {
+  return useSlackSettingsHooks().useSettings();
+}
+export function useSaveSlackSettings() {
+  return useSlackSettingsHooks().useSave();
+}
+export function useRegenerateSlackHandshake() {
+  const profileId = useChannelProfileId();
+  const { activeOrg } = useAuth();
+  const api = client.forOrg(activeOrg?.id ?? null);
+  return useSlackSettingsHooks().useSetQueryDataMutation(() =>
+    api.regenerateSlackHandshake(profileId)
   );
 }
 

@@ -100,7 +100,6 @@ test("revoke preserves HTTP 403 failures rather than allowing rotation to contin
 
 describe("artifact share controls with a stale share ID", () => {
   const unusedAuthAction = mock(async () => {});
-  const unusedLogin = mock(async () => ({ email: "", id: "" }));
   const auth: AuthContextValue = {
     activeOrg: {
       createdAt: "2026-09-06T00:00:00Z",
@@ -114,7 +113,7 @@ describe("artifact share controls with a stale share ID", () => {
     createOrg: unusedAuthAction,
     isAuthenticated: true,
     isLoading: false,
-    login: unusedLogin,
+    login: async () => ({ email: "admin@example.com", id: "admin" }),
     logout: unusedAuthAction,
     orgs: [],
     refreshSession: unusedAuthAction,

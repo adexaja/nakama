@@ -168,6 +168,7 @@ describe("WorkerManagerService", () => {
       expect(await readWorkerDesiredState()).toEqual({
         automation: true,
         discord: false,
+        slack: false,
         telegram: true,
         whatsapp: false,
       });
@@ -214,6 +215,7 @@ describe("WorkerManagerService", () => {
       expect(await readWorkerDesiredState()).toEqual({
         automation: true,
         discord: false,
+        slack: false,
         telegram: false,
         whatsapp: false,
       });
@@ -323,6 +325,7 @@ describe("WorkerManagerService", () => {
       expect(await readWorkerDesiredState()).toEqual({
         automation: true,
         discord: false,
+        slack: false,
         telegram: false,
         whatsapp: false,
       });

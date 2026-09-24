@@ -49,6 +49,8 @@
     "./discord-config": "./src/discord-config.ts",
     "./discord-attachment": "./src/discord-attachment.ts",
     "./discord-worker": "./src/discord-worker.ts",
+    "./slack-config": "./src/slack-config.ts",
+    "./slack-worker": "./src/slack-worker.ts",
     "./whatsapp-config": "./src/whatsapp-config.ts",
     "./whatsapp-phones": "./src/whatsapp-phones.ts",
     "./whatsapp-worker": "./src/whatsapp-worker.ts",

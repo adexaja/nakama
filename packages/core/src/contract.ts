@@ -87,6 +87,7 @@ export const AGENT_CHANNELS = [
   "telegram",
   "whatsapp",
   "discord",
+  "slack",
   "automation",
   "task",
   "subagent",
@@ -161,6 +162,15 @@ export interface TelegramWorkerStatus {
 }
 
 export interface DiscordWorkerStatus {
+  configured: boolean;
+  connected: boolean;
+  ok: boolean;
+  paired: boolean;
+  process?: WorkerProcessInfo;
+  running: boolean;
+}
+
+export interface SlackWorkerStatus {
   configured: boolean;
   connected: boolean;
   ok: boolean;
@@ -329,6 +339,7 @@ export interface SystemStatusResponse {
   llmUsage: LlmUsageStatus;
   mcp: McpStatus;
   server: HealthResponse;
+  slackWorker: SlackWorkerStatus;
   telegramWorker: TelegramWorkerStatus;
   whatsappWorker: WhatsAppWorkerStatus;
 }
@@ -1639,6 +1650,51 @@ export interface UpdateDiscordSettingsRequest {
   allowedUserIds?: string;
   botToken?: string;
   profileId?: string;
+}
+
+export interface SlackSettingsResponse {
+  allowedUserIds: string[];
+  allowWorkspace: boolean;
+  appTokenMasked: string | null;
+  botTokenMasked: string | null;
+  configured: boolean;
+  handshakeCode: string | null;
+  pairedUserIds: string[];
+  profileId: string;
+}
+
+/**
+ * Splits typed or pasted Slack member IDs (commas, spaces or new lines) into
+ * valid IDs and the pieces that are not IDs. Shared by the dashboard input
+ * and the server so both accept exactly the same values.
+ */
+export function parseSlackMemberIdInput(raw: string): {
+  ids: string[];
+  invalid: string[];
+} {
+  const ids = new Set<string>();
+  const invalid: string[] = [];
+
+  for (const part of raw.split(/[\s,]+/)) {
+    const id = part.trim().toUpperCase();
+    if (!id) {
+      continue;
+    }
+    if (/^[UW][A-Z0-9]{6,}$/.test(id)) {
+      ids.add(id);
+    } else {
+      invalid.push(part.trim());
+    }
+  }
+
+  return { ids: [...ids], invalid };
+}
+
+export interface UpdateSlackSettingsRequest {
+  allowedUserIds?: string;
+  allowWorkspace?: boolean;
+  appToken?: string;
+  botToken?: string;
 }
 
 export interface ComposioSettingsResponse {
