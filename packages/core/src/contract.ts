@@ -5,6 +5,7 @@ import type {
   PluginActionEffect,
   PluginManifest,
 } from "./plugins";
+import type { SkillScriptIssue } from "./skills/script-tools";
 
 export type AutomationTrigger =
   | { type: "manual" }
@@ -2063,6 +2064,7 @@ export interface SkillSummary {
 
 export interface SkillDetail extends SkillSummary {
   body: string;
+  scriptIssues: SkillScriptIssue[];
 }
 
 export interface ListSkillsResponse {

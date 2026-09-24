@@ -48,6 +48,25 @@ describe("SkillsService", () => {
     expect(weather?.hasTool).toBe(true);
   });
 
+  test("includes script issues in skill details", async () => {
+    const weatherDir = join(configDir, "agent", "skills", "weather");
+    await writeFile(
+      join(weatherDir, "SKILL.md"),
+      weatherSkillMarkdown.replace(
+        "---\n\nCall",
+        "scripts: scripts/missing.py\n---\n\nCall"
+      )
+    );
+    const service = new SkillsService(createInMemoryDatabaseAdapter());
+    const weather = (await service.listSkills()).skills.find(
+      (skill) => skill.name === "weather"
+    )!;
+
+    expect((await service.getSkill(weather.id)).skill.scriptIssues).toEqual([
+      { path: "scripts/missing.py", reason: "declared but not in the skill" },
+    ]);
+  });
+
   test.each([
     [
       "icon.png",

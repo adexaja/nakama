@@ -837,6 +837,7 @@ export class SkillsService {
       skill: {
         ...toSkillSummary(record),
         body,
+        scriptIssues: discovered?.scriptIssues ?? [],
       },
     };
   }
