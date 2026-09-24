@@ -13,6 +13,7 @@ import type {
   SendMessageResponse,
   SessionMessagesResponse,
   SessionStatusResponse,
+  SessionSummary,
   UpdateSessionRequest,
 } from "@nakama/core";
 import {
@@ -40,6 +41,8 @@ import {
   streamTurnSubscribe,
 } from "../shared";
 import type { HonoApp } from "../types";
+
+const MAX_SESSION_PAGE_SIZE = 100;
 
 export function registerSessionRoutes(
   app: HonoApp,
@@ -104,7 +107,9 @@ export function registerSessionRoutes(
     .openapi("SessionSummary");
   const listSessionsResponseSchema = z
     .object({
+      nextCursor: z.string().nullable().optional(),
       sessions: z.array(sessionSummarySchema),
+      stale: z.boolean().optional(),
     })
     .openapi("ListSessionsResponse");
   const compactSessionRequestSchema = z
@@ -274,6 +279,18 @@ export function registerSessionRoutes(
   });
   const sessionListQuerySchema = z.object({
     channel: agentChannelSchema.optional(),
+    channels: z.string().optional().openapi({
+      description: "Comma-separated channels, listed as one merged list.",
+    }),
+    cursor: z.string().optional().openapi({
+      description: "`nextCursor` from the previous page.",
+    }),
+    limit: z
+      .string()
+      .optional()
+      .openapi({
+        description: `Page size, 1 to ${MAX_SESSION_PAGE_SIZE}. Without it every session is returned.`,
+      }),
     profileId: z.string().optional(),
   });
   const streamQuerySchema = z.object({
@@ -369,6 +386,26 @@ export function registerSessionRoutes(
         },
       },
       summary: "List chat sessions",
+      tags: ["Chat"],
+    })
+  );
+  app.openAPIRegistry.registerPath(
+    createRoute({
+      method: "get",
+      operationId: "getSession",
+      path: "/v1/sessions/{sessionId}",
+      request: { params: sessionIdParamSchema },
+      responses: {
+        200: {
+          content: { "application/json": { schema: sessionSummarySchema } },
+          description: "Session",
+        },
+        404: {
+          content: { "application/json": { schema: errorSchema } },
+          description: "Error",
+        },
+      },
+      summary: "Get one chat session",
       tags: ["Chat"],
     })
   );
@@ -637,15 +674,50 @@ export function registerSessionRoutes(
       );
     }
     const profileId = c.req.query("profileId")?.trim();
-    const channel = parseChannel(c.req.query("channel"));
+    const channelsParam = c.req.query("channels");
+    const channels =
+      channelsParam === undefined
+        ? parseChannel(c.req.query("channel"))
+        : channelsParam.split(",").map((channel) => parseChannel(channel));
+    const limitParam = c.req.query("limit");
+    const limit = limitParam === undefined ? undefined : Number(limitParam);
 
     if (!profileId) {
       return errorResponse("profileId is required.", 400);
     }
+    if (
+      limit !== undefined &&
+      !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_SESSION_PAGE_SIZE)
+    ) {
+      return errorResponse(
+        `limit must be an integer from 1 to ${MAX_SESSION_PAGE_SIZE}.`,
+        400
+      );
+    }
 
     return json<ListSessionsResponse>(
-      await agent.listSessions(orgId, profileId, channel, auth, appUserId)
+      await agent.listSessions(
+        orgId,
+        profileId,
+        channels,
+        auth,
+        appUserId,
+        limit === undefined
+          ? undefined
+          : { cursor: c.req.query("cursor"), limit }
+      )
     );
+  });
+
+  app.get("/v1/sessions/:sessionId", async (c) => {
+    const { orgId, sessionId } = await requireSessionAccess(c);
+    const session = await agent.getSessionSummary(sessionId, orgId);
+
+    if (!session) {
+      return errorResponse("Session not found", 404);
+    }
+
+    return json<SessionSummary>(session);
   });
 
   app.delete("/v1/sessions/:sessionId", async (c) => {

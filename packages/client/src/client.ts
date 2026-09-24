@@ -171,6 +171,7 @@ import type {
   SendMessageResponse,
   SessionMessagesResponse,
   SessionStatusResponse,
+  SessionSummary,
   SetActiveOrgRequest,
   SetFilePinnedRequest,
   SetupAuthRequest,
@@ -762,6 +763,12 @@ export class NakamaClient {
     );
   }
 
+  async getSession(sessionId: string): Promise<SessionSummary> {
+    return this.request<SessionSummary>(
+      `/v1/sessions/${encodeURIComponent(sessionId)}`
+    );
+  }
+
   async getSessionStatus(sessionId: string): Promise<SessionStatusResponse> {
     return this.request<SessionStatusResponse>(
       `/v1/sessions/${encodeURIComponent(sessionId)}/status`
@@ -838,11 +845,23 @@ export class NakamaClient {
     );
   }
 
+  /** Several channels come back as one list, newest first. */
   async listSessions(
     profileId: string,
-    channel: AgentChannel = "web"
+    channel: AgentChannel | readonly AgentChannel[] = "web",
+    page?: { cursor?: string | null; limit: number }
   ): Promise<ListSessionsResponse> {
-    const query = new URLSearchParams({ channel, profileId });
+    const query = new URLSearchParams(
+      typeof channel === "string"
+        ? { channel, profileId }
+        : { channels: channel.join(","), profileId }
+    );
+    if (page) {
+      query.set("limit", String(page.limit));
+      if (page.cursor) {
+        query.set("cursor", page.cursor);
+      }
+    }
     return this.request<ListSessionsResponse>(
       `/v1/sessions?${query.toString()}`
     );

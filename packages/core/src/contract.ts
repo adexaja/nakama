@@ -1146,7 +1146,15 @@ export interface SessionSummary {
 }
 
 export interface ListSessionsResponse {
+  /** Set only when a `limit` was asked for; `null` on the last page. */
+  nextCursor?: string | null;
   sessions: SessionSummary[];
+  /**
+   * Set only when a `limit` was asked for. `true` when chats moved across
+   * `cursor` since it was issued, so the pages loaded before no longer join
+   * this one and paging has to start again from the first page.
+   */
+  stale?: boolean;
 }
 
 export interface CompactSessionRequest {

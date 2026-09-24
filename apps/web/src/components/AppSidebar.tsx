@@ -1,4 +1,3 @@
-import type { AgentChannel } from "@nakama/core/contract";
 import { Button } from "@nakama/ui/button";
 import {
   ConfirmDialog,
@@ -22,7 +21,7 @@ import {
   PinOffIcon,
 } from "hugeicons-react";
 import type { ElementType } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { useActiveChatProfile } from "@/context/use-active-chat-profile";
@@ -124,6 +123,21 @@ export function AppSidebar({
   );
 }
 
+const SKELETON_ROW_WIDTHS = ["w-3/4", "w-1/2", "w-2/3"] as const;
+
+function SessionRowSkeletons() {
+  return (
+    <div role="status">
+      <span className="sr-only">Loading chats…</span>
+      {SKELETON_ROW_WIDTHS.map((width) => (
+        <div aria-hidden="true" className="px-2 py-2" key={width}>
+          <div className={cn("skeleton-shimmer h-4 rounded", width)} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function RecentChats() {
   const location = useLocation();
   const { activeOrg } = useAuth();
@@ -142,7 +156,30 @@ function RecentChats() {
     data: sessions,
     isLoading,
     error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
   } = useHistorySessionsQuery(profileId);
+  const [pageEnd, setPageEnd] = useState<HTMLDivElement | null>(null);
+  // Rebuilt after each page, because an observer reports only changes: a page
+  // too short to push the sentinel out of view would otherwise be the last.
+  useEffect(() => {
+    if (!(pageEnd && hasNextPage) || isFetchingNextPage) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          void fetchNextPage();
+        }
+      },
+      // The list scrolls inside its own box, so that box is the root, and the
+      // margin starts the next page a little before the end comes into view.
+      { root: pageEnd.parentElement, rootMargin: "0px 0px 200px 0px" }
+    );
+    observer.observe(pageEnd);
+    return () => observer.disconnect();
+  }, [pageEnd, hasNextPage, isFetchingNextPage, fetchNextPage]);
   const updateSession = useUpdateSessionMutation();
   const deleteSession = useDeleteSessionMutation();
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -150,7 +187,6 @@ function RecentChats() {
     title: string;
   } | null>(null);
   const [renameTarget, setRenameTarget] = useState<{
-    channel: AgentChannel;
     id: string;
     title: string;
   } | null>(null);
@@ -185,7 +221,6 @@ function RecentChats() {
             className="size-7 text-muted-foreground"
             onClick={() =>
               setRenameTarget({
-                channel: session.channel,
                 id: session.id,
                 title,
               })
@@ -201,7 +236,6 @@ function RecentChats() {
             className="size-7 text-muted-foreground"
             onClick={() =>
               void updateSession.mutateAsync({
-                channel: session.channel,
                 input: { pinned: !session.pinned },
                 profileId,
                 sessionId: session.id,
@@ -282,11 +316,7 @@ function RecentChats() {
       </div>
       {!collapsed && (
         <div className="no-scrollbar min-h-0 overflow-y-auto">
-          {isLoading && (
-            <p className="px-3 py-2 text-muted-foreground text-xs">
-              Loading chats…
-            </p>
-          )}
+          {isLoading && <SessionRowSkeletons />}
           {error && (
             <p
               className="px-3 py-2 text-muted-foreground text-xs"
@@ -301,6 +331,8 @@ function RecentChats() {
             </p>
           )}
           {recentSessions.map(renderSession)}
+          {isFetchingNextPage && <SessionRowSkeletons />}
+          {hasNextPage && <div aria-hidden="true" ref={setPageEnd} />}
         </div>
       )}
       {renameTarget ? (
@@ -330,7 +362,6 @@ function RecentChats() {
                   return;
                 }
                 await updateSession.mutateAsync({
-                  channel: renameTarget.channel,
                   input: { title },
                   profileId,
                   sessionId: renameTarget.id,
