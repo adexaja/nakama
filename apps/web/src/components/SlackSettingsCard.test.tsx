@@ -131,3 +131,17 @@ test("a paired member removed from the form stays removed when the card refreshe
   });
   expect(badges()).toEqual(["U0MANUAL1", "U0NEWMEM1"]);
 });
+
+test("a running worker whose Slack socket is down is not shown as connected", async () => {
+  const { container } = await renderCard({
+    configured: true,
+    connected: false,
+    ok: true,
+    paired: true,
+    running: true,
+  });
+  const text = container.textContent ?? "";
+
+  expect(text).toContain("Disconnected");
+  expect(text).not.toMatch(/\bConnected\b/);
+});

@@ -315,14 +315,23 @@ function UsageGuide() {
   );
 }
 
-function statusBadge(configured: boolean, linked: boolean, running: boolean) {
-  if (!configured) {
+function statusBadge(state: {
+  configured: boolean;
+  connected: boolean;
+  linked: boolean;
+  running: boolean;
+}) {
+  if (!state.configured) {
     return "Not set up";
   }
-  if (linked && running) {
+  // A running worker can still have lost its Slack socket.
+  if (state.running && !state.connected) {
+    return "Disconnected";
+  }
+  if (state.linked && state.running) {
     return "Connected";
   }
-  return linked ? "Paired" : "Awaiting link";
+  return state.linked ? "Paired" : "Awaiting link";
 }
 
 export function SlackSettingsCard({
@@ -414,6 +423,7 @@ export function SlackSettingsCard({
     (settings?.allowedUserIds.length ?? 0) > 0;
   const worker = status?.slackWorker;
   const running = worker?.running === true;
+  const connected = worker?.connected === true;
   const pairingCode = settings?.handshakeCode ?? null;
   const pending = saveMutation.isPending || regenerateMutation.isPending;
 
@@ -479,8 +489,8 @@ export function SlackSettingsCard({
       {embedded ? null : (
         <IntegrationStatusHeader
           configured={configured}
-          connected={linked && running}
-          statusBadge={statusBadge(configured, linked, running)}
+          connected={linked && running && connected}
+          statusBadge={statusBadge({ configured, connected, linked, running })}
           title="Slack"
         />
       )}
@@ -644,7 +654,13 @@ export function SlackSettingsCard({
           </SettingsRow>
 
           <SettingsRow
-            description={running ? "Running" : "Stopped"}
+            description={
+              running
+                ? connected
+                  ? "Running"
+                  : "Running, not connected to Slack"
+                : "Stopped"
+            }
             label="Bridge worker"
           >
             <WorkerActionBar
