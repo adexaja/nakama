@@ -255,7 +255,7 @@ async function consumeSseEvents<TEvent extends { type: string }, TResult>(
       }
 
       const readResult = await new Promise<
-        ReadableStreamReadResult<Uint8Array>
+        Awaited<ReturnType<typeof reader.read>>
       >((resolve, reject) => {
         const remainingIdleMs = Math.max(0, idleMs - (Date.now() - lastDataAt));
         const idleTimeout = setTimeout(() => {
